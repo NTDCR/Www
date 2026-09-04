@@ -15,6 +15,7 @@ export interface VaultAssessmentNotes {
   q5_comprehensiveDetails: string;
   q6_precautionsAndSafety: string;
   createdAt?: string;
+  _p?: string;
 }
 
 export function createEmptyAssessmentNotes(): VaultAssessmentNotes {

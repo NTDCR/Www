@@ -6,7 +6,7 @@
 import { StatisticalMetrics } from '../types';
 import { generateSecureRandomBytes } from './safeRandom';
 import { yieldToMainThread } from '../utils/asyncUtils';
-import { constantTimeCompare } from './cascadeEngine';
+import { constantTimeCompare, NEUTRAL_AUTH_FAILURE } from './cascadeEngine';
 
 /**
  * Calculates exact Shannon Entropy in bits per byte [0.0 - 8.0]
@@ -245,7 +245,7 @@ export async function normalizeEntropyToTarget(
 export async function denormalizeEntropy(normalizedData: Uint8Array): Promise<Uint8Array> {
   if (normalizedData.length === 0) return new Uint8Array(0);
   if (normalizedData.length < 24) {
-    throw new Error('Invalid protected payload length');
+    throw new Error(NEUTRAL_AUTH_FAILURE);
   }
 
   const streamSalt = normalizedData.subarray(0, 16);
@@ -274,12 +274,12 @@ export async function denormalizeEntropy(normalizedData: Uint8Array): Promise<Ui
   expectedChecksumBytes[2] = (expectedChecksum >>> 16) & 0xff;
   expectedChecksumBytes[3] = (expectedChecksum >>> 24) & 0xff;
   if (!constantTimeCompare(storedChecksumBytes, expectedChecksumBytes)) {
-    throw new Error('Entropy stream header or salt integrity corrupt');
+    throw new Error(NEUTRAL_AUTH_FAILURE);
   }
 
   const maxPossibleLen = Math.floor((normalizedData.length - 24) / 2);
   if (originalLen <= 0 || originalLen > maxPossibleLen) {
-    throw new Error('Payload integrity corrupt or wrong key cascade');
+    throw new Error(NEUTRAL_AUTH_FAILURE);
   }
 
   const out = new Uint8Array(originalLen);
@@ -315,7 +315,7 @@ export async function denormalizeEntropy(normalizedData: Uint8Array): Promise<Ui
   }
 
   if (outIdx !== originalLen) {
-    throw new Error('Unshaping length mismatch');
+    throw new Error(NEUTRAL_AUTH_FAILURE);
   }
 
   return out;

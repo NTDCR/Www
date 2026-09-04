@@ -29,6 +29,83 @@ import { xchacha20Poly1305Encrypt, xchacha20Poly1305Decrypt } from './xchacha20p
 import { encodeRSStream, decodeRSStream } from './reedSolomon';
 import { CascadePasswords, VaultAssessmentNotes, createEmptyAssessmentNotes, isAssessmentNotesComplete } from '../types';
 
+/** Maximum plaintext JSON size for assessment notes (DoS bound). */
+const NOTES_JSON_MAX_BYTES = 256 * 1024;
+
+const NOTES_SCHEMA_KEYS = [
+  'q1_relatedEntities',
+  'q2_dataContents',
+  'q3_obtainedMethod',
+  'q4_disclosureAction',
+  'q5_comprehensiveDetails',
+  'q6_precautionsAndSafety',
+  'createdAt',
+  '_p'
+] as const;
+
+const NOTES_REQUIRED_KEYS = [
+  'q1_relatedEntities',
+  'q2_dataContents',
+  'q3_obtainedMethod',
+  'q4_disclosureAction',
+  'q5_comprehensiveDetails',
+  'q6_precautionsAndSafety'
+] as const;
+
+/**
+ * Safely parse assessment-notes JSON: size cap, prototype-pollution reject, schema allowlist.
+ * Returns null on any validation failure (caller maps to neutral invalid result).
+ */
+export function parseAssessmentNotesJson(jsonStr: string): VaultAssessmentNotes | null {
+  if (typeof jsonStr !== 'string' || jsonStr.length > NOTES_JSON_MAX_BYTES) {
+    return null;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(jsonStr, (key, value) => {
+      if (key === '__proto__' || key === 'constructor' || key === 'prototype') {
+        throw new Error('forbidden');
+      }
+      return value;
+    });
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return null;
+  }
+  const obj = parsed as Record<string, unknown>;
+  const keys = Object.keys(obj);
+  for (const k of keys) {
+    if (!(NOTES_SCHEMA_KEYS as readonly string[]).includes(k)) {
+      return null;
+    }
+    if (typeof obj[k] !== 'string') {
+      return null;
+    }
+  }
+  for (const req of NOTES_REQUIRED_KEYS) {
+    if (typeof obj[req] !== 'string') {
+      return null;
+    }
+  }
+  const notes: VaultAssessmentNotes = {
+    q1_relatedEntities: obj.q1_relatedEntities as string,
+    q2_dataContents: obj.q2_dataContents as string,
+    q3_obtainedMethod: obj.q3_obtainedMethod as string,
+    q4_disclosureAction: obj.q4_disclosureAction as string,
+    q5_comprehensiveDetails: obj.q5_comprehensiveDetails as string,
+    q6_precautionsAndSafety: obj.q6_precautionsAndSafety as string
+  };
+  if (typeof obj.createdAt === 'string') {
+    notes.createdAt = obj.createdAt;
+  }
+  if (typeof obj._p === 'string') {
+    notes._p = obj._p;
+  }
+  return notes;
+}
+
 export interface NotesDecryptionResult {
   valid: boolean;
   notes: VaultAssessmentNotes | null;
@@ -299,10 +376,15 @@ export async function decryptAssessmentNotesBlock(
       try {
         const aesGcmCipher = gcm(keyAes, nonceAes);
         plaintext = aesGcmCipher.decrypt(l1Ciphertext);
-        const dec = new TextDecoder('utf-8');
-        const jsonStr = dec.decode(plaintext);
-        parsedNotes = JSON.parse(jsonStr);
-        aesOk = true;
+        if (plaintext.length > NOTES_JSON_MAX_BYTES) {
+          aesOk = false;
+          parsedNotes = null;
+        } else {
+          const dec = new TextDecoder('utf-8');
+          const jsonStr = dec.decode(plaintext);
+          parsedNotes = parseAssessmentNotesJson(jsonStr);
+          aesOk = parsedNotes !== null;
+        }
       } catch {
         aesOk = false;
         parsedNotes = null;

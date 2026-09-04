@@ -338,14 +338,22 @@ export async function encryptChunk5Layers(
 
   // --- LAYER 5: In-Place High-Speed ChaCha20 Stream Keystream Masking Layer with Monotonic Block Offset ---
   const key32 = new Uint8Array(32);
-  for (let i = 0; i < 32; i++) {
-    key32[i] = (keys.key5[i % keys.key5.length] || 0) ^ (keys.saltL5[i % keys.saltL5.length] || 0) ^ 0x5a;
-  }
   const nonce12 = new Uint8Array(12);
-  for (let i = 0; i < 12; i++) {
-    nonce12[i] = (keys.saltL5[(i + 32) % keys.saltL5.length] || 0) ^ (i * 17);
+  try {
+    for (let i = 0; i < 32; i++) {
+      const kByte = keys.key5 && keys.key5.length > 0 ? keys.key5[i % keys.key5.length] : 0;
+      const sByte = keys.saltL5 && keys.saltL5.length > 0 ? keys.saltL5[i % keys.saltL5.length] : 0;
+      key32[i] = kByte ^ sByte ^ 0x5a;
+    }
+    for (let i = 0; i < 12; i++) {
+      const sByte = keys.saltL5 && keys.saltL5.length > 0 ? keys.saltL5[(i + 32) % keys.saltL5.length] : 0;
+      nonce12[i] = sByte ^ (i * 17);
+    }
+    current = chacha20Process(key32, nonce12, blockOffset64, current);
+  } finally {
+    key32.fill(0);
+    nonce12.fill(0);
   }
-  current = chacha20Process(key32, nonce12, blockOffset64, current);
   await yieldToMainThread();
 
   // --- LAYER 4: Audited AES-256-CTR with Monotonic Big-Endian 128-bit Counter Block ---
@@ -363,8 +371,12 @@ export async function encryptChunk5Layers(
       view.setBigUint64(0, (high + carry) & 0xffffffffffffffffn, false);
     }
   }
-  const aesCipher = ctr(keys.key4, chunkIv4);
-  current = aesCipher.encrypt(current) as Uint8Array;
+  try {
+    const aesCipher = ctr(keys.key4, chunkIv4);
+    current = aesCipher.encrypt(current) as Uint8Array;
+  } finally {
+    chunkIv4.fill(0);
+  }
   await yieldToMainThread();
 
   // --- LAYER 3: Audited XChaCha20 Stream with Monotonic Block Offset ---
@@ -479,20 +491,32 @@ export async function decryptChunk5Layers(
       view.setBigUint64(0, (high + carry) & 0xffffffffffffffffn, false);
     }
   }
-  const aesCipher = ctr(keys.key4, chunkIv4);
-  current = aesCipher.decrypt(current) as Uint8Array;
+  try {
+    const aesCipher = ctr(keys.key4, chunkIv4);
+    current = aesCipher.decrypt(current) as Uint8Array;
+  } finally {
+    chunkIv4.fill(0);
+  }
   await yieldToMainThread();
 
   // --- UNPACK LAYER 5: In-Place High-Speed ChaCha20 OTP Stream with Monotonic Block Offset ---
   const key32 = new Uint8Array(32);
-  for (let i = 0; i < 32; i++) {
-    key32[i] = (keys.key5[i % keys.key5.length] || 0) ^ (keys.saltL5[i % keys.saltL5.length] || 0) ^ 0x5a;
-  }
   const nonce12 = new Uint8Array(12);
-  for (let i = 0; i < 12; i++) {
-    nonce12[i] = (keys.saltL5[(i + 32) % keys.saltL5.length] || 0) ^ (i * 17);
+  try {
+    for (let i = 0; i < 32; i++) {
+      const kByte = keys.key5 && keys.key5.length > 0 ? keys.key5[i % keys.key5.length] : 0;
+      const sByte = keys.saltL5 && keys.saltL5.length > 0 ? keys.saltL5[i % keys.saltL5.length] : 0;
+      key32[i] = kByte ^ sByte ^ 0x5a;
+    }
+    for (let i = 0; i < 12; i++) {
+      const sByte = keys.saltL5 && keys.saltL5.length > 0 ? keys.saltL5[(i + 32) % keys.saltL5.length] : 0;
+      nonce12[i] = sByte ^ (i * 17);
+    }
+    current = chacha20Process(key32, nonce12, blockOffset64, current);
+  } finally {
+    key32.fill(0);
+    nonce12.fill(0);
   }
-  current = chacha20Process(key32, nonce12, blockOffset64, current);
 
   return current;
 }
@@ -695,7 +719,7 @@ export async function encryptCascade5Layers(
   }
 
   if (!kyberCt) {
-    throw new Error('Cascade encryption aborted: Kyber ciphertext unavailable.');
+    throw new Error(NEUTRAL_AUTH_FAILURE);
   }
 
   // 6. Optional Key 6 Generation (Independent RS-protected XOR Garbage Block)

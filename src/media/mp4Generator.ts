@@ -13,10 +13,11 @@ import { buildBox } from './isobmff';
  */
 export function generatePlayableH264Mp4(durationSeconds: number = 5): Uint8Array {
   const fps = 30;
-  const totalFrames = durationSeconds * fps;
+  const dur = Math.min(Math.max(Number(durationSeconds) || 5, 0.1), 60);
+  const totalFrames = Math.floor(dur * fps);
   const timescale = 1000;
   const frameDuration = Math.floor(timescale / fps); // ~33ms per frame
-  const totalDurationMs = durationSeconds * timescale;
+  const totalDurationMs = dur * timescale;
   const width = 640;
   const height = 360;
 
@@ -133,10 +134,12 @@ export function generatePlayableH264Mp4(durationSeconds: number = 5): Uint8Array
   mvhdView.setUint32(96, 2); // next_track_ID = 2
   const mvhdBox = buildBox('mvhd', mvhd);
 
-  // tkhd: Track Header
+  // tkhd: Track Header — creation/modification fixed to Epoch 1904 (0)
   const tkhd = new Uint8Array(84);
   const tkhdView = new DataView(tkhd.buffer);
   tkhdView.setUint32(0, 0x00000007); // flags: Track_enabled | Track_in_movie | Track_in_preview
+  tkhdView.setUint32(4, 0); // creation_time = 0 (1904 epoch)
+  tkhdView.setUint32(8, 0); // modification_time = 0 (1904 epoch)
   tkhdView.setUint32(12, 1); // track_ID = 1
   tkhdView.setUint32(20, totalDurationMs); // track duration
   // Identity matrix (36 bytes at offset 40)
@@ -147,9 +150,11 @@ export function generatePlayableH264Mp4(durationSeconds: number = 5): Uint8Array
   tkhdView.setUint32(80, height << 16); // height (360 in 16.16 at offset 80)
   const tkhdBox = buildBox('tkhd', tkhd);
 
-  // mdhd: Media Header
+  // mdhd: Media Header — creation/modification fixed to Epoch 1904 (0)
   const mdhd = new Uint8Array(24);
   const mdhdView = new DataView(mdhd.buffer);
+  mdhdView.setUint32(4, 0); // creation_time = 0
+  mdhdView.setUint32(8, 0); // modification_time = 0
   mdhdView.setUint32(12, timescale); // timescale
   mdhdView.setUint32(16, totalDurationMs); // duration
   mdhdView.setUint16(20, 0x55c4); // language 'und'
@@ -245,10 +250,11 @@ export function generatePlayableH264Mp4(durationSeconds: number = 5): Uint8Array
   }
   const stszBox = buildBox('stsz', stszPayload);
 
-  // Calculate absolute file offset of mdat start
+  // Calculate absolute file offset of mdat payload (8- or 16-byte header)
   // File layout: ftypBox -> mdatBox -> moovBox
   const mdatHeaderOffset = ftypBox.length;
-  const mdatDataStart = mdatHeaderOffset + 8; // 8 bytes mdat header
+  const mdatHeaderSize = mdatBox.length - mdatPayload.length;
+  const mdatDataStart = mdatHeaderOffset + mdatHeaderSize;
 
   // stco: Chunk Offset Box
   const stcoPayload = new Uint8Array(8 + totalFrames * 4);

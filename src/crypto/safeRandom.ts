@@ -40,6 +40,9 @@ export function generateSecureRandomBytes(byteLength: number): Uint8Array {
  * (Eliminates modulo bias completely)
  */
 export function secureRandomInt(min: number, max: number): number {
+  if (!Number.isFinite(min) || !Number.isFinite(max)) return 0;
+  min = Math.floor(min);
+  max = Math.floor(max);
   if (min > max) {
     const temp = min;
     min = max;
@@ -118,11 +121,14 @@ export async function generateCSPRNGKeystream(
   const nonce12 = new Uint8Array(12);
   try {
     for (let i = 0; i < 32; i++) {
-      key32[i] = (key[i % key.length] || 0) ^ (saltOrNonce[i % saltOrNonce.length] || 0) ^ 0x5a;
+      const kByte = key && key.length > 0 ? key[i % key.length] : 0;
+      const sByte = saltOrNonce && saltOrNonce.length > 0 ? saltOrNonce[i % saltOrNonce.length] : 0;
+      key32[i] = kByte ^ sByte ^ 0x5a;
     }
 
     for (let i = 0; i < 12; i++) {
-      nonce12[i] = (saltOrNonce[(i + 32) % saltOrNonce.length] || 0) ^ (i * 17);
+      const sByte = saltOrNonce && saltOrNonce.length > 0 ? saltOrNonce[(i + 32) % saltOrNonce.length] : 0;
+      nonce12[i] = sByte ^ (i * 17);
     }
 
     const empty = new Uint8Array(targetByteLength);

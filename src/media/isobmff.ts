@@ -133,14 +133,27 @@ export function adjustMoovChunkOffsets(moovPayload: Uint8Array, delta: number): 
   const modified = new Uint8Array(moovPayload.length);
   modified.set(moovPayload);
   const view = new DataView(modified.buffer, modified.byteOffset, modified.byteLength);
+  const maxDepth = 16;
 
-  function scanBoxes(offset: number, length: number) {
+  function scanBoxes(offset: number, length: number, depth: number) {
+    if (depth > maxDepth) return;
     let curr = offset;
     const end = offset + length;
     while (curr + 8 <= end) {
       let boxSize = view.getUint32(curr);
-      if (boxSize === 0) boxSize = end - curr;
-      if (boxSize < 8 || curr + boxSize > end) break;
+      let headerSize = 8;
+
+      if (boxSize === 1) {
+        if (curr + 16 > end) break;
+        const raw64 = view.getBigUint64(curr + 8);
+        if (raw64 > BigInt(end - curr)) break;
+        boxSize = Number(raw64);
+        headerSize = 16;
+      } else if (boxSize === 0) {
+        boxSize = end - curr;
+      }
+
+      if (boxSize < headerSize || curr + boxSize > end) break;
 
       const type = String.fromCharCode(
         modified[curr + 4],
@@ -150,38 +163,37 @@ export function adjustMoovChunkOffsets(moovPayload: Uint8Array, delta: number): 
       );
 
       if (type === 'stco') {
-        // stco: 4b size, 4b 'stco', 4b version/flags, 4b entry_count, then 4b offsets
-        if (curr + 16 <= end) {
-          const entryCount = view.getUint32(curr + 12);
-          for (let i = 0; i < entryCount; i++) {
-            const entryPos = curr + 16 + i * 4;
-            if (entryPos + 4 <= end) {
-              const oldOffset = view.getUint32(entryPos);
-              view.setUint32(entryPos, (oldOffset + delta) >>> 0);
-            }
+        // stco: header, 4b version/flags, 4b entry_count, then 4b offsets
+        if (curr + headerSize + 8 <= end) {
+          const entryCount = view.getUint32(curr + headerSize + 4);
+          const maxEntries = Math.floor((end - (curr + headerSize + 8)) / 4);
+          const n = Math.min(entryCount, Math.max(0, maxEntries));
+          for (let i = 0; i < n; i++) {
+            const entryPos = curr + headerSize + 8 + i * 4;
+            const oldOffset = view.getUint32(entryPos);
+            view.setUint32(entryPos, (oldOffset + delta) >>> 0);
           }
         }
       } else if (type === 'co64') {
-        // co64: 4b size, 4b 'co64', 4b version/flags, 4b entry_count, then 8b offsets
-        if (curr + 16 <= end) {
-          const entryCount = view.getUint32(curr + 12);
-          for (let i = 0; i < entryCount; i++) {
-            const entryPos = curr + 16 + i * 8;
-            if (entryPos + 8 <= end) {
-              const oldOffset = view.getBigUint64(entryPos);
-              view.setBigUint64(entryPos, oldOffset + BigInt(delta));
-            }
+        if (curr + headerSize + 8 <= end) {
+          const entryCount = view.getUint32(curr + headerSize + 4);
+          const maxEntries = Math.floor((end - (curr + headerSize + 8)) / 8);
+          const n = Math.min(entryCount, Math.max(0, maxEntries));
+          for (let i = 0; i < n; i++) {
+            const entryPos = curr + headerSize + 8 + i * 8;
+            const oldOffset = view.getBigUint64(entryPos);
+            view.setBigUint64(entryPos, oldOffset + BigInt(delta));
           }
         }
       } else if (['trak', 'mdia', 'minf', 'stbl', 'edts', 'mvex', 'udta'].includes(type)) {
-        scanBoxes(curr + 8, boxSize - 8);
+        scanBoxes(curr + headerSize, boxSize - headerSize, depth + 1);
       }
 
       curr += boxSize;
     }
   }
 
-  scanBoxes(0, modified.length);
+  scanBoxes(0, modified.length, 0);
   return modified;
 }
 

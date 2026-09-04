@@ -56,50 +56,56 @@ export function serpentKeySchedule(key256: Uint8Array): Uint32Array[] {
     throw new Error('Serpent-256 requires a 32-byte key');
   }
   const w = new Uint32Array(132);
-  const kView = new DataView(key256.buffer, key256.byteOffset, key256.byteLength);
-
-  // Load 8 32-bit words (256 bits)
-  for (let i = 0; i < 8; i++) {
-    w[i] = kView.getUint32(i * 4, true);
-  }
-
-  // Prekey expansion (Official NIST AES Finalist Serpent specification: w[i-8] ^ w[i-5] ^ w[i-3] ^ w[i-1] ^ PHI ^ i)
-  const PHI = 0x9e3779b9; // Fractional part of Golden Ratio
-  for (let i = 8; i < 132; i++) {
-    const tmp = w[i - 8] ^ w[i - 5] ^ w[i - 3] ^ w[i - 1] ^ PHI ^ i;
-    w[i] = rotl32(tmp, 11);
-  }
-
-  // Apply S-boxes to produce 33 round keys
   const roundKeys: Uint32Array[] = [];
-  for (let r = 0; r < 33; r++) {
-    const sboxIdx = (3 + 32 - r) % 8;
-    const lut = LUT[sboxIdx];
-    const w0 = w[4 * r + 0], w1 = w[4 * r + 1], w2 = w[4 * r + 2], w3 = w[4 * r + 3];
+  try {
+    const kView = new DataView(key256.buffer, key256.byteOffset, key256.byteLength);
 
-    const out0 = lut[(w0 & 0xf) | ((w1 & 0xf) << 4) | ((w2 & 0xf) << 8) | ((w3 & 0xf) << 12)];
-    const out1 = lut[((w0 >>> 4) & 0xf) | (((w1 >>> 4) & 0xf) << 4) | (((w2 >>> 4) & 0xf) << 8) | (((w3 >>> 4) & 0xf) << 12)];
-    const out2 = lut[((w0 >>> 8) & 0xf) | (((w1 >>> 8) & 0xf) << 4) | (((w2 >>> 8) & 0xf) << 8) | (((w3 >>> 8) & 0xf) << 12)];
-    const out3 = lut[((w0 >>> 12) & 0xf) | (((w1 >>> 12) & 0xf) << 4) | (((w2 >>> 12) & 0xf) << 8) | (((w3 >>> 12) & 0xf) << 12)];
-    const out4 = lut[((w0 >>> 16) & 0xf) | (((w1 >>> 16) & 0xf) << 4) | (((w2 >>> 16) & 0xf) << 8) | (((w3 >>> 16) & 0xf) << 12)];
-    const out5 = lut[((w0 >>> 20) & 0xf) | (((w1 >>> 20) & 0xf) << 4) | (((w2 >>> 20) & 0xf) << 8) | (((w3 >>> 20) & 0xf) << 12)];
-    const out6 = lut[((w0 >>> 24) & 0xf) | (((w1 >>> 24) & 0xf) << 4) | (((w2 >>> 24) & 0xf) << 8) | (((w3 >>> 24) & 0xf) << 12)];
-    const out7 = lut[((w0 >>> 28) & 0xf) | (((w1 >>> 28) & 0xf) << 4) | (((w2 >>> 28) & 0xf) << 8) | (((w3 >>> 28) & 0xf) << 12)];
+    // Load 8 32-bit words (256 bits)
+    for (let i = 0; i < 8; i++) {
+      w[i] = kView.getUint32(i * 4, true);
+    }
 
-    const rk = new Uint32Array(4);
-    rk[0] = (out0 & 0xf) | ((out1 & 0xf) << 4) | ((out2 & 0xf) << 8) | ((out3 & 0xf) << 12) |
-            ((out4 & 0xf) << 16) | ((out5 & 0xf) << 20) | ((out6 & 0xf) << 24) | ((out7 & 0xf) << 28);
-    rk[1] = ((out0 >>> 4) & 0xf) | (((out1 >>> 4) & 0xf) << 4) | (((out2 >>> 4) & 0xf) << 8) | (((out3 >>> 4) & 0xf) << 12) |
-            (((out4 >>> 4) & 0xf) << 16) | (((out5 >>> 4) & 0xf) << 20) | (((out6 >>> 4) & 0xf) << 24) | (((out7 >>> 4) & 0xf) << 28);
-    rk[2] = ((out0 >>> 8) & 0xf) | (((out1 >>> 8) & 0xf) << 4) | (((out2 >>> 8) & 0xf) << 8) | (((out3 >>> 8) & 0xf) << 12) |
-            (((out4 >>> 8) & 0xf) << 16) | (((out5 >>> 8) & 0xf) << 20) | (((out6 >>> 8) & 0xf) << 24) | (((out7 >>> 8) & 0xf) << 28);
-    rk[3] = ((out0 >>> 12) & 0xf) | (((out1 >>> 12) & 0xf) << 4) | (((out2 >>> 12) & 0xf) << 8) | (((out3 >>> 12) & 0xf) << 12) |
-            (((out4 >>> 12) & 0xf) << 16) | (((out5 >>> 12) & 0xf) << 20) | (((out6 >>> 12) & 0xf) << 24) | (((out7 >>> 12) & 0xf) << 28);
-    roundKeys.push(rk);
+    // Prekey expansion (Official NIST AES Finalist Serpent specification: w[i-8] ^ w[i-5] ^ w[i-3] ^ w[i-1] ^ PHI ^ i)
+    const PHI = 0x9e3779b9; // Fractional part of Golden Ratio
+    for (let i = 8; i < 132; i++) {
+      const tmp = w[i - 8] ^ w[i - 5] ^ w[i - 3] ^ w[i - 1] ^ PHI ^ i;
+      w[i] = rotl32(tmp, 11);
+    }
+
+    // Apply S-boxes to produce 33 round keys (LUT indices always masked to 16-bit)
+    for (let r = 0; r < 33; r++) {
+      const sboxIdx = (3 + 32 - r) % 8;
+      const lut = LUT[sboxIdx];
+      const w0 = w[4 * r + 0], w1 = w[4 * r + 1], w2 = w[4 * r + 2], w3 = w[4 * r + 3];
+
+      const out0 = lut[((w0 & 0xf) | ((w1 & 0xf) << 4) | ((w2 & 0xf) << 8) | ((w3 & 0xf) << 12)) & 0xffff];
+      const out1 = lut[(((w0 >>> 4) & 0xf) | (((w1 >>> 4) & 0xf) << 4) | (((w2 >>> 4) & 0xf) << 8) | (((w3 >>> 4) & 0xf) << 12)) & 0xffff];
+      const out2 = lut[(((w0 >>> 8) & 0xf) | (((w1 >>> 8) & 0xf) << 4) | (((w2 >>> 8) & 0xf) << 8) | (((w3 >>> 8) & 0xf) << 12)) & 0xffff];
+      const out3 = lut[(((w0 >>> 12) & 0xf) | (((w1 >>> 12) & 0xf) << 4) | (((w2 >>> 12) & 0xf) << 8) | (((w3 >>> 12) & 0xf) << 12)) & 0xffff];
+      const out4 = lut[(((w0 >>> 16) & 0xf) | (((w1 >>> 16) & 0xf) << 4) | (((w2 >>> 16) & 0xf) << 8) | (((w3 >>> 16) & 0xf) << 12)) & 0xffff];
+      const out5 = lut[(((w0 >>> 20) & 0xf) | (((w1 >>> 20) & 0xf) << 4) | (((w2 >>> 20) & 0xf) << 8) | (((w3 >>> 20) & 0xf) << 12)) & 0xffff];
+      const out6 = lut[(((w0 >>> 24) & 0xf) | (((w1 >>> 24) & 0xf) << 4) | (((w2 >>> 24) & 0xf) << 8) | (((w3 >>> 24) & 0xf) << 12)) & 0xffff];
+      const out7 = lut[(((w0 >>> 28) & 0xf) | (((w1 >>> 28) & 0xf) << 4) | (((w2 >>> 28) & 0xf) << 8) | (((w3 >>> 28) & 0xf) << 12)) & 0xffff];
+
+      const rk = new Uint32Array(4);
+      rk[0] = (out0 & 0xf) | ((out1 & 0xf) << 4) | ((out2 & 0xf) << 8) | ((out3 & 0xf) << 12) |
+              ((out4 & 0xf) << 16) | ((out5 & 0xf) << 20) | ((out6 & 0xf) << 24) | ((out7 & 0xf) << 28);
+      rk[1] = ((out0 >>> 4) & 0xf) | (((out1 >>> 4) & 0xf) << 4) | (((out2 >>> 4) & 0xf) << 8) | (((out3 >>> 4) & 0xf) << 12) |
+              (((out4 >>> 4) & 0xf) << 16) | (((out5 >>> 4) & 0xf) << 20) | (((out6 >>> 4) & 0xf) << 24) | (((out7 >>> 4) & 0xf) << 28);
+      rk[2] = ((out0 >>> 8) & 0xf) | (((out1 >>> 8) & 0xf) << 4) | (((out2 >>> 8) & 0xf) << 8) | (((out3 >>> 8) & 0xf) << 12) |
+              (((out4 >>> 8) & 0xf) << 16) | (((out5 >>> 8) & 0xf) << 20) | (((out6 >>> 8) & 0xf) << 24) | (((out7 >>> 8) & 0xf) << 28);
+      rk[3] = ((out0 >>> 12) & 0xf) | (((out1 >>> 12) & 0xf) << 4) | (((out2 >>> 12) & 0xf) << 8) | (((out3 >>> 12) & 0xf) << 12) |
+              (((out4 >>> 12) & 0xf) << 16) | (((out5 >>> 12) & 0xf) << 20) | (((out6 >>> 12) & 0xf) << 24) | (((out7 >>> 12) & 0xf) << 28);
+      roundKeys.push(rk);
+    }
+
+    return roundKeys;
+  } catch (err) {
+    for (const rk of roundKeys) rk.fill(0);
+    throw err;
+  } finally {
+    w.fill(0);
   }
-
-  w.fill(0);
-  return roundKeys;
 }
 
 // Fast 128-bit block encryption (32 rounds + linear transformation using LUT)
@@ -126,14 +132,14 @@ function serpentEncryptBlock(
 
     const lut = LUT[r % 8];
 
-    const out0 = lut[(x0 & 0xf) | ((x1 & 0xf) << 4) | ((x2 & 0xf) << 8) | ((x3 & 0xf) << 12)];
-    const out1 = lut[((x0 >>> 4) & 0xf) | (((x1 >>> 4) & 0xf) << 4) | (((x2 >>> 4) & 0xf) << 8) | (((x3 >>> 4) & 0xf) << 12)];
-    const out2 = lut[((x0 >>> 8) & 0xf) | (((x1 >>> 8) & 0xf) << 4) | (((x2 >>> 8) & 0xf) << 8) | (((x3 >>> 8) & 0xf) << 12)];
-    const out3 = lut[((x0 >>> 12) & 0xf) | (((x1 >>> 12) & 0xf) << 4) | (((x2 >>> 12) & 0xf) << 8) | (((x3 >>> 12) & 0xf) << 12)];
-    const out4 = lut[((x0 >>> 16) & 0xf) | (((x1 >>> 16) & 0xf) << 4) | (((x2 >>> 16) & 0xf) << 8) | (((x3 >>> 16) & 0xf) << 12)];
-    const out5 = lut[((x0 >>> 20) & 0xf) | (((x1 >>> 20) & 0xf) << 4) | (((x2 >>> 20) & 0xf) << 8) | (((x3 >>> 20) & 0xf) << 12)];
-    const out6 = lut[((x0 >>> 24) & 0xf) | (((x1 >>> 24) & 0xf) << 4) | (((x2 >>> 24) & 0xf) << 8) | (((x3 >>> 24) & 0xf) << 12)];
-    const out7 = lut[((x0 >>> 28) & 0xf) | (((x1 >>> 28) & 0xf) << 4) | (((x2 >>> 28) & 0xf) << 8) | (((x3 >>> 28) & 0xf) << 12)];
+    const out0 = lut[((x0 & 0xf) | ((x1 & 0xf) << 4) | ((x2 & 0xf) << 8) | ((x3 & 0xf) << 12)) & 0xffff];
+    const out1 = lut[(((x0 >>> 4) & 0xf) | (((x1 >>> 4) & 0xf) << 4) | (((x2 >>> 4) & 0xf) << 8) | (((x3 >>> 4) & 0xf) << 12)) & 0xffff];
+    const out2 = lut[(((x0 >>> 8) & 0xf) | (((x1 >>> 8) & 0xf) << 4) | (((x2 >>> 8) & 0xf) << 8) | (((x3 >>> 8) & 0xf) << 12)) & 0xffff];
+    const out3 = lut[(((x0 >>> 12) & 0xf) | (((x1 >>> 12) & 0xf) << 4) | (((x2 >>> 12) & 0xf) << 8) | (((x3 >>> 12) & 0xf) << 12)) & 0xffff];
+    const out4 = lut[(((x0 >>> 16) & 0xf) | (((x1 >>> 16) & 0xf) << 4) | (((x2 >>> 16) & 0xf) << 8) | (((x3 >>> 16) & 0xf) << 12)) & 0xffff];
+    const out5 = lut[(((x0 >>> 20) & 0xf) | (((x1 >>> 20) & 0xf) << 4) | (((x2 >>> 20) & 0xf) << 8) | (((x3 >>> 20) & 0xf) << 12)) & 0xffff];
+    const out6 = lut[(((x0 >>> 24) & 0xf) | (((x1 >>> 24) & 0xf) << 4) | (((x2 >>> 24) & 0xf) << 8) | (((x3 >>> 24) & 0xf) << 12)) & 0xffff];
+    const out7 = lut[(((x0 >>> 28) & 0xf) | (((x1 >>> 28) & 0xf) << 4) | (((x2 >>> 28) & 0xf) << 8) | (((x3 >>> 28) & 0xf) << 12)) & 0xffff];
 
     const y0 = (out0 & 0xf) | ((out1 & 0xf) << 4) | ((out2 & 0xf) << 8) | ((out3 & 0xf) << 12) |
                ((out4 & 0xf) << 16) | ((out5 & 0xf) << 20) | ((out6 & 0xf) << 24) | ((out7 & 0xf) << 28);
@@ -178,23 +184,28 @@ function serpentEncryptBlock(
 export function serpentEncrypt16ByteBlock(block16: Uint8Array, key256: Uint8Array): Uint8Array {
   if (block16.length !== 16) throw new Error('Block must be 16 bytes');
   const subkeys = serpentKeySchedule(key256);
-  const v = new DataView(block16.buffer, block16.byteOffset, 16);
   const outWords = new Uint32Array(4);
-  serpentEncryptBlock(
-    v.getUint32(0, true),
-    v.getUint32(4, true),
-    v.getUint32(8, true),
-    v.getUint32(12, true),
-    subkeys,
-    outWords
-  );
-  const out = new Uint8Array(16);
-  const outV = new DataView(out.buffer, out.byteOffset, 16);
-  outV.setUint32(0, outWords[0], true);
-  outV.setUint32(4, outWords[1], true);
-  outV.setUint32(8, outWords[2], true);
-  outV.setUint32(12, outWords[3], true);
-  return out;
+  try {
+    const v = new DataView(block16.buffer, block16.byteOffset, 16);
+    serpentEncryptBlock(
+      v.getUint32(0, true),
+      v.getUint32(4, true),
+      v.getUint32(8, true),
+      v.getUint32(12, true),
+      subkeys,
+      outWords
+    );
+    const out = new Uint8Array(16);
+    const outV = new DataView(out.buffer, out.byteOffset, 16);
+    outV.setUint32(0, outWords[0], true);
+    outV.setUint32(4, outWords[1], true);
+    outV.setUint32(8, outWords[2], true);
+    outV.setUint32(12, outWords[3], true);
+    return out;
+  } finally {
+    for (const rk of subkeys) rk.fill(0);
+    outWords.fill(0);
+  }
 }
 
 // Fast Serpent-256-CTR encryption / decryption with 32-bit Word Acceleration

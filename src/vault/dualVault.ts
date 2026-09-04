@@ -18,7 +18,8 @@ import {
   deserializeBundle,
   zeroizeBuffer,
   EncryptedPayloadBundle,
-  DEFAULT_PBKDF2_ITERATIONS
+  DEFAULT_PBKDF2_ITERATIONS,
+  NEUTRAL_AUTH_FAILURE
 } from '../crypto/cascadeEngine';
 import { normalizeEntropyToTarget, denormalizeEntropy, denormalizeEntropyHeaderFast, analyzeStatisticalCompliance } from '../crypto/entropy';
 import { embedSpreadSpectrum8Locations, extractSpreadSpectrumPayload, createSyntheticMp4Carrier } from '../media/isobmff';
@@ -49,11 +50,21 @@ export function clearContainerInspectionCache() {
   if (containerBundlesCache) {
     if (containerBundlesCache.bundleA) {
       const bA = containerBundlesCache.bundleA;
-      zeroizeBuffer(bA.payload, bA.saltL1, bA.saltL2, bA.saltL3, bA.saltL4, bA.saltL5, bA.ivL2, bA.ivL3, bA.ivL4, bA.kyberCt, bA.k6Block, bA.notesBlock);
+      zeroizeBuffer(
+        bA.payload, bA.saltL1, bA.saltL2, bA.saltL3, bA.saltL4, bA.saltL5,
+        bA.ivL2, bA.ivL3, bA.ivL4, bA.tagL3, bA.tagL4, bA.kyberCt, bA.otpKey,
+        bA.k6Block, bA.notesBlock,
+        ...(bA.chunkedPayload || [])
+      );
     }
     if (containerBundlesCache.bundleB) {
       const bB = containerBundlesCache.bundleB;
-      zeroizeBuffer(bB.payload, bB.saltL1, bB.saltL2, bB.saltL3, bB.saltL4, bB.saltL5, bB.ivL2, bB.ivL3, bB.ivL4, bB.kyberCt, bB.k6Block, bB.notesBlock);
+      zeroizeBuffer(
+        bB.payload, bB.saltL1, bB.saltL2, bB.saltL3, bB.saltL4, bB.saltL5,
+        bB.ivL2, bB.ivL3, bB.ivL4, bB.tagL3, bB.tagL4, bB.kyberCt, bB.otpKey,
+        bB.k6Block, bB.notesBlock,
+        ...(bB.chunkedPayload || [])
+      );
     }
     containerBundlesCache = null;
   }
@@ -503,75 +514,64 @@ export async function extractFromDualVaultPackage(
   // Neutral progress: Zero exposure of vault names or trial switching
   onProgress?.('Authenticating 5-Layer Cascade stream in 1 MB chunks...', 45);
 
-  let unshapedA: Uint8Array | null = null;
-  let rsRepairedA: Uint8Array | null = null;
-  try {
-    unshapedA = await denormalizeEntropy(vaultABytes);
-    // Auto-heal bit-rot / packet corruption via Reed-Solomon RS(255,223) FEC with cooperative yielding
-    const rsResA = await decodeRSStreamAsync(unshapedA, (pct) => {
-      onProgress?.(`Reed-Solomon FEC Repair (Candidate A: ${pct}%)...`, 40 + Math.round(pct * 0.05));
-    });
-    rsRepairedA = rsResA.data;
-    const bundleA = deserializeBundle(rsRepairedA);
-    const decryptedA = await decryptCascade5Layers(bundleA, passwords, iterations, (l, d) => onProgress?.(d, 45 + l * 8));
-
-    // Compute SHA-512
-    const digest = await calculateSha512Safe(decryptedA.data);
-    zeroizeBuffer(unshapedA, rsRepairedA);
-
-    clearContainerInspectionCache();
-    const blob = new Blob([decryptedA.data], { type: 'application/octet-stream' });
-    return {
-      fileBlob: blob,
-      chunkedData: [decryptedA.data],
-      filename: decryptedA.originalFilename,
-      filesize: decryptedA.data.length,
-      vaultRevealed: 'Authenticated Payload',
-      sha512Digest: digest
-    };
-  } catch {
-    // Immediately zeroize Candidate A buffers from RAM before evaluating Candidate B
-    if (unshapedA || rsRepairedA) {
-      zeroizeBuffer(unshapedA, rsRepairedA);
-      unshapedA = null;
-      rsRepairedA = null;
+  /**
+   * Attempt one equalized vault candidate. Failures are swallowed with buffer wipe —
+   * callers always evaluate BOTH candidates for timing symmetry (zero vault oracle).
+   */
+  async function tryExtractCandidate(
+    vaultBytes: Uint8Array,
+    progressBase: number
+  ): Promise<DualVaultExtractionResult | null> {
+    if (!vaultBytes || vaultBytes.length === 0) {
+      return null;
     }
-    // Silently evaluate secondary candidate stream with zero UI progress leak
-    let unshapedB: Uint8Array | null = null;
-    let rsRepairedB: Uint8Array | null = null;
+    let unshaped: Uint8Array | null = null;
+    let rsRepaired: Uint8Array | null = null;
     try {
-      unshapedB = await denormalizeEntropy(vaultBBytes);
-      // Auto-heal bit-rot / packet corruption via Reed-Solomon RS(255,223) FEC with cooperative yielding
-      const rsResB = await decodeRSStreamAsync(unshapedB, (pct) => {
-        onProgress?.(`Reed-Solomon FEC Repair (Candidate B: ${pct}%)...`, 40 + Math.round(pct * 0.05));
+      unshaped = await denormalizeEntropy(vaultBytes);
+      const rsRes = await decodeRSStreamAsync(unshaped, (pct) => {
+        onProgress?.(
+          `Reed-Solomon FEC integrity repair (${pct}%)...`,
+          progressBase + Math.round(pct * 0.05)
+        );
       });
-      rsRepairedB = rsResB.data;
-      const bundleB = deserializeBundle(rsRepairedB);
-      const decryptedB = await decryptCascade5Layers(bundleB, passwords, iterations, (l, d) => onProgress?.(d, 45 + l * 8));
-
-      const digest = await calculateSha512Safe(decryptedB.data);
-      zeroizeBuffer(unshapedB, rsRepairedB);
-
-      clearContainerInspectionCache();
-      const blob = new Blob([decryptedB.data], { type: 'application/octet-stream' });
+      rsRepaired = rsRes.data;
+      const bundle = deserializeBundle(rsRepaired);
+      const decrypted = await decryptCascade5Layers(bundle, passwords, iterations, (l, d) =>
+        onProgress?.(d, progressBase + 5 + l * 8)
+      );
+      const digest = await calculateSha512Safe(decrypted.data);
+      zeroizeBuffer(unshaped, rsRepaired);
+      const blob = new Blob([decrypted.data], { type: 'application/octet-stream' });
       return {
         fileBlob: blob,
-        chunkedData: [decryptedB.data],
-        filename: decryptedB.originalFilename,
-        filesize: decryptedB.data.length,
+        chunkedData: [decrypted.data],
+        filename: decrypted.originalFilename,
+        filesize: decrypted.data.length,
         vaultRevealed: 'Authenticated Payload',
         sha512Digest: digest
       };
     } catch {
-      clearContainerInspectionCache();
-      if (unshapedB || rsRepairedB) {
-        zeroizeBuffer(unshapedB, rsRepairedB);
-        unshapedB = null;
-        rsRepairedB = null;
+      if (unshaped || rsRepaired) {
+        zeroizeBuffer(unshaped, rsRepaired);
       }
-      throw new Error('Authentication Failed: Invalid key cascade or corrupt payload.');
+      return null;
     }
   }
+
+  // Always evaluate both vaults (no early-success abort → timing-invariant vault selection)
+  const resultA = await tryExtractCandidate(vaultABytes, 40);
+  const resultB = await tryExtractCandidate(vaultBBytes, 55);
+
+  clearContainerInspectionCache();
+
+  if (resultA) {
+    return resultA;
+  }
+  if (resultB) {
+    return resultB;
+  }
+  throw new Error(NEUTRAL_AUTH_FAILURE);
 }
 
 /**
@@ -670,8 +670,9 @@ export async function inspectContainerAssessmentNotes(
     }
 
     return { matchedVault: null, notes: null, repairedErrors: 0 };
-  } catch (err: any) {
-    return { matchedVault: null, notes: null, repairedErrors: 0, error: err?.message };
+  } catch {
+    // Zero-disclosure: never surface underlying parse/crypto exception text
+    return { matchedVault: null, notes: null, repairedErrors: 0 };
   }
 }
 

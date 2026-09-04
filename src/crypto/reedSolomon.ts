@@ -99,6 +99,9 @@ for (let c = 0; c < 256; c++) {
  * @param nsym Number of parity symbols (default 32)
  */
 export function rsEncodeBlock(msg: Uint8Array, nsym: number = RS_DEFAULT_PARITY_LEN): Uint8Array {
+  if (msg.length + nsym > 255) {
+    throw new Error('RS encode: codeword length exceeds maximum N=255');
+  }
   const gen = nsym === RS_DEFAULT_PARITY_LEN ? DEFAULT_GEN_POLY : rsGeneratorPoly(nsym);
   const out = new Uint8Array(msg.length + nsym);
   out.set(msg, 0);
@@ -160,7 +163,7 @@ function rsFindErrorLocator(synd: Uint8Array, nsym: number): Uint8Array | null {
   for (let n = 0; n < nsym; n++) {
     let delta = synd[n];
     for (let i = 1; i <= L; i++) {
-      if (i < Lambda.length) {
+      if (i < Lambda.length && n - i >= 0) {
         delta ^= gfMul(Lambda[i], synd[n - i]);
       }
     }
@@ -322,6 +325,9 @@ export function encodeRSStream(
   kBlockSize: number = RS_DEFAULT_BLOCK_SIZE,
   nsym: number = RS_DEFAULT_PARITY_LEN
 ): { encodedData: Uint8Array; stats: RSStreamStats } {
+  if (kBlockSize + nsym > 255) {
+    throw new Error('RS encode: kBlockSize + nsym exceeds maximum N=255');
+  }
   const totalDataBytes = inputData.length;
   const totalBlocks = Math.ceil(totalDataBytes / kBlockSize);
   const totalParityBytes = totalBlocks * nsym;
@@ -441,6 +447,9 @@ export async function encodeRSStreamAsync(
   nsym: number = RS_DEFAULT_PARITY_LEN,
   onProgress?: (pct: number) => void
 ): Promise<{ encodedData: Uint8Array; stats: RSStreamStats }> {
+  if (kBlockSize + nsym > 255) {
+    throw new Error('RS encode: kBlockSize + nsym exceeds maximum N=255');
+  }
   const totalDataBytes = inputData.length;
   const totalBlocks = Math.ceil(totalDataBytes / kBlockSize);
   const totalParityBytes = totalBlocks * nsym;

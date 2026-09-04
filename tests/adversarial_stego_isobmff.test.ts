@@ -105,6 +105,17 @@ export async function runStegoIsobmffAdversarialSuite() {
     trunc64[4] = 0x75; trunc64[5] = 0x75; trunc64[6] = 0x69; trunc64[7] = 0x64;
     const parsedTrunc64 = parseIsobmffBoxes(trunc64);
     if (parsedTrunc64.length !== 0) throw new Error('Parser accepted truncated 64-bit largesize box');
+
+    // 7. Full 16-byte header with malicious largesize > buffer length
+    const oversize64 = new Uint8Array(32);
+    const ov = new DataView(oversize64.buffer);
+    ov.setUint32(0, 1); // size === 1 → 64-bit largesize
+    oversize64[4] = 0x6d; oversize64[5] = 0x64; oversize64[6] = 0x61; oversize64[7] = 0x74; // 'mdat'
+    ov.setBigUint64(8, 0xffffffffffffffffn);
+    const parsedOver = parseIsobmffBoxes(oversize64);
+    if (parsedOver.length !== 0) {
+      throw new Error('Parser accepted largesize greater than buffer length');
+    }
   });
 
   await runStegoTest('STEGO-ADV-02', 'Cyclic & Deeply-Nested Container Boxes DoS Defense', async () => {
