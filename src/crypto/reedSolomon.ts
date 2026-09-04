@@ -557,6 +557,7 @@ export function decodeRSStream(
     origSize > encodedData.length ||
     kBlockSize <= 0 ||
     nsym <= 0 ||
+    kBlockSize + nsym > 255 ||
     totalBlocks > Math.ceil(encodedData.length / Math.min(10, kBlockSize || 1)) + 10
   ) {
     return {
@@ -674,6 +675,7 @@ export async function decodeRSStreamAsync(
     origSize > encodedData.length ||
     kBlockSize <= 0 ||
     nsym <= 0 ||
+    kBlockSize + nsym > 255 ||
     totalBlocks > Math.ceil(encodedData.length / Math.min(10, kBlockSize || 1)) + 10
   ) {
     return {

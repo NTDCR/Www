@@ -866,7 +866,11 @@ export async function decryptCascade5Layers(
 
   const dec = new TextDecoder();
   const originalFilename = dec.decode(combined.subarray(dp, dp + nameLen)); dp += nameLen;
-  const originalSize = Number(decView.getBigUint64(dp, true)); dp += 8;
+  const rawBigSize = decView.getBigUint64(dp, true); dp += 8;
+  if (rawBigSize > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new Error('Corrupt or truncated file payload length: exceeds safe integer bounds.');
+  }
+  const originalSize = Number(rawBigSize);
   if (originalSize < 0 || dp + originalSize > combined.length) {
     throw new Error('Corrupt or truncated file payload length.');
   }

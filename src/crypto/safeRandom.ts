@@ -50,7 +50,7 @@ export function secureRandomInt(min: number, max: number): number {
   const randView = new Uint32Array(1);
   if (range >= 0x100000000) {
     safeGetRandomValues(randView);
-    return randView[0] >>> 0;
+    return min + (randView[0] >>> 0);
   }
   const maxAcceptable = Math.floor(0x100000000 / range) * range - 1;
 

@@ -489,6 +489,7 @@ export async function extractFromDualVaultPackage(
     const digest = await calculateSha512Safe(decryptedA.data);
     zeroizeBuffer(unshapedA, rsRepairedA);
 
+    clearContainerInspectionCache();
     const blob = new Blob([decryptedA.data], { type: 'application/octet-stream' });
     return {
       fileBlob: blob,
@@ -521,6 +522,7 @@ export async function extractFromDualVaultPackage(
       const digest = await calculateSha512Safe(decryptedB.data);
       zeroizeBuffer(unshapedB, rsRepairedB);
 
+      clearContainerInspectionCache();
       const blob = new Blob([decryptedB.data], { type: 'application/octet-stream' });
       return {
         fileBlob: blob,
@@ -531,6 +533,7 @@ export async function extractFromDualVaultPackage(
         sha512Digest: digest
       };
     } catch {
+      clearContainerInspectionCache();
       if (unshapedB || rsRepairedB) {
         zeroizeBuffer(unshapedB, rsRepairedB);
         unshapedB = null;
