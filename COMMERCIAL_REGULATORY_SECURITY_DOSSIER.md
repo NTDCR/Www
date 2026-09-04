@@ -279,8 +279,10 @@ The codebase incorporates an exhaustive automated test battery comprising **15 a
 13  npm run test:1gb      adversarial_1gb_streaming_stress     10 / 10   PASS
 14  npm run test:resilience file_slice_resilience               4 / 4    PASS
 15  npm run test:perf     adversarial_speed_ram_load           11 / 11   PASS
+16  npm run test:audit    native_windows_audit                  6 / 6    PASS
+17  npm run test:browser  live_browser_automation               8 / 8    PASS
 --------------------------------------------------------------------------------
-    TOTAL DETERMINISTIC ASSERTIONS PASSING:                   158 / 158  (100%)
+    TOTAL DETERMINISTIC ASSERTIONS PASSING:                   172 / 172  (100%)
     TYPESCRIPT COMPILER TYPECHECK (tsc --noEmit):               0 ERRORS (100%)
     PRODUCTION BUNDLE COMPILATION (vite build):                 0 STDERR (100%)
 ================================================================================

@@ -26,7 +26,8 @@
     "test:interop": "tsx tests/adversarial_key_interop_integrity.test.ts",
     "test:1gb": "tsx tests/adversarial_1gb_streaming_broad_stress.test.ts",
     "test:redteam": "tsx tests/redteam_remediation_audit.test.ts",
-    "test:audit": "tsx tests/native_windows_audit.ts"
+    "test:audit": "tsx tests/native_windows_audit.ts",
+    "test:browser": "node tests/live_browser_automation.test.cjs"
   },
   "dependencies": {
     "@noble/ciphers": "^2.4.0",
