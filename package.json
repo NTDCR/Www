@@ -25,7 +25,8 @@
     "test:mp4-rs": "tsx tests/adversarial_mp4_reed_solomon.test.ts",
     "test:interop": "tsx tests/adversarial_key_interop_integrity.test.ts",
     "test:1gb": "tsx tests/adversarial_1gb_streaming_broad_stress.test.ts",
-    "test:redteam": "tsx tests/redteam_remediation_audit.test.ts"
+    "test:redteam": "tsx tests/redteam_remediation_audit.test.ts",
+    "test:audit": "tsx tests/native_windows_audit.ts"
   },
   "dependencies": {
     "@noble/ciphers": "^2.4.0",
