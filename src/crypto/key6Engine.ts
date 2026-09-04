@@ -173,10 +173,13 @@ export async function unmaskAndVerifyKey6FromRSBlock(
   let xorMask128: Uint8Array | null = null;
   let tagKey: Uint8Array | null = null;
   let recoveredRawId128: Uint8Array | null = null;
+  let repairedBlock: Uint8Array | null = null;
 
   try {
     // 1. Reed-Solomon auto-repair
-    const { data: repairedBlock, recoveredErrors } = decodeRSStream(rsBlockData);
+    const rsDecoded = decodeRSStream(rsBlockData);
+    repairedBlock = rsDecoded.data;
+    const recoveredErrors = rsDecoded.recoveredErrors;
     if (repairedBlock.length < 224) {
       return { valid: false, uniqueId1024Hex: '', repairedErrors: recoveredErrors };
     }
@@ -231,7 +234,7 @@ export async function unmaskAndVerifyKey6FromRSBlock(
   } catch {
     return { valid: false, uniqueId1024Hex: '', repairedErrors: 0 };
   } finally {
-    zeroizeBuffer(keyBytes, stretched, xorMask128, tagKey, recoveredRawId128);
+    zeroizeBuffer(keyBytes, stretched, xorMask128, tagKey, recoveredRawId128, repairedBlock);
   }
 }
 

@@ -67,6 +67,9 @@ function getPassOverwritePattern(pass: number, len: number = 1024): string {
   return char.repeat(len);
 }
 
+import { purgeClipboard } from './clipboard';
+import { clearContainerInspectionCache } from '../vault/dualVault';
+
 /**
  * Executes full 35-pass sanitization sequence on client environment
  */
@@ -74,6 +77,12 @@ export async function execute35PassSecureWipe(
   onPassUpdate?: (status: PassStatus) => void
 ): Promise<void> {
   const total = GUTMANN_PATTERNS.length;
+
+  // 0. Immediate clearance of in-memory inspection caches and OS clipboard buffer
+  try {
+    clearContainerInspectionCache();
+    await purgeClipboard();
+  } catch {}
 
   for (let pass = 0; pass < total; pass++) {
     const pattern = GUTMANN_PATTERNS[pass];
@@ -128,11 +137,38 @@ export async function execute35PassSecureWipe(
     await new Promise(r => setTimeout(r, 40));
   }
 
-  // Final purge
+  // 4. Delete IndexedDB databases (Removes recovery codes and all persistent DB storage)
+  try {
+    if (typeof indexedDB !== 'undefined') {
+      indexedDB.deleteDatabase('ContentGuard_Pro_Security_DB');
+      if ('databases' in indexedDB && typeof (indexedDB as any).databases === 'function') {
+        const dbs = await (indexedDB as any).databases();
+        for (const dbInfo of dbs) {
+          if (dbInfo.name) {
+            indexedDB.deleteDatabase(dbInfo.name);
+          }
+        }
+      }
+    }
+  } catch {}
+
+  // 5. Unregister all service workers
+  try {
+    if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+      const registrations = await navigator.serviceWorker.getRegistrations();
+      for (const reg of registrations) {
+        await reg.unregister();
+      }
+    }
+  } catch {}
+
+  // 6. Final memory and storage purge
   try {
     if (typeof window !== 'undefined') {
       if (typeof localStorage !== 'undefined') localStorage.clear();
       if (typeof sessionStorage !== 'undefined') sessionStorage.clear();
     }
+    await purgeClipboard();
+    clearContainerInspectionCache();
   } catch {}
 }

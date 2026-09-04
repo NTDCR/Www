@@ -225,6 +225,12 @@ export const AssessmentNotesEditor: React.FC<AssessmentNotesEditorProps> = ({
                   onChange={e => handleFieldChange(q.id, e.target.value)}
                   placeholder={q.placeholder}
                   rows={3}
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  spellCheck={false}
+                  data-lpignore="true"
+                  data-1p-ignore="true"
                   className={`w-full px-3.5 py-2.5 text-xs text-slate-100 bg-slate-950/80 rounded-xl border focus:outline-none transition-all resize-y font-sans ${
                     isFieldFilled
                       ? isEmerald

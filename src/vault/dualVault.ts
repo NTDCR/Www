@@ -46,7 +46,17 @@ interface CachedContainerBundles {
 let containerBundlesCache: CachedContainerBundles | null = null;
 
 export function clearContainerInspectionCache() {
-  containerBundlesCache = null;
+  if (containerBundlesCache) {
+    if (containerBundlesCache.bundleA) {
+      const bA = containerBundlesCache.bundleA;
+      zeroizeBuffer(bA.payload, bA.saltL1, bA.saltL2, bA.saltL3, bA.saltL4, bA.saltL5, bA.ivL2, bA.ivL3, bA.ivL4, bA.kyberCt, bA.k6Block, bA.notesBlock);
+    }
+    if (containerBundlesCache.bundleB) {
+      const bB = containerBundlesCache.bundleB;
+      zeroizeBuffer(bB.payload, bB.saltL1, bB.saltL2, bB.saltL3, bB.saltL4, bB.saltL5, bB.ivL2, bB.ivL3, bB.ivL4, bB.kyberCt, bB.k6Block, bB.notesBlock);
+    }
+    containerBundlesCache = null;
+  }
 }
 
 

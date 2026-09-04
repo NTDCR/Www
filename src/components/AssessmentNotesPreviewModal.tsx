@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { VaultAssessmentNotes } from '../types';
 import { ASSESSMENT_QUESTIONS, AssessmentQuestionDef } from '../crypto/notesEngine';
+import { secureCopyToClipboard } from '../security/clipboard';
 
 interface AssessmentNotesPreviewModalProps {
   isOpen: boolean;
@@ -38,13 +39,13 @@ export const AssessmentNotesPreviewModal: React.FC<AssessmentNotesPreviewModalPr
   const isVaultA = vaultMatched === 'VaultA';
   const vaultTitle = isVaultA ? 'Vault A (Real Secret)' : 'Vault B (Decoy Secret)';
 
-  const handleCopyField = (id: string, text: string) => {
-    navigator.clipboard.writeText(text);
+  const handleCopyField = async (id: string, text: string) => {
+    await secureCopyToClipboard(text, 45);
     setCopiedId(id);
-    setTimeout(() => setCopiedId(null), 2000);
+    setTimeout(() => setCopiedId(null), 2500);
   };
 
-  const handleCopyAll = () => {
+  const handleCopyAll = async () => {
     let fullReport = `=== ContentGuard Pro MAX - Pre-Decryption Assessment Notes Report ===\n`;
     fullReport += `Vault Classification: ${vaultTitle}\n`;
     fullReport += `Date Created: ${notes.createdAt || 'N/A'}\n`;
@@ -56,7 +57,7 @@ export const AssessmentNotesPreviewModal: React.FC<AssessmentNotesPreviewModalPr
       fullReport += `${notes[q.id] || '(No response recorded)'}\n\n`;
     });
 
-    navigator.clipboard.writeText(fullReport);
+    await secureCopyToClipboard(fullReport, 45);
     setCopiedAll(true);
     setTimeout(() => setCopiedAll(false), 2500);
   };

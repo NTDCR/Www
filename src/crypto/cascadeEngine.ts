@@ -211,10 +211,12 @@ export async function computeHmacSha256(keyBytes: Uint8Array, data: Uint8Array):
  * Constant-time comparison of two byte arrays to prevent timing attacks
  */
 export function constantTimeCompare(a: Uint8Array, b: Uint8Array): boolean {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) {
-    diff |= a[i] ^ b[i];
+  const len = Math.max(a.length, b.length);
+  let diff = a.length ^ b.length;
+  for (let i = 0; i < len; i++) {
+    const byteA = i < a.length ? a[i] : 0;
+    const byteB = i < b.length ? b[i] : 0;
+    diff |= byteA ^ byteB;
   }
   return diff === 0;
 }

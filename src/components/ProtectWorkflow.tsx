@@ -666,6 +666,12 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog 
                     type={showPasswordsA ? 'text' : 'password'}
                     value={vaultAPasswords[layerKey]}
                     onChange={(e) => setVaultAPasswords({ ...vaultAPasswords, [layerKey]: e.target.value })}
+                    autoComplete="new-password"
+                    autoCorrect="off"
+                    autoCapitalize="off"
+                    spellCheck={false}
+                    data-lpignore="true"
+                    data-1p-ignore="true"
                     className="w-full bg-slate-900 border border-slate-700 focus:border-emerald-500 rounded px-2.5 py-1.5 text-slate-200 text-xs"
                   />
                 </div>
@@ -714,6 +720,12 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog 
                     type={showPasswordsB ? 'text' : 'password'}
                     value={vaultBPasswords[layerKey]}
                     onChange={(e) => setVaultBPasswords({ ...vaultBPasswords, [layerKey]: e.target.value })}
+                    autoComplete="new-password"
+                    autoCorrect="off"
+                    autoCapitalize="off"
+                    spellCheck={false}
+                    data-lpignore="true"
+                    data-1p-ignore="true"
                     className="w-full bg-slate-900 border border-slate-700 focus:border-amber-500 rounded px-2.5 py-1.5 text-slate-200 text-xs"
                   />
                 </div>

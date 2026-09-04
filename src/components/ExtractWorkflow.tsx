@@ -420,6 +420,12 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
                   type={showPasswords ? 'text' : 'password'}
                   value={passwords[layerKey]}
                   onChange={(e) => setPasswords({ ...passwords, [layerKey]: e.target.value })}
+                  autoComplete="new-password"
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  spellCheck={false}
+                  data-lpignore="true"
+                  data-1p-ignore="true"
                   className="w-full bg-slate-900 border border-slate-700 focus:border-emerald-500 rounded px-2.5 py-1.5 text-slate-200 text-xs"
                 />
               </div>

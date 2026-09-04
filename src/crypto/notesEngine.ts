@@ -105,6 +105,9 @@ export async function encryptAssessmentNotesBlock(
   let l3Ciphertext: Uint8Array | null = null;
   let xorStream: Uint8Array | null = null;
   let maskedPayload: Uint8Array | null = null;
+  let hmacHeader: Uint8Array | null = null;
+  let hmacData: Uint8Array | null = null;
+  let envelope: Uint8Array | null = null;
 
   try {
     // 2. Derive key materials
@@ -149,13 +152,13 @@ export async function encryptAssessmentNotesBlock(
     }
 
     // 7. HMAC-SHA256 Integrity Commitment Tag over the masked block
-    const hmacHeader = new Uint8Array(64 + 12 + 24 + 16);
+    hmacHeader = new Uint8Array(64 + 12 + 24 + 16);
     hmacHeader.set(salt64, 0);
     hmacHeader.set(nonceAes, 64);
     hmacHeader.set(nonceXCha, 64 + 12);
     hmacHeader.set(ivSerpent, 64 + 12 + 24);
 
-    const hmacData = new Uint8Array(hmacHeader.length + maskedPayload.length);
+    hmacData = new Uint8Array(hmacHeader.length + maskedPayload.length);
     hmacData.set(hmacHeader, 0);
     hmacData.set(maskedPayload, hmacHeader.length);
 
@@ -163,7 +166,7 @@ export async function encryptAssessmentNotesBlock(
 
     // 8. Assemble Raw Unencoded Envelope:
     // [salt64 (64B) + nonceAes (12B) + nonceXCha (24B) + ivSerpent (16B) + commitmentTag32 (32B) + maskedPayload]
-    const envelope = new Uint8Array(64 + 12 + 24 + 16 + 32 + maskedPayload.length);
+    envelope = new Uint8Array(64 + 12 + 24 + 16 + 32 + maskedPayload.length);
     let p = 0;
     envelope.set(salt64, p); p += 64;
     envelope.set(nonceAes, p); p += 12;
@@ -185,6 +188,9 @@ export async function encryptAssessmentNotesBlock(
       l3Ciphertext,
       xorStream,
       maskedPayload,
+      hmacHeader,
+      hmacData,
+      envelope,
       keyAes,
       keyXCha,
       keySerpent,
@@ -217,10 +223,15 @@ export async function decryptAssessmentNotesBlock(
   let l3Ciphertext: Uint8Array | null = null;
   let xorStream: Uint8Array | null = null;
   let plaintext: Uint8Array | null = null;
+  let envelope: Uint8Array | null = null;
+  let hmacHeader: Uint8Array | null = null;
+  let hmacData: Uint8Array | null = null;
 
   try {
     // 1. Decode & repair Reed-Solomon error correction
-    const { data: envelope, recoveredErrors } = decodeRSStream(rsNotesBlock);
+    const rsDecoded = decodeRSStream(rsNotesBlock);
+    envelope = rsDecoded.data;
+    const recoveredErrors = rsDecoded.recoveredErrors;
 
     // Header size: 64 (salt) + 12 (nonceAes) + 24 (nonceXCha) + 16 (ivSerpent) + 32 (tag) = 148 bytes
     if (envelope.length < 148) {
@@ -249,13 +260,13 @@ export async function decryptAssessmentNotesBlock(
     hmacAuthKey = derived.hmacAuthKey;
 
     // 3. Verify HMAC commitment tag in constant-time
-    const hmacHeader = new Uint8Array(64 + 12 + 24 + 16);
+    hmacHeader = new Uint8Array(64 + 12 + 24 + 16);
     hmacHeader.set(salt64, 0);
     hmacHeader.set(nonceAes, 64);
     hmacHeader.set(nonceXCha, 64 + 12);
     hmacHeader.set(ivSerpent, 64 + 12 + 24);
 
-    const hmacData = new Uint8Array(hmacHeader.length + maskedPayload.length);
+    hmacData = new Uint8Array(hmacHeader.length + maskedPayload.length);
     hmacData.set(hmacHeader, 0);
     hmacData.set(maskedPayload, hmacHeader.length);
 
@@ -315,6 +326,9 @@ export async function decryptAssessmentNotesBlock(
       l2Combined,
       l3Ciphertext,
       xorStream,
+      hmacHeader,
+      hmacData,
+      envelope,
       keyAes,
       keyXCha,
       keySerpent,

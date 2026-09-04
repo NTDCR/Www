@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Fingerprint, Copy, Check, ShieldCheck, Sparkles, Key, Lock, Eye, EyeOff } from 'lucide-react';
 import { format1024BitIdFormatted } from '../crypto/key6Engine';
+import { secureCopyToClipboard } from '../security/clipboard';
 
 interface Key6BadgeCardProps {
   title: string;
@@ -28,11 +29,11 @@ export const Key6BadgeCard: React.FC<Key6BadgeCardProps> = ({
   const [copied, setCopied] = useState(false);
   const [showKey6, setShowKey6] = useState(false);
 
-  const handleCopy = () => {
+  const handleCopy = async () => {
     if (!uniqueId1024Hex) return;
-    navigator.clipboard.writeText(uniqueId1024Hex);
+    await secureCopyToClipboard(uniqueId1024Hex, 45);
     setCopied(true);
-    setTimeout(() => setCopied(false), 2500);
+    setTimeout(() => setCopied(false), 3000);
   };
 
   const isVaultA = vaultType === 'A';
@@ -107,6 +108,12 @@ export const Key6BadgeCard: React.FC<Key6BadgeCardProps> = ({
             value={key6Value}
             onChange={(e) => onKey6Change?.(e.target.value)}
             placeholder={`Enter Key 6 for Vault ${vaultType}...`}
+            autoComplete="new-password"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
+            data-lpignore="true"
+            data-1p-ignore="true"
             className={`w-full bg-slate-900 border rounded px-2.5 py-1.5 text-slate-200 text-xs focus:outline-none transition-colors ${
               isVaultA ? 'border-slate-700 focus:border-emerald-500' : 'border-slate-700 focus:border-amber-500'
             }`}
@@ -132,7 +139,7 @@ export const Key6BadgeCard: React.FC<Key6BadgeCardProps> = ({
               }`}
             >
               {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-              <span>{copied ? 'Copied 1024-bit ID!' : 'Copy 1024-Bit ID'}</span>
+              <span>{copied ? 'Copied! (Auto-wipes in 45s)' : 'Copy 1024-Bit ID'}</span>
             </button>
           ) : (
             <span className="text-[10px] text-slate-500 italic">

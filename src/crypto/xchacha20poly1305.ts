@@ -32,10 +32,14 @@ export function xchacha20Poly1305Encrypt(
 ): { ciphertext: Uint8Array; tag: Uint8Array } {
   const cipher = xchacha20poly1305(key32, nonce24, aad);
   const ctAndTag = cipher.encrypt(plaintext);
-  // Noble returns ciphertext || 16-byte Poly1305 tag
-  const tag = ctAndTag.slice(ctAndTag.length - 16);
-  const ciphertext = ctAndTag.slice(0, ctAndTag.length - 16);
-  return { ciphertext, tag };
+  try {
+    // Noble returns ciphertext || 16-byte Poly1305 tag
+    const tag = ctAndTag.slice(ctAndTag.length - 16);
+    const ciphertext = ctAndTag.slice(0, ctAndTag.length - 16);
+    return { ciphertext, tag };
+  } finally {
+    ctAndTag.fill(0);
+  }
 }
 
 /**
@@ -48,13 +52,16 @@ export function xchacha20Poly1305Decrypt(
   nonce24: Uint8Array,
   aad: Uint8Array = new Uint8Array(0)
 ): Uint8Array | null {
+  let combined: Uint8Array | null = null;
   try {
     const cipher = xchacha20poly1305(key32, nonce24, aad);
-    const combined = new Uint8Array(ciphertext.length + tag.length);
+    combined = new Uint8Array(ciphertext.length + tag.length);
     combined.set(ciphertext, 0);
     combined.set(tag, ciphertext.length);
     return cipher.decrypt(combined);
   } catch {
     return null;
+  } finally {
+    if (combined) combined.fill(0);
   }
 }

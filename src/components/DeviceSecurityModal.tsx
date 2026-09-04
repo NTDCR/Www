@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { KeyRound, Shield, X, Copy, Check, Printer, RefreshCw, Cpu } from 'lucide-react';
 import { DeviceFingerprint, RecoveryCode } from '../types';
 import { loadStoredRecoveryCodes, generateAndStoreRecoveryCodes, markRecoveryCodeUsed } from '../security/deviceFingerprint';
+import { secureCopyToClipboard } from '../security/clipboard';
 
 interface DeviceSecurityModalProps {
   deviceInfo: DeviceFingerprint | null;
@@ -19,8 +20,8 @@ export const DeviceSecurityModal: React.FC<DeviceSecurityModalProps> = ({ device
 
   const handleRegenerateCodes = async () => {
     setIsGenerating(true);
-    const newCodes = await generateAndStoreRecoveryCodes();
-    setRecoveryCodes(newCodes);
+    const codes = await generateAndStoreRecoveryCodes();
+    setRecoveryCodes(codes);
     setIsGenerating(false);
   };
 
@@ -31,10 +32,10 @@ export const DeviceSecurityModal: React.FC<DeviceSecurityModalProps> = ({ device
     );
   };
 
-  const handleCopyCode = (code: string, idx: number) => {
-    navigator.clipboard.writeText(code);
+  const handleCopyCode = async (code: string, idx: number) => {
+    await secureCopyToClipboard(code, 45);
     setCopiedIdx(idx);
-    setTimeout(() => setCopiedIdx(null), 2000);
+    setTimeout(() => setCopiedIdx(null), 2500);
   };
 
   const handlePrint = () => {
