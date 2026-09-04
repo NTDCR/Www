@@ -143,23 +143,24 @@ export async function deriveLayerKey(
 ): Promise<Uint8Array> {
   const enc = new TextEncoder();
   const passBytes = enc.encode(password);
+  let pbkdf2Derived: Uint8Array | null = null;
 
-  // 1. Hardware-accelerated PBKDF2-HMAC-SHA512
-  const pbkdf2Derived = await fastPbkdf2HmacSha512(passBytes, salt512, iterations, 64);
+  try {
+    // 1. Hardware-accelerated PBKDF2-HMAC-SHA512
+    pbkdf2Derived = await fastPbkdf2HmacSha512(passBytes, salt512, iterations, 64);
 
-  // 2. Audited HKDF-SHA512 (Extract & Expand)
-  const derivedKeyBits = hkdf(
-    sha512,
-    pbkdf2Derived,
-    salt512.slice(0, 32),
-    enc.encode(info),
-    32
-  );
-
-  // Securely wipe raw cleartext password bytes and intermediate PBKDF2 derived secret
-  zeroizeBuffer(passBytes, pbkdf2Derived);
-
-  return derivedKeyBits;
+    // 2. Audited HKDF-SHA512 (Extract & Expand)
+    return hkdf(
+      sha512,
+      pbkdf2Derived,
+      salt512.slice(0, 32),
+      enc.encode(info),
+      32
+    );
+  } finally {
+    // Unconditionally wipe raw cleartext password bytes and intermediate PBKDF2 secret
+    zeroizeBuffer(passBytes, pbkdf2Derived);
+  }
 }
 
 /**
@@ -240,7 +241,7 @@ export async function computeFullPayloadSha256Async(payload: Uint8Array): Promis
     const end = Math.min(offset + CHUNK_STEP, payload.length);
     hash.update(payload.subarray(offset, end));
     offset = end;
-    if ((offset & 0x3fffff) === 0 && offset < payload.length) {
+    if (offset < payload.length) {
       await yieldToMainThread();
     }
   }
@@ -571,52 +572,65 @@ export async function encryptCascade5Layers(
   const p3 = (passwords.layer3_xchacha || '').trim();
   const p4 = (passwords.layer4_aes || '').trim();
   const p5 = (passwords.layer5_otp || '').trim();
-  const key1 = await deriveLayerKey(p1, saltL1, iterations, 'Layer1-Kyber');
-  await yieldToMainThread();
-  const key2 = await deriveLayerKey(p2, saltL2, iterations, 'Layer2-Serpent');
-  await yieldToMainThread();
-  const key3 = await deriveLayerKey(p3, saltL3, iterations, 'Layer3-XChaCha');
-  await yieldToMainThread();
-  const key4 = await deriveLayerKey(p4, saltL4, iterations, 'Layer4-AES-GCM');
-  await yieldToMainThread();
-  const key5 = await deriveLayerKey(p5, saltL5, iterations, 'Layer5-OTP');
-  await yieldToMainThread();
 
-  // Derive Kyber keypair using Password 1-derived key material + saltL1 (A1: Eliminates public key recovery)
-  const kyberSeed = new Uint8Array(64);
-  kyberSeed.set(key1, 0);
-  kyberSeed.set(saltL1.subarray(0, 32), 32);
-  const kyberKeypair = await kyber1024KeyGen(kyberSeed);
-  const { ciphertext: kyberCt, sharedSecret: pqcSecret } = await kyber1024Encapsulate(kyberKeypair.publicKey);
-  zeroizeBuffer(kyberSeed, kyberKeypair.secretKey, kyberKeypair.publicKey);
-  await yieldToMainThread();
-
-  const pqcMask32 = new Uint32Array(8);
-  const pqcMaskBytes = new Uint8Array(pqcMask32.buffer);
-  for (let i = 0; i < 32; i++) pqcMaskBytes[i] = pqcSecret[i] ^ key1[i];
-  const aesCipher = ctr(key4, ivL4);
-
-  const serpentSubkeys = serpentKeySchedule(key2);
-
-  const keys = {
-    key1,
-    key2,
-    key3,
-    key4,
-    key5,
-    saltL5,
-    ivL2,
-    ivL3,
-    ivL4,
-    pqcSecret,
-    aesCipher,
-    pqcMask32,
-    serpentSubkeys
-  };
-
+  let key1: Uint8Array | null = null;
+  let key2: Uint8Array | null = null;
+  let key3: Uint8Array | null = null;
+  let key4: Uint8Array | null = null;
+  let key5: Uint8Array | null = null;
+  let pqcSecret: Uint8Array | null = null;
+  let pqcMask32: Uint32Array | null = null;
+  let serpentSubkeys: ReturnType<typeof serpentKeySchedule> | null = null;
+  let kyberCt: Uint8Array | null = null;
   const encryptedChunks: Uint8Array[] = [];
-  let fullCiphertext: Uint8Array;
+  let fullCiphertext!: Uint8Array;
+
   try {
+    key1 = await deriveLayerKey(p1, saltL1, iterations, 'Layer1-Kyber');
+    await yieldToMainThread();
+    key2 = await deriveLayerKey(p2, saltL2, iterations, 'Layer2-Serpent');
+    await yieldToMainThread();
+    key3 = await deriveLayerKey(p3, saltL3, iterations, 'Layer3-XChaCha');
+    await yieldToMainThread();
+    key4 = await deriveLayerKey(p4, saltL4, iterations, 'Layer4-AES-GCM');
+    await yieldToMainThread();
+    key5 = await deriveLayerKey(p5, saltL5, iterations, 'Layer5-OTP');
+    await yieldToMainThread();
+
+    // Derive Kyber keypair using Password 1-derived key material + saltL1 (A1: Eliminates public key recovery)
+    const kyberSeed = new Uint8Array(64);
+    kyberSeed.set(key1, 0);
+    kyberSeed.set(saltL1.subarray(0, 32), 32);
+    const kyberKeypair = await kyber1024KeyGen(kyberSeed);
+    const encapsulated = await kyber1024Encapsulate(kyberKeypair.publicKey);
+    kyberCt = encapsulated.ciphertext;
+    pqcSecret = encapsulated.sharedSecret;
+    zeroizeBuffer(kyberSeed, kyberKeypair.secretKey, kyberKeypair.publicKey);
+    await yieldToMainThread();
+
+    pqcMask32 = new Uint32Array(8);
+    const pqcMaskBytes = new Uint8Array(pqcMask32.buffer);
+    for (let i = 0; i < 32; i++) pqcMaskBytes[i] = pqcSecret[i] ^ key1[i];
+    const aesCipher = ctr(key4, ivL4);
+
+    serpentSubkeys = serpentKeySchedule(key2);
+
+    const keys = {
+      key1,
+      key2,
+      key3,
+      key4,
+      key5,
+      saltL5,
+      ivL2,
+      ivL3,
+      ivL4,
+      pqcSecret,
+      aesCipher,
+      pqcMask32,
+      serpentSubkeys
+    };
+
     let offset = 0;
     while (offset < effectiveInnerLength) {
       await yieldToMainThread();
@@ -670,10 +684,14 @@ export async function encryptCascade5Layers(
       zeroizeStreamingHandle(rawDataOrHandle);
     }
     zeroizeBuffer(key1, key2, key3, key4, key5, pqcSecret);
-    pqcMask32.fill(0);
+    if (pqcMask32) pqcMask32.fill(0);
     if (serpentSubkeys) {
       for (const rk of serpentSubkeys) rk.fill(0);
     }
+  }
+
+  if (!kyberCt) {
+    throw new Error('Cascade encryption aborted: Kyber ciphertext unavailable.');
   }
 
   // 6. Optional Key 6 Generation (Independent RS-protected XOR Garbage Block)
@@ -701,14 +719,19 @@ export async function encryptCascade5Layers(
   }
 
   // Derive master HMAC authentication key with audited noble/hashes
-  const authKey = await deriveMasterAuthKey(passwords, saltL1, saltL4, iterations);
-  const hmacInput = await buildHmacInputAsync({
-    saltL1, saltL2, saltL3, saltL4, saltL5,
-    ivL2, ivL3, ivL4, kyberCt,
-    payload: fullCiphertext
-  });
-  const tagL4 = await computeHmacSha256(authKey, hmacInput);
-  zeroizeBuffer(authKey);
+  let authKey: Uint8Array | null = null;
+  let tagL4: Uint8Array;
+  try {
+    authKey = await deriveMasterAuthKey(passwords, saltL1, saltL4, iterations);
+    const hmacInput = await buildHmacInputAsync({
+      saltL1, saltL2, saltL3, saltL4, saltL5,
+      ivL2, ivL3, ivL4, kyberCt,
+      payload: fullCiphertext
+    });
+    tagL4 = await computeHmacSha256(authKey, hmacInput);
+  } finally {
+    zeroizeBuffer(authKey);
+  }
 
   return {
     payload: fullCiphertext,
@@ -746,22 +769,26 @@ export async function decryptCascade5Layers(
   await yieldToMainThread();
 
   // 1. Derive candidate Master Auth Key from input passwords
-  const authKey = await deriveMasterAuthKey(passwords, bundle.saltL1, bundle.saltL4, iterations);
-  const hmacInput = await buildHmacInputAsync({
-    saltL1: bundle.saltL1,
-    saltL2: bundle.saltL2,
-    saltL3: bundle.saltL3,
-    saltL4: bundle.saltL4,
-    saltL5: bundle.saltL5,
-    ivL2: bundle.ivL2,
-    ivL3: bundle.ivL3,
-    ivL4: bundle.ivL4,
-    kyberCt: bundle.kyberCt,
-    payload: bundle.payload
-  });
-
-  const computedTag = await computeHmacSha256(authKey, hmacInput);
-  zeroizeBuffer(authKey);
+  let authKey: Uint8Array | null = null;
+  let computedTag: Uint8Array;
+  try {
+    authKey = await deriveMasterAuthKey(passwords, bundle.saltL1, bundle.saltL4, iterations);
+    const hmacInput = await buildHmacInputAsync({
+      saltL1: bundle.saltL1,
+      saltL2: bundle.saltL2,
+      saltL3: bundle.saltL3,
+      saltL4: bundle.saltL4,
+      saltL5: bundle.saltL5,
+      ivL2: bundle.ivL2,
+      ivL3: bundle.ivL3,
+      ivL4: bundle.ivL4,
+      kyberCt: bundle.kyberCt,
+      payload: bundle.payload
+    });
+    computedTag = await computeHmacSha256(authKey, hmacInput);
+  } finally {
+    zeroizeBuffer(authKey);
+  }
 
   // Constant-time check: If tag doesn't match, this key set is NOT for this vault
   if (!constantTimeCompare(computedTag, bundle.tagL4)) {
@@ -776,56 +803,65 @@ export async function decryptCascade5Layers(
   const p4 = (passwords.layer4_aes || '').trim();
   const p5 = (passwords.layer5_otp || '').trim();
 
-  const key1 = await deriveLayerKey(p1, bundle.saltL1, iterations, 'Layer1-Kyber');
-  await yieldToMainThread();
-  const kyberSeed = new Uint8Array(64);
-  kyberSeed.set(key1, 0);
-  kyberSeed.set(bundle.saltL1.subarray(0, 32), 32);
-  const kyberKeypair = await kyber1024KeyGen(kyberSeed);
-  const pqcSecret = await kyber1024Decapsulate(bundle.kyberCt, kyberKeypair.secretKey);
-  zeroizeBuffer(kyberSeed, kyberKeypair.secretKey, kyberKeypair.publicKey);
-  await yieldToMainThread();
-
-  onProgress?.(3, 'Decrypting Layers 2-5: Serpent-256 + XChaCha20 + AES-256 + ChaCha Mask...');
-  await yieldToMainThread();
-  const key2 = await deriveLayerKey(p2, bundle.saltL2, iterations, 'Layer2-Serpent');
-  await yieldToMainThread();
-  const key3 = await deriveLayerKey(p3, bundle.saltL3, iterations, 'Layer3-XChaCha');
-  await yieldToMainThread();
-  const key4 = await deriveLayerKey(p4, bundle.saltL4, iterations, 'Layer4-AES-GCM');
-  await yieldToMainThread();
-  const key5 = await deriveLayerKey(p5, bundle.saltL5, iterations, 'Layer5-OTP');
-  await yieldToMainThread();
-
-  const pqcMask32 = new Uint32Array(8);
-  const pqcMaskBytes = new Uint8Array(pqcMask32.buffer);
-  for (let i = 0; i < 32; i++) pqcMaskBytes[i] = pqcSecret[i] ^ key1[i];
-  const aesCipher = ctr(key4, bundle.ivL4);
-
-  const serpentSubkeys = serpentKeySchedule(key2);
-
-  const keys = {
-    key1,
-    key2,
-    key3,
-    key4,
-    key5,
-    saltL5: bundle.saltL5,
-    ivL2: bundle.ivL2,
-    ivL3: bundle.ivL3,
-    ivL4: bundle.ivL4,
-    pqcSecret,
-    aesCipher,
-    pqcMask32,
-    serpentSubkeys
-  };
-
-  const chunksToDecrypt = bundle.chunkedPayload && bundle.chunkedPayload.length > 0
-    ? bundle.chunkedPayload
-    : [bundle.payload];
-
+  let key1: Uint8Array | null = null;
+  let key2: Uint8Array | null = null;
+  let key3: Uint8Array | null = null;
+  let key4: Uint8Array | null = null;
+  let key5: Uint8Array | null = null;
+  let pqcSecret: Uint8Array | null = null;
+  let pqcMask32: Uint32Array | null = null;
+  let serpentSubkeys: ReturnType<typeof serpentKeySchedule> | null = null;
   const decryptedChunks: Uint8Array[] = [];
+
   try {
+    key1 = await deriveLayerKey(p1, bundle.saltL1, iterations, 'Layer1-Kyber');
+    await yieldToMainThread();
+    const kyberSeed = new Uint8Array(64);
+    kyberSeed.set(key1, 0);
+    kyberSeed.set(bundle.saltL1.subarray(0, 32), 32);
+    const kyberKeypair = await kyber1024KeyGen(kyberSeed);
+    pqcSecret = await kyber1024Decapsulate(bundle.kyberCt, kyberKeypair.secretKey);
+    zeroizeBuffer(kyberSeed, kyberKeypair.secretKey, kyberKeypair.publicKey);
+    await yieldToMainThread();
+
+    onProgress?.(3, 'Decrypting Layers 2-5: Serpent-256 + XChaCha20 + AES-256 + ChaCha Mask...');
+    await yieldToMainThread();
+    key2 = await deriveLayerKey(p2, bundle.saltL2, iterations, 'Layer2-Serpent');
+    await yieldToMainThread();
+    key3 = await deriveLayerKey(p3, bundle.saltL3, iterations, 'Layer3-XChaCha');
+    await yieldToMainThread();
+    key4 = await deriveLayerKey(p4, bundle.saltL4, iterations, 'Layer4-AES-GCM');
+    await yieldToMainThread();
+    key5 = await deriveLayerKey(p5, bundle.saltL5, iterations, 'Layer5-OTP');
+    await yieldToMainThread();
+
+    pqcMask32 = new Uint32Array(8);
+    const pqcMaskBytes = new Uint8Array(pqcMask32.buffer);
+    for (let i = 0; i < 32; i++) pqcMaskBytes[i] = pqcSecret[i] ^ key1[i];
+    const aesCipher = ctr(key4, bundle.ivL4);
+
+    serpentSubkeys = serpentKeySchedule(key2);
+
+    const keys = {
+      key1,
+      key2,
+      key3,
+      key4,
+      key5,
+      saltL5: bundle.saltL5,
+      ivL2: bundle.ivL2,
+      ivL3: bundle.ivL3,
+      ivL4: bundle.ivL4,
+      pqcSecret,
+      aesCipher,
+      pqcMask32,
+      serpentSubkeys
+    };
+
+    const chunksToDecrypt = bundle.chunkedPayload && bundle.chunkedPayload.length > 0
+      ? bundle.chunkedPayload
+      : [bundle.payload];
+
     let offset = 0;
     for (let idx = 0; idx < chunksToDecrypt.length; idx++) {
       await yieldToMainThread();
@@ -837,7 +873,7 @@ export async function decryptCascade5Layers(
     }
   } finally {
     zeroizeBuffer(key1, key2, key3, key4, key5, pqcSecret);
-    pqcMask32.fill(0);
+    if (pqcMask32) pqcMask32.fill(0);
     if (serpentSubkeys) {
       for (const rk of serpentSubkeys) rk.fill(0);
     }
@@ -853,41 +889,50 @@ export async function decryptCascade5Layers(
     p += c.length;
   }
 
-  // 4. Validate inner container framing: [Magic (4B), NameLen (4B), NameBytes (N B), Size (8B), RawData]
-  if (combined.length < 16) {
-    throw new Error('Corrupt or truncated decrypted payload.');
-  }
-
-  // Verify Magic in constant time
-  if (!constantTimeCompare(combined.subarray(0, 4), VAULT_INNER_MAGIC)) {
-    throw new Error('Authentication Failed: Inner container magic verification mismatch.');
-  }
-
-  const decView = new DataView(combined.buffer, combined.byteOffset, combined.byteLength);
-  let dp = 4;
-  const nameLen = decView.getUint32(dp, true); dp += 4;
-  if (dp + nameLen + 8 > combined.length) {
-    throw new Error('Corrupt filename descriptor in decrypted stream.');
-  }
-
-  const dec = new TextDecoder();
-  const originalFilename = dec.decode(combined.subarray(dp, dp + nameLen)); dp += nameLen;
-  const rawBigSize = decView.getBigUint64(dp, true); dp += 8;
-  if (rawBigSize > BigInt(Number.MAX_SAFE_INTEGER)) {
-    throw new Error('Corrupt or truncated file payload length: exceeds safe integer bounds.');
-  }
-  const originalSize = Number(rawBigSize);
-  if (originalSize < 0 || dp + originalSize > combined.length) {
-    throw new Error('Corrupt or truncated file payload length.');
-  }
-
-  const data = combined.subarray(dp, dp + originalSize);
-
-  return {
-    data,
-    originalFilename,
-    originalSize
+  const wipePlaintext = () => {
+    zeroizeBuffer(combined, ...decryptedChunks);
   };
+
+  try {
+    // 4. Validate inner container framing: [Magic (4B), NameLen (4B), NameBytes (N B), Size (8B), RawData]
+    if (combined.length < 16) {
+      throw new Error('Corrupt or truncated decrypted payload.');
+    }
+
+    // Verify Magic in constant time
+    if (!constantTimeCompare(combined.subarray(0, 4), VAULT_INNER_MAGIC)) {
+      throw new Error('Authentication Failed: Inner container magic verification mismatch.');
+    }
+
+    const decView = new DataView(combined.buffer, combined.byteOffset, combined.byteLength);
+    let dp = 4;
+    const nameLen = decView.getUint32(dp, true); dp += 4;
+    if (dp + nameLen + 8 > combined.length) {
+      throw new Error('Corrupt filename descriptor in decrypted stream.');
+    }
+
+    const dec = new TextDecoder();
+    const originalFilename = dec.decode(combined.subarray(dp, dp + nameLen)); dp += nameLen;
+    const rawBigSize = decView.getBigUint64(dp, true); dp += 8;
+    if (rawBigSize > BigInt(Number.MAX_SAFE_INTEGER)) {
+      throw new Error('Corrupt or truncated file payload length: exceeds safe integer bounds.');
+    }
+    const originalSize = Number(rawBigSize);
+    if (originalSize < 0 || dp + originalSize > combined.length) {
+      throw new Error('Corrupt or truncated file payload length.');
+    }
+
+    const data = combined.subarray(dp, dp + originalSize);
+
+    return {
+      data,
+      originalFilename,
+      originalSize
+    };
+  } catch (err) {
+    wipePlaintext();
+    throw err;
+  }
 }
 
 /**

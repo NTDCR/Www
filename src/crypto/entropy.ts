@@ -6,6 +6,7 @@
 import { StatisticalMetrics } from '../types';
 import { generateSecureRandomBytes } from './safeRandom';
 import { yieldToMainThread } from '../utils/asyncUtils';
+import { constantTimeCompare } from './cascadeEngine';
 
 /**
  * Calculates exact Shannon Entropy in bits per byte [0.0 - 8.0]
@@ -205,7 +206,7 @@ export async function normalizeEntropyToTarget(
   let inIdx = 0;
   let outIdx = headerLen;
 
-  const YIELD_BLOCK = 4194304; // Yield every 4MB to maintain responsive UI
+  const YIELD_BLOCK = 1048576; // Yield every 1MB to maintain responsive UI
   while (inIdx < len) {
     if ((inIdx & (YIELD_BLOCK - 1)) === 0 && inIdx > 0) {
       await yieldToMainThread();
@@ -260,9 +261,19 @@ export async function denormalizeEntropy(normalizedData: Uint8Array): Promise<Ui
   }
   storedChecksum >>>= 0;
 
-  // Verify salt & length integrity
+  // Verify salt & length integrity (constant-time 32-bit compare)
   const expectedChecksum = computeHeaderChecksum(streamSalt, originalLen);
-  if (storedChecksum !== expectedChecksum) {
+  const storedChecksumBytes = new Uint8Array(4);
+  const expectedChecksumBytes = new Uint8Array(4);
+  storedChecksumBytes[0] = storedChecksum & 0xff;
+  storedChecksumBytes[1] = (storedChecksum >>> 8) & 0xff;
+  storedChecksumBytes[2] = (storedChecksum >>> 16) & 0xff;
+  storedChecksumBytes[3] = (storedChecksum >>> 24) & 0xff;
+  expectedChecksumBytes[0] = expectedChecksum & 0xff;
+  expectedChecksumBytes[1] = (expectedChecksum >>> 8) & 0xff;
+  expectedChecksumBytes[2] = (expectedChecksum >>> 16) & 0xff;
+  expectedChecksumBytes[3] = (expectedChecksum >>> 24) & 0xff;
+  if (!constantTimeCompare(storedChecksumBytes, expectedChecksumBytes)) {
     throw new Error('Entropy stream header or salt integrity corrupt');
   }
 
@@ -281,7 +292,7 @@ export async function denormalizeEntropy(normalizedData: Uint8Array): Promise<Ui
   let s2 = (streamSalt[8] | (streamSalt[9] << 8) | (streamSalt[10] << 16) | (streamSalt[11] << 24)) >>> 0;
   let s3 = (streamSalt[12] | (streamSalt[13] << 8) | (streamSalt[14] << 16) | (streamSalt[15] << 24)) >>> 0;
 
-  const YIELD_BLOCK = 4194304;
+  const YIELD_BLOCK = 1048576;
   while (outIdx < originalLen && inIdx < normalizedData.length) {
     if ((outIdx & (YIELD_BLOCK - 1)) === 0 && outIdx > 0) {
       await yieldToMainThread();

@@ -56,23 +56,25 @@ async function deriveNotesKeyMaterial(
 
   const enc = new TextEncoder();
   const pwBytes = enc.encode(rawPwString);
+  let masterSecret: Uint8Array | null = null;
 
-  // 1. Hardware-accelerated PBKDF2-HMAC-SHA512 (64 bytes master secret)
-  const masterSecret = await fastPbkdf2HmacSha512(pwBytes, salt64, iterations, 64);
-  zeroizeBuffer(pwBytes);
+  try {
+    // 1. Hardware-accelerated PBKDF2-HMAC-SHA512 (64 bytes master secret)
+    masterSecret = await fastPbkdf2HmacSha512(pwBytes, salt64, iterations, 64);
 
-  const infoPrefix = `ContentGuard-AssessmentNotes-${vaultLabel}`;
+    const infoPrefix = `ContentGuard-AssessmentNotes-${vaultLabel}`;
 
-  // Derive subkeys
-  const keyAes = hkdf(sha256, masterSecret.subarray(0, 32), salt64.subarray(0, 32), enc.encode(`${infoPrefix}-AES256`), 32);
-  const keyXCha = hkdf(sha256, masterSecret.subarray(32, 64), salt64.subarray(16, 48), enc.encode(`${infoPrefix}-XChaCha20`), 32);
-  const keySerpent = hkdf(sha256, masterSecret.subarray(0, 32), salt64.subarray(32, 64), enc.encode(`${infoPrefix}-Serpent256`), 32);
-  const xorMaskKey = hkdf(sha512, masterSecret, salt64, enc.encode(`${infoPrefix}-XORMask`), 64);
-  const hmacAuthKey = hkdf(sha256, masterSecret.subarray(16, 48), salt64.subarray(0, 32), enc.encode(`${infoPrefix}-HMACAuth`), 32);
+    // Derive subkeys
+    const keyAes = hkdf(sha256, masterSecret.subarray(0, 32), salt64.subarray(0, 32), enc.encode(`${infoPrefix}-AES256`), 32);
+    const keyXCha = hkdf(sha256, masterSecret.subarray(32, 64), salt64.subarray(16, 48), enc.encode(`${infoPrefix}-XChaCha20`), 32);
+    const keySerpent = hkdf(sha256, masterSecret.subarray(0, 32), salt64.subarray(32, 64), enc.encode(`${infoPrefix}-Serpent256`), 32);
+    const xorMaskKey = hkdf(sha512, masterSecret, salt64, enc.encode(`${infoPrefix}-XORMask`), 64);
+    const hmacAuthKey = hkdf(sha256, masterSecret.subarray(16, 48), salt64.subarray(0, 32), enc.encode(`${infoPrefix}-HMACAuth`), 32);
 
-  zeroizeBuffer(masterSecret);
-
-  return { keyAes, keyXCha, keySerpent, xorMaskKey, hmacAuthKey };
+    return { keyAes, keyXCha, keySerpent, xorMaskKey, hmacAuthKey };
+  } finally {
+    zeroizeBuffer(pwBytes, masterSecret);
+  }
 }
 
 /**

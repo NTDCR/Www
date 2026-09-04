@@ -80,6 +80,7 @@ export async function deriveAndMask1024BitId(
   const enc = new TextEncoder();
   const keyBytes = enc.encode(key6.trim());
   let stretched: Uint8Array | null = null;
+  let rawId128: Uint8Array | null = null;
   let xorMask128: Uint8Array | null = null;
   let tagKey: Uint8Array | null = null;
   let unencodedBlock: Uint8Array | null = null;
@@ -89,7 +90,7 @@ export async function deriveAndMask1024BitId(
     stretched = await fastPbkdf2HmacSha512(keyBytes, salt64, iterations, 64);
 
     // 2. HKDF-SHA512 expansion to raw 1024 bits (128 bytes)
-    const rawId128 = hkdf(
+    rawId128 = hkdf(
       sha512,
       stretched,
       salt64.subarray(0, 32),
@@ -137,16 +138,19 @@ export async function deriveAndMask1024BitId(
     // 8. Apply NASA CCSDS / ISO Reed-Solomon RS(255, 223) Error Correction on the K6 block
     const { encodedData: rsBlock } = encodeRSStream(unencodedBlock);
 
-    return {
+    const result = {
       rawId128,
       hexString,
       encryptedId128,
       commitmentTag32,
       rsBlock
     };
+    // Transfer ownership of returned ID so finally does not wipe the live result
+    rawId128 = null;
+    return result;
   } finally {
-    // Zeroize sensitive keys and temporary buffers
-    zeroizeBuffer(keyBytes, stretched, xorMask128, tagKey, unencodedBlock);
+    // Zeroize sensitive keys and temporary buffers (rawId128 wiped on exception only)
+    zeroizeBuffer(keyBytes, stretched, xorMask128, tagKey, unencodedBlock, rawId128);
   }
 }
 

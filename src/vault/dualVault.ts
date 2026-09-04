@@ -171,23 +171,25 @@ async function calculateSha512Safe(data: Uint8Array | Uint8Array[]): Promise<str
 
   // 2. High-performance zero-allocation chunked streaming via Noble hashes with cooperative yielding
   const h = sha512.create();
+  const CHUNK = 1048576; // Strict 1 MB
   if (Array.isArray(data)) {
     for (const chunk of data) {
-      const CHUNK = 4 * 1024 * 1024;
       for (let offset = 0; offset < chunk.length; offset += CHUNK) {
         const end = Math.min(offset + CHUNK, chunk.length);
         h.update(chunk.subarray(offset, end));
+        if (end < chunk.length) {
+          await yieldToMainThread();
+        }
       }
       await yieldToMainThread();
     }
     return Array.from(h.digest()).map(b => b.toString(16).padStart(2, '0')).join('');
   }
 
-  const CHUNK = 4 * 1024 * 1024;
   for (let offset = 0; offset < data.length; offset += CHUNK) {
     const end = Math.min(offset + CHUNK, data.length);
     h.update(data.subarray(offset, end));
-    if (offset % (16 * 1024 * 1024) === 0 && offset > 0) {
+    if (end < data.length) {
       await yieldToMainThread();
     }
   }
@@ -589,20 +591,25 @@ export async function inspectContainerKey6Identity(
   try {
     const { bundleA, bundleB } = await getOrExtractContainerBundles(protectedMp4File);
 
+    // Always evaluate both vaults (timing-invariant; no early-success abort)
+    let resA: Awaited<ReturnType<typeof unmaskAndVerifyKey6FromRSBlock>> | null = null;
+    let resB: Awaited<ReturnType<typeof unmaskAndVerifyKey6FromRSBlock>> | null = null;
+
     if (bundleA && bundleA.k6Block && bundleA.k6Block.length > 0) {
       await yieldToMainThread();
-      const resA = await unmaskAndVerifyKey6FromRSBlock(key6Input, bundleA.k6Block, iterations, 'VaultA');
-      if (resA.valid) {
-        return { matchedVault: 'VaultA', uniqueId1024Hex: resA.uniqueId1024Hex };
-      }
+      resA = await unmaskAndVerifyKey6FromRSBlock(key6Input, bundleA.k6Block, iterations, 'VaultA');
     }
 
     if (bundleB && bundleB.k6Block && bundleB.k6Block.length > 0) {
       await yieldToMainThread();
-      const resB = await unmaskAndVerifyKey6FromRSBlock(key6Input, bundleB.k6Block, iterations, 'VaultB');
-      if (resB.valid) {
-        return { matchedVault: 'VaultB', uniqueId1024Hex: resB.uniqueId1024Hex };
-      }
+      resB = await unmaskAndVerifyKey6FromRSBlock(key6Input, bundleB.k6Block, iterations, 'VaultB');
+    }
+
+    if (resA && resA.valid) {
+      return { matchedVault: 'VaultA', uniqueId1024Hex: resA.uniqueId1024Hex };
+    }
+    if (resB && resB.valid) {
+      return { matchedVault: 'VaultB', uniqueId1024Hex: resB.uniqueId1024Hex };
     }
 
     return { matchedVault: null, uniqueId1024Hex: '' };
@@ -633,28 +640,33 @@ export async function inspectContainerAssessmentNotes(
   try {
     const { bundleA, bundleB } = await getOrExtractContainerBundles(protectedMp4File);
 
+    // Always evaluate both vaults (timing-invariant; no early-success abort)
+    let resA: Awaited<ReturnType<typeof decryptAssessmentNotesBlock>> | null = null;
+    let resB: Awaited<ReturnType<typeof decryptAssessmentNotesBlock>> | null = null;
+
     if (bundleA && bundleA.notesBlock && bundleA.notesBlock.length > 0) {
       await yieldToMainThread();
-      const resA = await decryptAssessmentNotesBlock(bundleA.notesBlock, passwords, iterations, 'VaultA');
-      if (resA.valid && resA.notes) {
-        return {
-          matchedVault: 'VaultA',
-          notes: resA.notes,
-          repairedErrors: resA.repairedErrors
-        };
-      }
+      resA = await decryptAssessmentNotesBlock(bundleA.notesBlock, passwords, iterations, 'VaultA');
     }
 
     if (bundleB && bundleB.notesBlock && bundleB.notesBlock.length > 0) {
       await yieldToMainThread();
-      const resB = await decryptAssessmentNotesBlock(bundleB.notesBlock, passwords, iterations, 'VaultB');
-      if (resB.valid && resB.notes) {
-        return {
-          matchedVault: 'VaultB',
-          notes: resB.notes,
-          repairedErrors: resB.repairedErrors
-        };
-      }
+      resB = await decryptAssessmentNotesBlock(bundleB.notesBlock, passwords, iterations, 'VaultB');
+    }
+
+    if (resA && resA.valid && resA.notes) {
+      return {
+        matchedVault: 'VaultA',
+        notes: resA.notes,
+        repairedErrors: resA.repairedErrors
+      };
+    }
+    if (resB && resB.valid && resB.notes) {
+      return {
+        matchedVault: 'VaultB',
+        notes: resB.notes,
+        repairedErrors: resB.repairedErrors
+      };
     }
 
     return { matchedVault: null, notes: null, repairedErrors: 0 };

@@ -231,7 +231,7 @@ export async function embedSpreadSpectrum8Locations(
 
   // Direct zero-overhead striped scatter with zero intermediate array allocation
   let p = 0;
-  const YIELD_STRIDE = 4194304; // Yield every 4MB
+  const YIELD_STRIDE = 1048576; // Yield every 1MB
 
   // 1. Scatter Vault A length (4 bytes)
   for (let i = 0; i < 4; i++) {
@@ -530,7 +530,7 @@ export async function extractSpreadSpectrumPayload(protectedMp4: Uint8Array): Pr
   const c0 = chunks[0]!, c1 = chunks[1]!, c2 = chunks[2]!, c3 = chunks[3]!;
   const c4 = chunks[4]!, c5 = chunks[5]!, c6 = chunks[6]!, c7 = chunks[7]!;
 
-  const YIELD_BLOCK = 524288; // 4MB
+  const YIELD_BLOCK = 131072; // 1MB of reassembled stream (w * 8 bytes)
   for (let w = 0; w < fullOctets; w++) {
     if ((w & (YIELD_BLOCK - 1)) === 0 && w > 0) {
       await yieldToMainThread();
