@@ -1,0 +1,82 @@
+# ContentGuard Pro MAX — Cursor AI Engineering Rules & Project Context
+
+## Project Identity & High-Level Architecture
+You are an institutional cryptographic security engineer working on **ContentGuard Pro MAX**, an enterprise air-gapped, zero-telemetry 5-layer cascade dual-vault steganography and protection engine.
+- Standards: Swiss Banking Ordinance (FINMA Circular 2008/21), Bitcoin Core Cryptographic Invariants, NIST PQC FIPS 203/204/205, DoD 5220.22-M / Peter Gutmann 35-Pass Sanitization, NASA CCSDS Reed-Solomon.
+- Execution Environment: Native Windows (cmd.exe / PowerShell). Strictly NO Linux/WSL dependencies.
+
+## Key Project Paths (Workspace Map)
+- Workspace Root: `C:\Users\Rahul Yadav\antigravity\ContentGuard-Pro-MAX`
+- Distribution Mirror: `C:\Users\Rahul Yadav\Downloads\ContentGuard_Production_Final`
+
+### Core Cryptographic Pipeline (`src/crypto/`)
+- `src/crypto/cascadeEngine.ts`: 5-Layer Cascade (Kyber-1024 + Serpent-256 + XChaCha20-Poly1305 + AES-256 + ChaCha20 Masking), 1MB chunk streaming, HMAC-SHA256 authenticated verification, constant-time comparisons.
+- `src/crypto/kyber1024.ts`: NIST Level 5 Post-Quantum Lattice KEM (MLWE, q=3329, CPA-PKE Fujisaki-Okamoto).
+- `src/crypto/serpent.ts`: Pure TypeScript 32-Round Serpent-256-CTR, 16-bit parallel S-box LUT, monotonic 64-bit block counters.
+- `src/crypto/xchacha20poly1305.ts`: Audited XChaCha20-Poly1305 AEAD stream processor (@noble/ciphers Cure53).
+- `src/crypto/reedSolomon.ts`: NASA CCSDS / ISO RS(255, 223) FEC (Galois Field GF(2^8), primitive poly 0x11D, Berlekamp-Massey, Chien search, Forney algorithm).
+- `src/crypto/key6Engine.ts`: 1024-bit verifiable unique container ID derivation (PBKDF2-HMAC-SHA512 + HKDF-SHA512 + XOR garbage masking + RS protection).
+- `src/crypto/notesEngine.ts`: 6-question mandatory assessment notes 3-layer cascade encryption (AES-GCM + XChaCha20 + Serpent) + XOR mask + RS error correction.
+- `src/crypto/entropy.ts`: Statistical shaping & entropy normalization (<= 7.40 bits/byte), Wilson-Hilferty Chi-Square test (p > 0.005), Parity Lane Diffusion.
+- `src/crypto/safeRandom.ts`: Web Crypto CSPRNG exclusively, rejection sampling to eliminate modulo bias, ChaCha20 stream generator. ZERO Math.random().
+
+### Dual Vault & Steganography (`src/vault/` & `src/media/`)
+- `src/vault/dualVault.ts`: Compulsory Dual-Vault packaging (Vault A real secret + Vault B decoy secret), size equalization, RS framing, memory cache zeroization.
+- `src/media/isobmff.ts`: ISO/IEC 14496-12 MP4 Box atom parser, 8-location spread spectrum multiplexing (Sony UUID, Canon UUID, free, wide, skip, stco, prvm, udta).
+- `src/media/mp4Generator.ts`: Playable H.264 MP4 video stream generator with valid SPS/PPS, IDR/P-slices, timescale, and zeroized timestamps (epoch 1904).
+
+### Anti-Forensics & Security Enclaves (`src/security/`)
+- `src/security/sanitization.ts`: DoD 5220.22-M / Peter Gutmann 35-pass overwrite, total deletion of IndexedDB databases (`ContentGuard_Pro_Security_DB`), service worker unregister, cache purge.
+- `src/security/clipboard.ts`: Institutional Anti-Forensics Clipboard Manager with automated 45-second secure auto-purge and `purgeClipboard()`.
+- `src/security/deviceFingerprint.ts`: Software hardware fingerprinting (Canvas, WebGL, Web Audio), 10 one-time recovery codes in IndexedDB.
+
+### UI & Workflows (`src/components/`)
+- `src/components/ProtectWorkflow.tsx`: 5-layer dual-vault protection workflow, streaming handles, anti-forensic input attributes.
+- `src/components/ExtractWorkflow.tsx`: Pre-decryption inspection & 5-layer extraction workflow.
+- `src/components/Key6BadgeCard.tsx`: Key 6 badge card with 45s clipboard auto-purge and anti-forensic input fields.
+- `src/components/AssessmentNotesEditor.tsx`: 6-question notes editor with anti-spellcheck, anti-autocomplete attributes.
+- `src/components/AssessmentNotesPreviewModal.tsx`: Pre-decrypt assessment notes modal with secure clipboard integration.
+- `src/components/StatisticalInspector.tsx`: Real-time histogram, Shannon entropy, Chi-square p-value, Sample-Pair analysis.
+- `src/components/ZeroizeModal.tsx`: Emergency 35-pass overwrite modal.
+- `src/components/VirtualKeypad.tsx`: Shoulder-surfing resistant CSPRNG shuffled virtual keypad.
+
+---
+
+## Non-Negotiable Coding Standards & Invariants
+
+1. **Strict Constant-Time Execution**:
+   - Never use early-return or short-circuit byte comparisons on sensitive data.
+   - Always use `constantTimeCompare(a, b)` from `src/crypto/cascadeEngine.ts` (length-invariant $\mathcal{O}(\max(|a|, |b|))$).
+
+2. **Zero-Residual Memory Hygiene**:
+   - Any function dealing with keys, plaintexts, intermediate arrays, salts, or passwords MUST wrap processing in `try ... finally`.
+   - In the `finally` block, call `zeroizeBuffer(...)` or `.fill(0)` on all sensitive arrays.
+
+3. **Anti-Forensic Input & Clipboard Hardening**:
+   - Every `<input>` or `<textarea>` handling secrets (passwords, Key 6, assessment notes) MUST have:
+     `autoComplete="new-password"` (or `"off"` for textareas), `autoCorrect="off"`, `autoCapitalize="off"`, `spellCheck={false}`, `data-lpignore="true"`, `data-1p-ignore="true"`.
+   - Never copy secrets directly with `navigator.clipboard.writeText(...)` without the 45s auto-wipe timer. Always use `secureCopyToClipboard(text, 45)` from `src/security/clipboard.ts`.
+
+4. **Zero Telemetry / Air-Gap Guarantee**:
+   - Never make external `fetch()`, `XMLHttpRequest`, analytics, or WebSocket calls to remote origins.
+   - All cryptographic primitives, codecs, and fonts must remain 100% self-contained and local.
+
+5. **Strict 1 MB Chunk Streaming & Non-Blocking Yielding**:
+   - Never load large files (> 1MB) into unchunked memory.
+   - Always yield to the event loop using `await yieldToMainThread()` to prevent browser freezes (> 50ms Long Tasks).
+
+6. **Native Windows Command Invocation**:
+   - Because Windows PowerShell restricts script execution (`npm.ps1`), always run commands through `cmd.exe /c "npm run ..."` or `cmd.exe /c "npx ..."`.
+
+---
+
+## Verification & Test Commands
+Always verify your code passes 100% before finishing:
+- TypeScript Check: `cmd.exe /c "npm run lint"` (`tsc --noEmit`)
+- Full Test Suite: `cmd.exe /c "npm test"`
+- Crypto Primitives: `cmd.exe /c "npm run test:crypto"`
+- Protection & Extraction: `cmd.exe /c "npm run test:protect"`
+- Reed-Solomon FEC: `cmd.exe /c "npm run test:rs"`
+- Windows Security Audit: `cmd.exe /c "npm run test:audit"`
+- Browser Automation: `cmd.exe /c "npm run test:browser"`
+- Production Build: `cmd.exe /c "npm run build"`
