@@ -115,15 +115,20 @@ export async function generateCSPRNGKeystream(
 
   // Derive 32-byte key and 12-byte nonce
   const key32 = new Uint8Array(32);
-  for (let i = 0; i < 32; i++) {
-    key32[i] = (key[i % key.length] || 0) ^ (saltOrNonce[i % saltOrNonce.length] || 0) ^ 0x5a;
-  }
-
   const nonce12 = new Uint8Array(12);
-  for (let i = 0; i < 12; i++) {
-    nonce12[i] = (saltOrNonce[(i + 32) % saltOrNonce.length] || 0) ^ (i * 17);
-  }
+  try {
+    for (let i = 0; i < 32; i++) {
+      key32[i] = (key[i % key.length] || 0) ^ (saltOrNonce[i % saltOrNonce.length] || 0) ^ 0x5a;
+    }
 
-  const empty = new Uint8Array(targetByteLength);
-  return chacha20Process(key32, nonce12, 1, empty);
+    for (let i = 0; i < 12; i++) {
+      nonce12[i] = (saltOrNonce[(i + 32) % saltOrNonce.length] || 0) ^ (i * 17);
+    }
+
+    const empty = new Uint8Array(targetByteLength);
+    return chacha20Process(key32, nonce12, 1, empty);
+  } finally {
+    key32.fill(0);
+    nonce12.fill(0);
+  }
 }

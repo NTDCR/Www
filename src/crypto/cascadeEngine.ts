@@ -586,7 +586,7 @@ export async function encryptCascade5Layers(
   kyberSeed.set(saltL1.subarray(0, 32), 32);
   const kyberKeypair = await kyber1024KeyGen(kyberSeed);
   const { ciphertext: kyberCt, sharedSecret: pqcSecret } = await kyber1024Encapsulate(kyberKeypair.publicKey);
-  zeroizeBuffer(kyberSeed);
+  zeroizeBuffer(kyberSeed, kyberKeypair.secretKey, kyberKeypair.publicKey);
   await yieldToMainThread();
 
   const pqcMask32 = new Uint32Array(8);
@@ -613,62 +613,65 @@ export async function encryptCascade5Layers(
   };
 
   const encryptedChunks: Uint8Array[] = [];
-  let offset = 0;
-  while (offset < effectiveInnerLength) {
-    await yieldToMainThread();
-    const end = Math.min(offset + STRICT_CHUNK_SIZE, effectiveInnerLength);
-    const chunkSize = end - offset;
-    let chunk: Uint8Array;
-    if (innerPlaintext !== null) {
-      chunk = innerPlaintext.subarray(offset, end);
-    } else {
-      chunk = new Uint8Array(chunkSize);
-      let written = 0;
-      if (offset < innerHeaderLen) {
-        const hBytes = Math.min(innerHeaderLen - offset, chunkSize);
-        chunk.set(innerHeader.subarray(offset, offset + hBytes), 0);
-        written += hBytes;
+  let fullCiphertext: Uint8Array;
+  try {
+    let offset = 0;
+    while (offset < effectiveInnerLength) {
+      await yieldToMainThread();
+      const end = Math.min(offset + STRICT_CHUNK_SIZE, effectiveInnerLength);
+      const chunkSize = end - offset;
+      let chunk: Uint8Array;
+      if (innerPlaintext !== null) {
+        chunk = innerPlaintext.subarray(offset, end);
+      } else {
+        chunk = new Uint8Array(chunkSize);
+        let written = 0;
+        if (offset < innerHeaderLen) {
+          const hBytes = Math.min(innerHeaderLen - offset, chunkSize);
+          chunk.set(innerHeader.subarray(offset, offset + hBytes), 0);
+          written += hBytes;
+        }
+        if (written < chunkSize && offset + written < totalInnerLength) {
+          const fileOffset = (offset + written) - innerHeaderLen;
+          const needed = Math.min(chunkSize - written, totalInnerLength - (offset + written));
+          const fChunk = await readChunkFromHandle(rawDataOrHandle as File | StreamingFileHandle, fileOffset, needed);
+          chunk.set(fChunk.subarray(0, needed), written);
+          written += needed;
+        }
+        if (written < chunkSize) {
+          const padNeeded = chunkSize - written;
+          chunk.set(generateSecureRandomBytes(padNeeded), written);
+          written += padNeeded;
+        }
       }
-      if (written < chunkSize && offset + written < totalInnerLength) {
-        const fileOffset = (offset + written) - innerHeaderLen;
-        const needed = Math.min(chunkSize - written, totalInnerLength - (offset + written));
-        const fChunk = await readChunkFromHandle(rawDataOrHandle as File | StreamingFileHandle, fileOffset, needed);
-        chunk.set(fChunk.subarray(0, needed), written);
-        written += needed;
-      }
-      if (written < chunkSize) {
-        const padNeeded = chunkSize - written;
-        chunk.set(generateSecureRandomBytes(padNeeded), written);
-        written += padNeeded;
-      }
+      const encChunk = await encryptChunk5Layers(chunk, offset, keys);
+      encryptedChunks.push(encChunk);
+      offset += chunkSize;
+      const pct = Math.min(99, Math.round((offset / effectiveInnerLength) * 100));
+      onProgress?.(3, `Encrypted ${(offset / (1024 * 1024)).toFixed(1)} / ${(effectiveInnerLength / (1024 * 1024)).toFixed(1)} MB (${pct}%)...`);
     }
-    const encChunk = await encryptChunk5Layers(chunk, offset, keys);
-    encryptedChunks.push(encChunk);
-    offset += chunkSize;
-    const pct = Math.min(99, Math.round((offset / effectiveInnerLength) * 100));
-    onProgress?.(3, `Encrypted ${(offset / (1024 * 1024)).toFixed(1)} / ${(effectiveInnerLength / (1024 * 1024)).toFixed(1)} MB (${pct}%)...`);
-  }
 
-  // Combine ciphertext chunks
-  let totalEncLen = 0;
-  for (const c of encryptedChunks) totalEncLen += c.length;
-  const fullCiphertext = new Uint8Array(totalEncLen);
-  let cp = 0;
-  for (const c of encryptedChunks) {
-    fullCiphertext.set(c, cp);
-    cp += c.length;
-  }
-
-  // Clean keys & plaintext
-  if (innerPlaintext) zeroizeBuffer(innerPlaintext);
-  if (preloadedBytesToWipe) zeroizeBuffer(preloadedBytesToWipe);
-  if (rawDataOrHandle && typeof rawDataOrHandle === 'object' && 'name' in rawDataOrHandle) {
-    zeroizeStreamingHandle(rawDataOrHandle);
-  }
-  zeroizeBuffer(key1, key2, key3, key4, key5, pqcSecret);
-  pqcMask32.fill(0);
-  if (serpentSubkeys) {
-    for (const rk of serpentSubkeys) rk.fill(0);
+    // Combine ciphertext chunks
+    let totalEncLen = 0;
+    for (const c of encryptedChunks) totalEncLen += c.length;
+    fullCiphertext = new Uint8Array(totalEncLen);
+    let cp = 0;
+    for (const c of encryptedChunks) {
+      fullCiphertext.set(c, cp);
+      cp += c.length;
+    }
+  } finally {
+    // Unconditionally wipe keys & plaintext even if stream aborts or throws
+    if (innerPlaintext) zeroizeBuffer(innerPlaintext);
+    if (preloadedBytesToWipe) zeroizeBuffer(preloadedBytesToWipe);
+    if (rawDataOrHandle && typeof rawDataOrHandle === 'object' && 'name' in rawDataOrHandle) {
+      zeroizeStreamingHandle(rawDataOrHandle);
+    }
+    zeroizeBuffer(key1, key2, key3, key4, key5, pqcSecret);
+    pqcMask32.fill(0);
+    if (serpentSubkeys) {
+      for (const rk of serpentSubkeys) rk.fill(0);
+    }
   }
 
   // 6. Optional Key 6 Generation (Independent RS-protected XOR Garbage Block)
@@ -778,7 +781,7 @@ export async function decryptCascade5Layers(
   kyberSeed.set(bundle.saltL1.subarray(0, 32), 32);
   const kyberKeypair = await kyber1024KeyGen(kyberSeed);
   const pqcSecret = await kyber1024Decapsulate(bundle.kyberCt, kyberKeypair.secretKey);
-  zeroizeBuffer(kyberSeed);
+  zeroizeBuffer(kyberSeed, kyberKeypair.secretKey, kyberKeypair.publicKey);
   await yieldToMainThread();
 
   onProgress?.(3, 'Decrypting Layers 2-5: Serpent-256 + XChaCha20 + AES-256 + ChaCha Mask...');
@@ -820,21 +823,22 @@ export async function decryptCascade5Layers(
     : [bundle.payload];
 
   const decryptedChunks: Uint8Array[] = [];
-  let offset = 0;
-
-  for (let idx = 0; idx < chunksToDecrypt.length; idx++) {
-    await yieldToMainThread();
-    const chunk = chunksToDecrypt[idx];
-    const decChunk = await decryptChunk5Layers(chunk, offset, keys);
-    decryptedChunks.push(decChunk);
-    offset += chunk.length;
-    onProgress?.(4, `Decrypted 1 MB chunk ${idx + 1} / ${chunksToDecrypt.length}...`);
-  }
-
-  zeroizeBuffer(key1, key2, key3, key4, key5, pqcSecret);
-  pqcMask32.fill(0);
-  if (serpentSubkeys) {
-    for (const rk of serpentSubkeys) rk.fill(0);
+  try {
+    let offset = 0;
+    for (let idx = 0; idx < chunksToDecrypt.length; idx++) {
+      await yieldToMainThread();
+      const chunk = chunksToDecrypt[idx];
+      const decChunk = await decryptChunk5Layers(chunk, offset, keys);
+      decryptedChunks.push(decChunk);
+      offset += chunk.length;
+      onProgress?.(4, `Decrypted 1 MB chunk ${idx + 1} / ${chunksToDecrypt.length}...`);
+    }
+  } finally {
+    zeroizeBuffer(key1, key2, key3, key4, key5, pqcSecret);
+    pqcMask32.fill(0);
+    if (serpentSubkeys) {
+      for (const rk of serpentSubkeys) rk.fill(0);
+    }
   }
 
   // Combine decrypted stream

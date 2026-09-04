@@ -79,69 +79,75 @@ export async function deriveAndMask1024BitId(
 
   const enc = new TextEncoder();
   const keyBytes = enc.encode(key6.trim());
+  let stretched: Uint8Array | null = null;
+  let xorMask128: Uint8Array | null = null;
+  let tagKey: Uint8Array | null = null;
+  let unencodedBlock: Uint8Array | null = null;
 
-  // 1. Hardware-accelerated PBKDF2-HMAC-SHA512 stretching (64 bytes)
-  const stretched = await fastPbkdf2HmacSha512(keyBytes, salt64, iterations, 64);
+  try {
+    // 1. Hardware-accelerated PBKDF2-HMAC-SHA512 stretching (64 bytes)
+    stretched = await fastPbkdf2HmacSha512(keyBytes, salt64, iterations, 64);
 
-  // 2. HKDF-SHA512 expansion to raw 1024 bits (128 bytes)
-  const rawId128 = hkdf(
-    sha512,
-    stretched,
-    salt64.subarray(0, 32),
-    enc.encode(`ContentGuard-1024Bit-UniqueId-${vaultLabel}`),
-    128 // 1024 bits = 128 bytes
-  );
+    // 2. HKDF-SHA512 expansion to raw 1024 bits (128 bytes)
+    const rawId128 = hkdf(
+      sha512,
+      stretched,
+      salt64.subarray(0, 32),
+      enc.encode(`ContentGuard-1024Bit-UniqueId-${vaultLabel}`),
+      128 // 1024 bits = 128 bytes
+    );
 
-  // 3. Hex representation (256 hex characters)
-  let hexString = '';
-  for (let i = 0; i < rawId128.length; i++) {
-    hexString += rawId128[i].toString(16).padStart(2, '0');
+    // 3. Hex representation (256 hex characters)
+    let hexString = '';
+    for (let i = 0; i < rawId128.length; i++) {
+      hexString += rawId128[i].toString(16).padStart(2, '0');
+    }
+
+    // 4. Derive independent 128-byte XOR keystream mask for Garbage Form
+    xorMask128 = hkdf(
+      sha512,
+      stretched,
+      salt64.subarray(32, 64),
+      enc.encode(`ContentGuard-Key6-XOR-GarbageMask-${vaultLabel}`),
+      128
+    );
+
+    // 5. Independent XOR encryption (turns 1024-bit ID into indistinguishable pseudo-random noise)
+    const encryptedId128 = new Uint8Array(128);
+    for (let i = 0; i < 128; i++) {
+      encryptedId128[i] = rawId128[i] ^ xorMask128[i];
+    }
+
+    // 6. Derive 32-byte Verification Commitment Tag (HMAC-SHA256 of raw ID)
+    tagKey = hkdf(
+      sha256,
+      stretched.subarray(0, 32),
+      salt64.subarray(16, 48),
+      enc.encode(`ContentGuard-Key6-CommitmentTag-${vaultLabel}`),
+      32
+    );
+    const commitmentTag32 = hmac(sha256, tagKey, rawId128);
+
+    // 7. Pack into raw 224-byte payload: [salt64 (64B) + encryptedId128 (128B) + commitmentTag32 (32B)]
+    unencodedBlock = new Uint8Array(64 + 128 + 32);
+    unencodedBlock.set(salt64, 0);
+    unencodedBlock.set(encryptedId128, 64);
+    unencodedBlock.set(commitmentTag32, 64 + 128);
+
+    // 8. Apply NASA CCSDS / ISO Reed-Solomon RS(255, 223) Error Correction on the K6 block
+    const { encodedData: rsBlock } = encodeRSStream(unencodedBlock);
+
+    return {
+      rawId128,
+      hexString,
+      encryptedId128,
+      commitmentTag32,
+      rsBlock
+    };
+  } finally {
+    // Zeroize sensitive keys and temporary buffers
+    zeroizeBuffer(keyBytes, stretched, xorMask128, tagKey, unencodedBlock);
   }
-
-  // 4. Derive independent 128-byte XOR keystream mask for Garbage Form
-  const xorMask128 = hkdf(
-    sha512,
-    stretched,
-    salt64.subarray(32, 64),
-    enc.encode(`ContentGuard-Key6-XOR-GarbageMask-${vaultLabel}`),
-    128
-  );
-
-  // 5. Independent XOR encryption (turns 1024-bit ID into indistinguishable pseudo-random noise)
-  const encryptedId128 = new Uint8Array(128);
-  for (let i = 0; i < 128; i++) {
-    encryptedId128[i] = rawId128[i] ^ xorMask128[i];
-  }
-
-  // 6. Derive 32-byte Verification Commitment Tag (HMAC-SHA256 of raw ID)
-  const tagKey = hkdf(
-    sha256,
-    stretched.subarray(0, 32),
-    salt64.subarray(16, 48),
-    enc.encode(`ContentGuard-Key6-CommitmentTag-${vaultLabel}`),
-    32
-  );
-  const commitmentTag32 = hmac(sha256, tagKey, rawId128);
-
-  // 7. Pack into raw 224-byte payload: [salt64 (64B) + encryptedId128 (128B) + commitmentTag32 (32B)]
-  const unencodedBlock = new Uint8Array(64 + 128 + 32);
-  unencodedBlock.set(salt64, 0);
-  unencodedBlock.set(encryptedId128, 64);
-  unencodedBlock.set(commitmentTag32, 64 + 128);
-
-  // 8. Apply NASA CCSDS / ISO Reed-Solomon RS(255, 223) Error Correction on the K6 block
-  const { encodedData: rsBlock } = encodeRSStream(unencodedBlock);
-
-  // Zeroize sensitive keys and temporary buffers
-  zeroizeBuffer(keyBytes, stretched, xorMask128, tagKey, unencodedBlock);
-
-  return {
-    rawId128,
-    hexString,
-    encryptedId128,
-    commitmentTag32,
-    rsBlock
-  };
 }
 
 /**
@@ -162,6 +168,12 @@ export async function unmaskAndVerifyKey6FromRSBlock(
     return { valid: false, uniqueId1024Hex: '', repairedErrors: 0 };
   }
 
+  let keyBytes: Uint8Array | null = null;
+  let stretched: Uint8Array | null = null;
+  let xorMask128: Uint8Array | null = null;
+  let tagKey: Uint8Array | null = null;
+  let recoveredRawId128: Uint8Array | null = null;
+
   try {
     // 1. Reed-Solomon auto-repair
     const { data: repairedBlock, recoveredErrors } = decodeRSStream(rsBlockData);
@@ -174,13 +186,13 @@ export async function unmaskAndVerifyKey6FromRSBlock(
     const expectedCommitmentTag32 = repairedBlock.subarray(64 + 128, 64 + 128 + 32);
 
     const enc = new TextEncoder();
-    const keyBytes = enc.encode(key6.trim());
+    keyBytes = enc.encode(key6.trim());
 
     // 2. Hardware-accelerated PBKDF2 stretching
-    const stretched = await fastPbkdf2HmacSha512(keyBytes, salt64, iterations, 64);
+    stretched = await fastPbkdf2HmacSha512(keyBytes, salt64, iterations, 64);
 
     // 3. Derive XOR keystream mask
-    const xorMask128 = hkdf(
+    xorMask128 = hkdf(
       sha512,
       stretched,
       salt64.subarray(32, 64),
@@ -189,13 +201,13 @@ export async function unmaskAndVerifyKey6FromRSBlock(
     );
 
     // 4. Unmask 1024-bit ID
-    const recoveredRawId128 = new Uint8Array(128);
+    recoveredRawId128 = new Uint8Array(128);
     for (let i = 0; i < 128; i++) {
       recoveredRawId128[i] = encryptedId128[i] ^ xorMask128[i];
     }
 
     // 5. Derive Tag Key and recompute commitment tag
-    const tagKey = hkdf(
+    tagKey = hkdf(
       sha256,
       stretched.subarray(0, 32),
       salt64.subarray(16, 48),
@@ -207,21 +219,19 @@ export async function unmaskAndVerifyKey6FromRSBlock(
     // 6. Constant-time comparison
     const matches = constantTimeCompare(calculatedCommitmentTag, expectedCommitmentTag32);
 
-    zeroizeBuffer(keyBytes, stretched, xorMask128, tagKey);
-
     if (matches) {
       let hexString = '';
       for (let i = 0; i < recoveredRawId128.length; i++) {
         hexString += recoveredRawId128[i].toString(16).padStart(2, '0');
       }
-      zeroizeBuffer(recoveredRawId128);
       return { valid: true, uniqueId1024Hex: hexString, repairedErrors: recoveredErrors };
     } else {
-      zeroizeBuffer(recoveredRawId128);
       return { valid: false, uniqueId1024Hex: '', repairedErrors: recoveredErrors };
     }
   } catch {
     return { valid: false, uniqueId1024Hex: '', repairedErrors: 0 };
+  } finally {
+    zeroizeBuffer(keyBytes, stretched, xorMask128, tagKey, recoveredRawId128);
   }
 }
 

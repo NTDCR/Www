@@ -358,93 +358,111 @@ export async function createDualVaultPackage(
     }
   }
 
-  const rawEncryptedA = serializeBundle(bundleA);
-  const rawEncryptedB = serializeBundle(bundleB);
-  await yieldToMainThread();
+  let rawEncryptedA: Uint8Array | null = null;
+  let rawEncryptedB: Uint8Array | null = null;
+  let rsProtectedA: Uint8Array | null = null;
+  let rsProtectedB: Uint8Array | null = null;
+  let finalVaultA: Uint8Array | null = null;
+  let finalVaultB: Uint8Array | null = null;
+  let normalizedA: Uint8Array | null = null;
+  let normalizedB: Uint8Array | null = null;
 
-  // 4. Apply Industry-Grade NASA/ISO Reed-Solomon RS(255,223) Forward Error Correction with cooperative yielding
-  onProgress?.('Applying Industry-Grade Reed-Solomon RS(255,223) FEC (Vault A)...', 55);
-  await yieldToMainThread();
-  const { encodedData: rsProtectedA } = await encodeRSStreamAsync(rawEncryptedA, RS_DEFAULT_BLOCK_SIZE, RS_DEFAULT_PARITY_LEN, (pct) => {
-    onProgress?.(`Applying Reed-Solomon RS(255,223) FEC (Vault A: ${pct}%)...`, 55 + Math.round(pct * 0.05));
-  });
+  try {
+    rawEncryptedA = serializeBundle(bundleA);
+    rawEncryptedB = serializeBundle(bundleB);
+    await yieldToMainThread();
 
-  onProgress?.('Applying Industry-Grade Reed-Solomon RS(255,223) FEC (Vault B)...', 60);
-  await yieldToMainThread();
-  const { encodedData: rsProtectedB } = await encodeRSStreamAsync(rawEncryptedB, RS_DEFAULT_BLOCK_SIZE, RS_DEFAULT_PARITY_LEN, (pct) => {
-    onProgress?.(`Applying Reed-Solomon RS(255,223) FEC (Vault B: ${pct}%)...`, 60 + Math.round(pct * 0.05));
-  });
+    // 4. Apply Industry-Grade NASA/ISO Reed-Solomon RS(255,223) Forward Error Correction with cooperative yielding
+    onProgress?.('Applying Industry-Grade Reed-Solomon RS(255,223) FEC (Vault A)...', 55);
+    await yieldToMainThread();
+    const rsResA = await encodeRSStreamAsync(rawEncryptedA, RS_DEFAULT_BLOCK_SIZE, RS_DEFAULT_PARITY_LEN, (pct) => {
+      onProgress?.(`Applying Reed-Solomon RS(255,223) FEC (Vault A: ${pct}%)...`, 55 + Math.round(pct * 0.05));
+    });
+    rsProtectedA = rsResA.encodedData;
 
-  zeroizeBuffer(rawEncryptedA, rawEncryptedB);
-  await yieldToMainThread();
+    onProgress?.('Applying Industry-Grade Reed-Solomon RS(255,223) FEC (Vault B)...', 60);
+    await yieldToMainThread();
+    const rsResB = await encodeRSStreamAsync(rawEncryptedB, RS_DEFAULT_BLOCK_SIZE, RS_DEFAULT_PARITY_LEN, (pct) => {
+      onProgress?.(`Applying Reed-Solomon RS(255,223) FEC (Vault B: ${pct}%)...`, 60 + Math.round(pct * 0.05));
+    });
+    rsProtectedB = rsResB.encodedData;
 
-  // 5. Equalize sizes to make Vault A and Vault B structurally indistinguishable
-  const maxSize = Math.max(rsProtectedA.length, rsProtectedB.length);
-  let finalVaultA = rsProtectedA;
-  let finalVaultB = rsProtectedB;
+    zeroizeBuffer(rawEncryptedA, rawEncryptedB);
+    rawEncryptedA = null;
+    rawEncryptedB = null;
+    await yieldToMainThread();
 
-  if (rsProtectedA.length < maxSize) {
-    const padded = new Uint8Array(maxSize);
-    padded.set(rsProtectedA, 0);
-    const padNoise = generateSecureRandomBytes(maxSize - rsProtectedA.length);
-    padded.set(padNoise, rsProtectedA.length);
-    zeroizeBuffer(padNoise, rsProtectedA);
-    finalVaultA = padded;
+    // 5. Equalize sizes to make Vault A and Vault B structurally indistinguishable
+    const maxSize = Math.max(rsProtectedA.length, rsProtectedB.length);
+    finalVaultA = rsProtectedA;
+    finalVaultB = rsProtectedB;
+
+    if (rsProtectedA.length < maxSize) {
+      const padded = new Uint8Array(maxSize);
+      padded.set(rsProtectedA, 0);
+      const padNoise = generateSecureRandomBytes(maxSize - rsProtectedA.length);
+      padded.set(padNoise, rsProtectedA.length);
+      zeroizeBuffer(padNoise, rsProtectedA);
+      finalVaultA = padded;
+    }
+    if (rsProtectedB.length < maxSize) {
+      const padded = new Uint8Array(maxSize);
+      padded.set(rsProtectedB, 0);
+      const padNoise = generateSecureRandomBytes(maxSize - rsProtectedB.length);
+      padded.set(padNoise, rsProtectedB.length);
+      zeroizeBuffer(padNoise, rsProtectedB);
+      finalVaultB = padded;
+    }
+    await yieldToMainThread();
+
+    // 6. Entropy Normalization (Staged sequentially to free RAM before next allocation)
+    onProgress?.('Normalizing Container Entropy to <= 7.40 bits/byte...', 68);
+    await yieldToMainThread();
+    normalizedA = await normalizeEntropyToTarget(finalVaultA, 7.38);
+    zeroizeBuffer(finalVaultA);
+    finalVaultA = null;
+    await yieldToMainThread();
+
+    normalizedB = await normalizeEntropyToTarget(finalVaultB, 7.38);
+    zeroizeBuffer(finalVaultB);
+    finalVaultB = null;
+    await yieldToMainThread();
+
+    // 7. 8-Location Spread Spectrum Injection into MP4 Carrier with RS Burst-Coding
+    onProgress?.('Injecting into 8 simultaneous ISOBMFF locations with 5x redundancy & RS parity...', 82);
+    await yieldToMainThread();
+    const { protectedMp4, locationReports, boxChunks } = await embedSpreadSpectrum8Locations(
+      carrierBuffer,
+      normalizedA,
+      normalizedB
+    );
+    await yieldToMainThread();
+
+    // 8. Calculate SHA-512 chain-of-custody digest and statistical compliance
+    onProgress?.('Computing final SHA-512 audit digest & compliance metrics...', 95);
+    await yieldToMainThread();
+    const sha512Digest = await calculateSha512Safe(boxChunks);
+
+    const metrics = await analyzeStatisticalCompliance(carrierBuffer, protectedMp4, normalizedA);
+
+    onProgress?.('Protected MP4 Dual-Vault Container Ready (Strict 1 MB streaming verified)', 100);
+
+    // In browsers, new Blob(boxChunks) uses streaming disk backing without allocating contiguous heap memory
+    const protectedBlob = new Blob(boxChunks, { type: 'video/mp4' });
+
+    return {
+      protectedMp4Blob: protectedBlob,
+      protectedMp4Bytes: protectedMp4,
+      protectedChunks: boxChunks,
+      metrics,
+      locationReports,
+      vaultASize,
+      vaultBSize,
+      sha512Digest
+    };
+  } finally {
+    zeroizeBuffer(rawEncryptedA, rawEncryptedB, rsProtectedA, rsProtectedB, finalVaultA, finalVaultB, normalizedA, normalizedB);
   }
-  if (rsProtectedB.length < maxSize) {
-    const padded = new Uint8Array(maxSize);
-    padded.set(rsProtectedB, 0);
-    const padNoise = generateSecureRandomBytes(maxSize - rsProtectedB.length);
-    padded.set(padNoise, rsProtectedB.length);
-    zeroizeBuffer(padNoise, rsProtectedB);
-    finalVaultB = padded;
-  }
-  await yieldToMainThread();
-
-  // 6. Entropy Normalization (Staged sequentially to free RAM before next allocation)
-  onProgress?.('Normalizing Container Entropy to <= 7.40 bits/byte...', 68);
-  await yieldToMainThread();
-  const normalizedA = await normalizeEntropyToTarget(finalVaultA, 7.38);
-  zeroizeBuffer(finalVaultA);
-  await yieldToMainThread();
-
-  const normalizedB = await normalizeEntropyToTarget(finalVaultB, 7.38);
-  zeroizeBuffer(finalVaultB);
-  await yieldToMainThread();
-
-  // 7. 8-Location Spread Spectrum Injection into MP4 Carrier with RS Burst-Coding
-  onProgress?.('Injecting into 8 simultaneous ISOBMFF locations with 5x redundancy & RS parity...', 82);
-  await yieldToMainThread();
-  const { protectedMp4, locationReports, boxChunks } = await embedSpreadSpectrum8Locations(
-    carrierBuffer,
-    normalizedA,
-    normalizedB
-  );
-  await yieldToMainThread();
-
-  // 8. Calculate SHA-512 chain-of-custody digest and statistical compliance
-  onProgress?.('Computing final SHA-512 audit digest & compliance metrics...', 95);
-  await yieldToMainThread();
-  const sha512Digest = await calculateSha512Safe(boxChunks);
-
-  const metrics = await analyzeStatisticalCompliance(carrierBuffer, protectedMp4, normalizedA);
-  zeroizeBuffer(normalizedA, normalizedB);
-
-  onProgress?.('Protected MP4 Dual-Vault Container Ready (Strict 1 MB streaming verified)', 100);
-
-  // In browsers, new Blob(boxChunks) uses streaming disk backing without allocating contiguous heap memory
-  const protectedBlob = new Blob(boxChunks, { type: 'video/mp4' });
-
-  return {
-    protectedMp4Blob: protectedBlob,
-    protectedMp4Bytes: protectedMp4,
-    protectedChunks: boxChunks,
-    metrics,
-    locationReports,
-    vaultASize,
-    vaultBSize,
-    sha512Digest
-  };
 }
 
 /**

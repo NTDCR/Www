@@ -90,47 +90,47 @@ export async function kyber1024KeyGen(seed?: Uint8Array): Promise<KyberKeyPair> 
   const pk = new Uint8Array(1568);
   const sk = new Uint8Array(3168);
 
-  // Set seed rho in public key
-  pk.set(rho, 0);
-
-  // Derive public vector t = (matrix A * s + e) mod q
-  const tView = new DataView(pk.buffer, pk.byteOffset + 32, 1536);
   const sBytes = new Uint8Array(1536);
-  const sView = new DataView(sBytes.buffer, sBytes.byteOffset, sBytes.byteLength);
+  let aCoeffs: Uint16Array | null = null;
+  let pkHash: Uint8Array | null = null;
+  let z: Uint8Array | null = null;
 
-  // Expand A matrix coefficients with SHA-256
-  const aCoeffs = await expandMatrixCoeffs(rho, 768);
+  try {
+    // Set seed rho in public key
+    pk.set(rho, 0);
 
-  for (let i = 0; i < 768; i++) {
-    const aCoeff = aCoeffs[i];
-    const sCoeff = (sigma[i % 32] ^ (i & 0x1f)) % 5 - 2; // centered binomial noise in {-2..2}
-    const eCoeff = (sigma[(i + 7) % 32] ^ ((i >> 3) & 0x1f)) % 5 - 2;
+    // Derive public vector t = (matrix A * s + e) mod q
+    const tView = new DataView(pk.buffer, pk.byteOffset + 32, 1536);
+    const sView = new DataView(sBytes.buffer, sBytes.byteOffset, sBytes.byteLength);
 
-    const tCoeff = ((aCoeff + sCoeff + eCoeff) % KYBER_Q + KYBER_Q) % KYBER_Q;
-    tView.setUint16(i * 2, tCoeff, true);
-    sView.setUint16(i * 2, ((sCoeff % KYBER_Q) + KYBER_Q) % KYBER_Q, true);
+    // Expand A matrix coefficients with SHA-256
+    aCoeffs = await expandMatrixCoeffs(rho, 768);
+
+    for (let i = 0; i < 768; i++) {
+      const aCoeff = aCoeffs[i];
+      const sCoeff = (sigma[i % 32] ^ (i & 0x1f)) % 5 - 2; // centered binomial noise in {-2..2}
+      const eCoeff = (sigma[(i + 7) % 32] ^ ((i >> 3) & 0x1f)) % 5 - 2;
+
+      const tCoeff = ((aCoeff + sCoeff + eCoeff) % KYBER_Q + KYBER_Q) % KYBER_Q;
+      tView.setUint16(i * 2, tCoeff, true);
+      sView.setUint16(i * 2, ((sCoeff % KYBER_Q) + KYBER_Q) % KYBER_Q, true);
+    }
+
+    // Pack Secret Key: s (1536 bytes) + pk (1568 bytes) + H(pk) (32 bytes) + z (32 bytes)
+    sk.set(sBytes, 0);
+    sk.set(pk, 1536);
+
+    pkHash = await hashSha256(pk);
+    sk.set(pkHash, 1536 + 1568);
+
+    z = generateSecureRandomBytes(32);
+    sk.set(z, 1536 + 1568 + 32);
+
+    return { publicKey: pk, secretKey: sk };
+  } finally {
+    // Zeroize sensitive intermediate working buffers
+    zeroize(sBytes, aCoeffs, hash512, sigma, rho, pkHash, z);
   }
-
-  // Pack Secret Key: s (1536 bytes) + pk (1568 bytes) + H(pk) (32 bytes) + z (32 bytes)
-  sk.set(sBytes, 0);
-  sk.set(pk, 1536);
-
-  const pkHash = await hashSha256(pk);
-  sk.set(pkHash, 1536 + 1568);
-
-  const z = generateSecureRandomBytes(32);
-  sk.set(z, 1536 + 1568 + 32);
-
-  // Zeroize sensitive intermediate working buffers
-  sBytes.fill(0);
-  aCoeffs.fill(0);
-  hash512.fill(0);
-  sigma.fill(0);
-  rho.fill(0);
-  pkHash.fill(0);
-  z.fill(0);
-
-  return { publicKey: pk, secretKey: sk };
 }
 
 /**
@@ -140,68 +140,78 @@ export async function kyber1024KeyGen(seed?: Uint8Array): Promise<KyberKeyPair> 
 export async function kyber1024Encapsulate(publicKey: Uint8Array): Promise<KyberEncapsulation> {
   // 1. Sample 32-byte ephemeral message m via Web Crypto CSPRNG
   const m = generateSecureRandomBytes(32);
+  let pkHash: Uint8Array | null = null;
+  let mAndPk: Uint8Array | null = null;
+  let kr: Uint8Array | null = null;
+  let kBar: Uint8Array | null = null;
+  let rCoins: Uint8Array | null = null;
+  let kAndC: Uint8Array | null = null;
+  let rho: Uint8Array | null = null;
+  let aCoeffs: Uint16Array | null = null;
 
-  // 2. Compute H(pk)
-  const pkHash = await hashSha256(publicKey);
+  try {
+    // 2. Compute H(pk)
+    pkHash = await hashSha256(publicKey);
 
-  // 3. (K_bar, r) = G(m || H(pk))
-  const mAndPk = new Uint8Array(64);
-  mAndPk.set(m, 0);
-  mAndPk.set(pkHash, 32);
-  const kr = await hashSha512(mAndPk);
+    // 3. (K_bar, r) = G(m || H(pk))
+    mAndPk = new Uint8Array(64);
+    mAndPk.set(m, 0);
+    mAndPk.set(pkHash, 32);
+    kr = await hashSha512(mAndPk);
 
-  const kBar = kr.slice(0, 32);
-  const rCoins = kr.slice(32, 64);
+    kBar = kr.slice(0, 32);
+    rCoins = kr.slice(32, 64);
 
-  // 4. CPA-PKE Encryption
-  const ciphertext = new Uint8Array(1568);
-  const uView = new DataView(ciphertext.buffer, ciphertext.byteOffset, 1056);
-  const vView = new DataView(ciphertext.buffer, ciphertext.byteOffset + 1056, 512);
-  const tView = new DataView(publicKey.buffer, publicKey.byteOffset + 32, 1536);
+    // 4. CPA-PKE Encryption
+    const ciphertext = new Uint8Array(1568);
+    const uView = new DataView(ciphertext.buffer, ciphertext.byteOffset, 1056);
+    const vView = new DataView(ciphertext.buffer, ciphertext.byteOffset + 1056, 512);
+    const tView = new DataView(publicKey.buffer, publicKey.byteOffset + 32, 1536);
 
-  const rho = publicKey.slice(0, 32);
-  const aCoeffs = await expandMatrixCoeffs(rho, 528);
+    rho = publicKey.slice(0, 32);
+    aCoeffs = await expandMatrixCoeffs(rho, 528);
 
-  // Generate vector u (528 uint16s)
-  for (let i = 0; i < 528; i++) {
-    const aCoeff = aCoeffs[i];
-    const rCoeff = (rCoins[i % 32] ^ (i & 0x0f)) % 5 - 2;
-    const e1Coeff = (rCoins[(i + 11) % 32] ^ ((i >> 2) & 0x0f)) % 3 - 1;
+    // Generate vector u (528 uint16s)
+    for (let i = 0; i < 528; i++) {
+      const aCoeff = aCoeffs[i];
+      const rCoeff = (rCoins[i % 32] ^ (i & 0x0f)) % 5 - 2;
+      const e1Coeff = (rCoins[(i + 11) % 32] ^ ((i >> 2) & 0x0f)) % 3 - 1;
 
-    const uCoeff = ((aCoeff + rCoeff + e1Coeff) % KYBER_Q + KYBER_Q) % KYBER_Q;
-    uView.setUint16(i * 2, uCoeff, true);
+      const uCoeff = ((aCoeff + rCoeff + e1Coeff) % KYBER_Q + KYBER_Q) % KYBER_Q;
+      uView.setUint16(i * 2, uCoeff, true);
+    }
+
+    // Generate vector v (256 uint16s = 512 bytes)
+    // Encodes 256 bits of message m
+    const halfQ = Math.round(KYBER_Q / 2); // 1665
+    for (let i = 0; i < 256; i++) {
+      const bit = (m[Math.floor(i / 8)] >>> (i % 8)) & 1;
+      const msgCoeff = bit * halfQ;
+
+      const tCoeff = tView.getUint16(i * 2, true);
+      const rCoeff = (rCoins[i % 32] ^ (i & 0x0f)) % 5 - 2;
+      const e2Coeff = (rCoins[(i + 5) % 32] ^ ((i >> 1) & 0x07)) % 3 - 1;
+
+      // v = t*r + e2 + Encode(m)
+      const vCoeff = ((tCoeff + rCoeff + e2Coeff + msgCoeff) % KYBER_Q + KYBER_Q) % KYBER_Q;
+      vView.setUint16(i * 2, vCoeff, true);
+    }
+
+    // 5. Final shared secret K = H(K_bar || H(c))
+    const cHash = await hashSha256(ciphertext);
+    kAndC = new Uint8Array(64);
+    kAndC.set(kBar, 0);
+    kAndC.set(cHash, 32);
+    const sharedSecret = await hashSha256(kAndC);
+
+    return {
+      ciphertext,
+      sharedSecret
+    };
+  } finally {
+    // Securely wipe ephemeral secret buffers from heap
+    zeroize(m, mAndPk, kr, kBar, rCoins, kAndC, pkHash, rho, aCoeffs);
   }
-
-  // Generate vector v (256 uint16s = 512 bytes)
-  // Encodes 256 bits of message m
-  const halfQ = Math.round(KYBER_Q / 2); // 1665
-  for (let i = 0; i < 256; i++) {
-    const bit = (m[Math.floor(i / 8)] >>> (i % 8)) & 1;
-    const msgCoeff = bit * halfQ;
-
-    const tCoeff = tView.getUint16(i * 2, true);
-    const rCoeff = (rCoins[i % 32] ^ (i & 0x0f)) % 5 - 2;
-    const e2Coeff = (rCoins[(i + 5) % 32] ^ ((i >> 1) & 0x07)) % 3 - 1;
-
-    // v = t*r + e2 + Encode(m)
-    const vCoeff = ((tCoeff + rCoeff + e2Coeff + msgCoeff) % KYBER_Q + KYBER_Q) % KYBER_Q;
-    vView.setUint16(i * 2, vCoeff, true);
-  }
-
-  // 5. Final shared secret K = H(K_bar || H(c))
-  const cHash = await hashSha256(ciphertext);
-  const kAndC = new Uint8Array(64);
-  kAndC.set(kBar, 0);
-  kAndC.set(cHash, 32);
-  const sharedSecret = await hashSha256(kAndC);
-
-  // Securely wipe ephemeral secret buffers from heap
-  zeroize(m, mAndPk, kr, kBar, rCoins, kAndC);
-
-  return {
-    ciphertext,
-    sharedSecret
-  };
 }
 
 function zeroize(...buffers: (Uint8Array | Uint16Array | Uint32Array | null | undefined)[]) {
@@ -229,46 +239,52 @@ export async function kyber1024Decapsulate(
 
   // 1. Recover 256-bit message m from v - u - s
   const recoveredM = new Uint8Array(32);
-  const quarterQ = Math.round(KYBER_Q / 4); // 832
-  const threeQuarterQ = Math.round((3 * KYBER_Q) / 4); // 2497
+  let mAndPk: Uint8Array | null = null;
+  let kr: Uint8Array | null = null;
+  let kBar: Uint8Array | null = null;
+  let kAndC: Uint8Array | null = null;
 
-  for (let i = 0; i < 256; i++) {
-    const sCoeff = sView.getUint16(i * 2, true);
-    const uCoeff = uView.getUint16(i * 2, true);
-    const vCoeff = vView.getUint16(i * 2, true);
+  try {
+    const quarterQ = Math.round(KYBER_Q / 4); // 832
+    const threeQuarterQ = Math.round((3 * KYBER_Q) / 4); // 2497
 
-    // v - u - s eliminates A, r, and s leaving msgCoeff + noise
-    let diff = (vCoeff - uCoeff - sCoeff) % KYBER_Q;
-    diff = (diff + KYBER_Q) % KYBER_Q;
+    for (let i = 0; i < 256; i++) {
+      const sCoeff = sView.getUint16(i * 2, true);
+      const uCoeff = uView.getUint16(i * 2, true);
+      const vCoeff = vView.getUint16(i * 2, true);
 
-    // Nearest value to 0 or 1665 (halfQ):
-    let bit = 0;
-    if (diff >= quarterQ && diff <= threeQuarterQ) {
-      bit = 1;
+      // v - u - s eliminates A, r, and s leaving msgCoeff + noise
+      let diff = (vCoeff - uCoeff - sCoeff) % KYBER_Q;
+      diff = (diff + KYBER_Q) % KYBER_Q;
+
+      // Nearest value to 0 or 1665 (halfQ):
+      let bit = 0;
+      if (diff >= quarterQ && diff <= threeQuarterQ) {
+        bit = 1;
+      }
+
+      if (bit === 1) {
+        recoveredM[Math.floor(i / 8)] |= (1 << (i % 8));
+      }
     }
 
-    if (bit === 1) {
-      recoveredM[Math.floor(i / 8)] |= (1 << (i % 8));
-    }
+    // 2. Re-compute (K_bar, r) = G(m || H(pk))
+    mAndPk = new Uint8Array(64);
+    mAndPk.set(recoveredM, 0);
+    mAndPk.set(pkHash, 32);
+    kr = await hashSha512(mAndPk);
+    kBar = kr.slice(0, 32);
+
+    // 3. Derive K = H(K_bar || H(c))
+    const cHash = await hashSha256(ciphertext);
+    kAndC = new Uint8Array(64);
+    kAndC.set(kBar, 0);
+    kAndC.set(cHash, 32);
+
+    const sharedSecret = await hashSha256(kAndC);
+    return sharedSecret;
+  } finally {
+    // Securely wipe ephemeral secret buffers from heap
+    zeroize(recoveredM, mAndPk, kr, kBar, kAndC, pkHash);
   }
-
-  // 2. Re-compute (K_bar, r) = G(m || H(pk))
-  const mAndPk = new Uint8Array(64);
-  mAndPk.set(recoveredM, 0);
-  mAndPk.set(pkHash, 32);
-  const kr = await hashSha512(mAndPk);
-  const kBar = kr.slice(0, 32);
-
-  // 3. Derive K = H(K_bar || H(c))
-  const cHash = await hashSha256(ciphertext);
-  const kAndC = new Uint8Array(64);
-  kAndC.set(kBar, 0);
-  kAndC.set(cHash, 32);
-
-  const sharedSecret = await hashSha256(kAndC);
-
-  // Securely wipe ephemeral secret buffers from heap
-  zeroize(recoveredM, mAndPk, kr, kBar, kAndC);
-
-  return sharedSecret;
 }

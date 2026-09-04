@@ -266,7 +266,8 @@ export async function denormalizeEntropy(normalizedData: Uint8Array): Promise<Ui
     throw new Error('Entropy stream header or salt integrity corrupt');
   }
 
-  if (originalLen <= 0 || originalLen > normalizedData.length) {
+  const maxPossibleLen = Math.floor((normalizedData.length - 24) / 2);
+  if (originalLen <= 0 || originalLen > maxPossibleLen) {
     throw new Error('Payload integrity corrupt or wrong key cascade');
   }
 

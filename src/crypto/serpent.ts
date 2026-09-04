@@ -98,6 +98,7 @@ export function serpentKeySchedule(key256: Uint8Array): Uint32Array[] {
     roundKeys.push(rk);
   }
 
+  w.fill(0);
   return roundKeys;
 }
 
@@ -207,6 +208,7 @@ export function serpent256Ctr(
   if (!iv128 || iv128.length < 16) {
     throw new Error('Serpent-256 CTR requires a 16-byte IV');
   }
+  const ownsSubkeys = !precomputedSubkeys;
   const subkeys = precomputedSubkeys || serpentKeySchedule(key256);
   // Ensure 4-byte boundary alignment for direct Uint32Array mapping
   if (data.byteOffset % 4 !== 0) {
@@ -232,32 +234,40 @@ export function serpent256Ctr(
   let cLow = Number(totalCtr64 & 0xffffffffn) >>> 0;
   let cHigh = Number((totalCtr64 >> 32n) & 0xffffffffn) >>> 0;
 
-  for (let b = 0; b < fullBlocks; b++) {
-    serpentEncryptBlock(counterWords[0], counterWords[1], cLow, cHigh, subkeys, blockWords);
+  try {
+    for (let b = 0; b < fullBlocks; b++) {
+      serpentEncryptBlock(counterWords[0], counterWords[1], cLow, cHigh, subkeys, blockWords);
 
-    const wordIdx = b * 4;
-    out32[wordIdx + 0] = data32[wordIdx + 0] ^ blockWords[0];
-    out32[wordIdx + 1] = data32[wordIdx + 1] ^ blockWords[1];
-    out32[wordIdx + 2] = data32[wordIdx + 2] ^ blockWords[2];
-    out32[wordIdx + 3] = data32[wordIdx + 3] ^ blockWords[3];
+      const wordIdx = b * 4;
+      out32[wordIdx + 0] = data32[wordIdx + 0] ^ blockWords[0];
+      out32[wordIdx + 1] = data32[wordIdx + 1] ^ blockWords[1];
+      out32[wordIdx + 2] = data32[wordIdx + 2] ^ blockWords[2];
+      out32[wordIdx + 3] = data32[wordIdx + 3] ^ blockWords[3];
 
-    // Increment 64-bit lower counter
-    cLow = (cLow + 1) >>> 0;
-    if (cLow === 0) cHigh = (cHigh + 1) >>> 0;
-  }
-
-  // Trailing remainder bytes
-  const rem = data.length % 16;
-  if (rem > 0) {
-    serpentEncryptBlock(counterWords[0], counterWords[1], cLow, cHigh, subkeys, blockWords);
-    const ksBytes = new Uint8Array(blockWords.buffer, blockWords.byteOffset, 16);
-    const startByte = fullBlocks * 16;
-    for (let i = 0; i < rem; i++) {
-      out[startByte + i] = data[startByte + i] ^ ksBytes[i];
+      // Increment 64-bit lower counter
+      cLow = (cLow + 1) >>> 0;
+      if (cLow === 0) cHigh = (cHigh + 1) >>> 0;
     }
-  }
 
-  return out;
+    // Trailing remainder bytes
+    const rem = data.length % 16;
+    if (rem > 0) {
+      serpentEncryptBlock(counterWords[0], counterWords[1], cLow, cHigh, subkeys, blockWords);
+      const ksBytes = new Uint8Array(blockWords.buffer, blockWords.byteOffset, 16);
+      const startByte = fullBlocks * 16;
+      for (let i = 0; i < rem; i++) {
+        out[startByte + i] = data[startByte + i] ^ ksBytes[i];
+      }
+    }
+
+    return out;
+  } finally {
+    if (ownsSubkeys) {
+      for (const rk of subkeys) rk.fill(0);
+    }
+    blockWords.fill(0);
+    counterWords.fill(0);
+  }
 }
 
 /**
@@ -276,6 +286,7 @@ export async function serpent256CtrAsync(
   if (!iv128 || iv128.length < 16) {
     throw new Error('Serpent-256 CTR requires a 16-byte IV');
   }
+  const ownsSubkeys = !precomputedSubkeys;
   const subkeys = precomputedSubkeys || serpentKeySchedule(key256);
   if (data.byteOffset % 4 !== 0) {
     data = new Uint8Array(data);
@@ -299,32 +310,40 @@ export async function serpent256CtrAsync(
   let cLow = Number(totalCtr64 & 0xffffffffn) >>> 0;
   let cHigh = Number((totalCtr64 >> 32n) & 0xffffffffn) >>> 0;
 
-  for (let b = 0; b < fullBlocks; b++) {
-    if (b > 0 && (b % yieldStrideBlocks) === 0) {
-      await yieldToMainThread();
+  try {
+    for (let b = 0; b < fullBlocks; b++) {
+      if (b > 0 && (b % yieldStrideBlocks) === 0) {
+        await yieldToMainThread();
+      }
+
+      serpentEncryptBlock(counterWords[0], counterWords[1], cLow, cHigh, subkeys, blockWords);
+
+      const wordIdx = b * 4;
+      out32[wordIdx + 0] = data32[wordIdx + 0] ^ blockWords[0];
+      out32[wordIdx + 1] = data32[wordIdx + 1] ^ blockWords[1];
+      out32[wordIdx + 2] = data32[wordIdx + 2] ^ blockWords[2];
+      out32[wordIdx + 3] = data32[wordIdx + 3] ^ blockWords[3];
+
+      cLow = (cLow + 1) >>> 0;
+      if (cLow === 0) cHigh = (cHigh + 1) >>> 0;
     }
 
-    serpentEncryptBlock(counterWords[0], counterWords[1], cLow, cHigh, subkeys, blockWords);
-
-    const wordIdx = b * 4;
-    out32[wordIdx + 0] = data32[wordIdx + 0] ^ blockWords[0];
-    out32[wordIdx + 1] = data32[wordIdx + 1] ^ blockWords[1];
-    out32[wordIdx + 2] = data32[wordIdx + 2] ^ blockWords[2];
-    out32[wordIdx + 3] = data32[wordIdx + 3] ^ blockWords[3];
-
-    cLow = (cLow + 1) >>> 0;
-    if (cLow === 0) cHigh = (cHigh + 1) >>> 0;
-  }
-
-  const rem = data.length % 16;
-  if (rem > 0) {
-    serpentEncryptBlock(counterWords[0], counterWords[1], cLow, cHigh, subkeys, blockWords);
-    const ksBytes = new Uint8Array(blockWords.buffer, blockWords.byteOffset, 16);
-    const startByte = fullBlocks * 16;
-    for (let i = 0; i < rem; i++) {
-      out[startByte + i] = data[startByte + i] ^ ksBytes[i];
+    const rem = data.length % 16;
+    if (rem > 0) {
+      serpentEncryptBlock(counterWords[0], counterWords[1], cLow, cHigh, subkeys, blockWords);
+      const ksBytes = new Uint8Array(blockWords.buffer, blockWords.byteOffset, 16);
+      const startByte = fullBlocks * 16;
+      for (let i = 0; i < rem; i++) {
+        out[startByte + i] = data[startByte + i] ^ ksBytes[i];
+      }
     }
-  }
 
-  return out;
+    return out;
+  } finally {
+    if (ownsSubkeys) {
+      for (const rk of subkeys) rk.fill(0);
+    }
+    blockWords.fill(0);
+    counterWords.fill(0);
+  }
 }

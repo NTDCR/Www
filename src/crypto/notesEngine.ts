@@ -94,83 +94,104 @@ export async function encryptAssessmentNotesBlock(
   const nonceXCha = generateSecureRandomBytes(24);
   const ivSerpent = generateSecureRandomBytes(16);
 
-  // 2. Derive key materials
-  const { keyAes, keyXCha, keySerpent, xorMaskKey, hmacAuthKey } = await deriveNotesKeyMaterial(
-    passwords,
-    salt64,
-    iterations,
-    vaultLabel
-  );
+  let keyAes: Uint8Array | null = null;
+  let keyXCha: Uint8Array | null = null;
+  let keySerpent: Uint8Array | null = null;
+  let xorMaskKey: Uint8Array | null = null;
+  let hmacAuthKey: Uint8Array | null = null;
+  let l1Ciphertext: Uint8Array | null = null;
+  let l2Ciphertext: Uint8Array | null = null;
+  let l2Combined: Uint8Array | null = null;
+  let l3Ciphertext: Uint8Array | null = null;
+  let xorStream: Uint8Array | null = null;
+  let maskedPayload: Uint8Array | null = null;
 
-  // 3. Layer 1: Authenticated AES-256-GCM via Audited Noble Ciphers
-  const aesGcmCipher = gcm(keyAes, nonceAes);
-  const l1Ciphertext = aesGcmCipher.encrypt(plaintext);
+  try {
+    // 2. Derive key materials
+    const derived = await deriveNotesKeyMaterial(
+      passwords,
+      salt64,
+      iterations,
+      vaultLabel
+    );
+    keyAes = derived.keyAes;
+    keyXCha = derived.keyXCha;
+    keySerpent = derived.keySerpent;
+    xorMaskKey = derived.xorMaskKey;
+    hmacAuthKey = derived.hmacAuthKey;
 
-  // 4. Layer 2: XChaCha20-Poly1305
-  const { ciphertext: l2Ciphertext, tag: l2Tag } = xchacha20Poly1305Encrypt(
-    l1Ciphertext,
-    keyXCha,
-    nonceXCha
-  );
-  // Combine l2Ciphertext + l2Tag (16 bytes)
-  const l2Combined = new Uint8Array(l2Ciphertext.length + l2Tag.length);
-  l2Combined.set(l2Ciphertext, 0);
-  l2Combined.set(l2Tag, l2Ciphertext.length);
+    // 3. Layer 1: Authenticated AES-256-GCM via Audited Noble Ciphers
+    const aesGcmCipher = gcm(keyAes, nonceAes);
+    l1Ciphertext = aesGcmCipher.encrypt(plaintext);
 
-  // 5. Layer 3: Serpent-256-CTR
-  const l3Ciphertext = serpent256Ctr(l2Combined, keySerpent, ivSerpent);
+    // 4. Layer 2: XChaCha20-Poly1305
+    const l2Res = xchacha20Poly1305Encrypt(
+      l1Ciphertext,
+      keyXCha,
+      nonceXCha
+    );
+    l2Ciphertext = l2Res.ciphertext;
+    const l2Tag = l2Res.tag;
 
-  // 6. Independent XOR Keystream Masking (Pure Garbage Form)
-  const xorStream = await generateCSPRNGKeystream(xorMaskKey, salt64, l3Ciphertext.length);
-  const maskedPayload = new Uint8Array(l3Ciphertext.length);
-  for (let i = 0; i < l3Ciphertext.length; i++) {
-    maskedPayload[i] = l3Ciphertext[i] ^ xorStream[i];
+    // Combine l2Ciphertext + l2Tag (16 bytes)
+    l2Combined = new Uint8Array(l2Ciphertext.length + l2Tag.length);
+    l2Combined.set(l2Ciphertext, 0);
+    l2Combined.set(l2Tag, l2Ciphertext.length);
+
+    // 5. Layer 3: Serpent-256-CTR
+    l3Ciphertext = serpent256Ctr(l2Combined, keySerpent, ivSerpent);
+
+    // 6. Independent XOR Keystream Masking (Pure Garbage Form)
+    xorStream = await generateCSPRNGKeystream(xorMaskKey, salt64, l3Ciphertext.length);
+    maskedPayload = new Uint8Array(l3Ciphertext.length);
+    for (let i = 0; i < l3Ciphertext.length; i++) {
+      maskedPayload[i] = l3Ciphertext[i] ^ xorStream[i];
+    }
+
+    // 7. HMAC-SHA256 Integrity Commitment Tag over the masked block
+    const hmacHeader = new Uint8Array(64 + 12 + 24 + 16);
+    hmacHeader.set(salt64, 0);
+    hmacHeader.set(nonceAes, 64);
+    hmacHeader.set(nonceXCha, 64 + 12);
+    hmacHeader.set(ivSerpent, 64 + 12 + 24);
+
+    const hmacData = new Uint8Array(hmacHeader.length + maskedPayload.length);
+    hmacData.set(hmacHeader, 0);
+    hmacData.set(maskedPayload, hmacHeader.length);
+
+    const commitmentTag32 = hmac(sha256, hmacAuthKey, hmacData);
+
+    // 8. Assemble Raw Unencoded Envelope:
+    // [salt64 (64B) + nonceAes (12B) + nonceXCha (24B) + ivSerpent (16B) + commitmentTag32 (32B) + maskedPayload]
+    const envelope = new Uint8Array(64 + 12 + 24 + 16 + 32 + maskedPayload.length);
+    let p = 0;
+    envelope.set(salt64, p); p += 64;
+    envelope.set(nonceAes, p); p += 12;
+    envelope.set(nonceXCha, p); p += 24;
+    envelope.set(ivSerpent, p); p += 16;
+    envelope.set(commitmentTag32, p); p += 32;
+    envelope.set(maskedPayload, p);
+
+    // 9. Apply NASA CCSDS Reed-Solomon RS(255, 223) Forward Error Correction
+    const { encodedData: rsNotesBlock } = encodeRSStream(envelope);
+    return rsNotesBlock;
+  } finally {
+    // Clean all sensitive plaintext, intermediate buffers and keys
+    zeroizeBuffer(
+      plaintext,
+      l1Ciphertext,
+      l2Ciphertext,
+      l2Combined,
+      l3Ciphertext,
+      xorStream,
+      maskedPayload,
+      keyAes,
+      keyXCha,
+      keySerpent,
+      xorMaskKey,
+      hmacAuthKey
+    );
   }
-
-  // 7. HMAC-SHA256 Integrity Commitment Tag over the masked block
-  const hmacHeader = new Uint8Array(64 + 12 + 24 + 16);
-  hmacHeader.set(salt64, 0);
-  hmacHeader.set(nonceAes, 64);
-  hmacHeader.set(nonceXCha, 64 + 12);
-  hmacHeader.set(ivSerpent, 64 + 12 + 24);
-
-  const hmacData = new Uint8Array(hmacHeader.length + maskedPayload.length);
-  hmacData.set(hmacHeader, 0);
-  hmacData.set(maskedPayload, hmacHeader.length);
-
-  const commitmentTag32 = hmac(sha256, hmacAuthKey, hmacData);
-
-  // 8. Assemble Raw Unencoded Envelope:
-  // [salt64 (64B) + nonceAes (12B) + nonceXCha (24B) + ivSerpent (16B) + commitmentTag32 (32B) + maskedPayload]
-  const envelope = new Uint8Array(64 + 12 + 24 + 16 + 32 + maskedPayload.length);
-  let p = 0;
-  envelope.set(salt64, p); p += 64;
-  envelope.set(nonceAes, p); p += 12;
-  envelope.set(nonceXCha, p); p += 24;
-  envelope.set(ivSerpent, p); p += 16;
-  envelope.set(commitmentTag32, p); p += 32;
-  envelope.set(maskedPayload, p);
-
-  // 9. Apply NASA CCSDS Reed-Solomon RS(255, 223) Forward Error Correction
-  const { encodedData: rsNotesBlock } = encodeRSStream(envelope);
-
-  // Clean all sensitive plaintext, intermediate buffers and keys
-  zeroizeBuffer(
-    plaintext,
-    l1Ciphertext,
-    l2Ciphertext,
-    l2Combined,
-    l3Ciphertext,
-    xorStream,
-    maskedPayload,
-    keyAes,
-    keyXCha,
-    keySerpent,
-    xorMaskKey,
-    hmacAuthKey
-  );
-
-  return rsNotesBlock;
 }
 
 /**
@@ -185,6 +206,17 @@ export async function decryptAssessmentNotesBlock(
   if (!rsNotesBlock || rsNotesBlock.length === 0) {
     return { valid: false, notes: null, error: 'No notes block provided', repairedErrors: 0 };
   }
+
+  let keyAes: Uint8Array | null = null;
+  let keyXCha: Uint8Array | null = null;
+  let keySerpent: Uint8Array | null = null;
+  let xorMaskKey: Uint8Array | null = null;
+  let hmacAuthKey: Uint8Array | null = null;
+  let l1Ciphertext: Uint8Array | null = null;
+  let l2Combined: Uint8Array | null = null;
+  let l3Ciphertext: Uint8Array | null = null;
+  let xorStream: Uint8Array | null = null;
+  let plaintext: Uint8Array | null = null;
 
   try {
     // 1. Decode & repair Reed-Solomon error correction
@@ -204,12 +236,17 @@ export async function decryptAssessmentNotesBlock(
     const maskedPayload = envelope.subarray(p);
 
     // 2. Derive key materials
-    const { keyAes, keyXCha, keySerpent, xorMaskKey, hmacAuthKey } = await deriveNotesKeyMaterial(
+    const derived = await deriveNotesKeyMaterial(
       passwords,
       salt64,
       iterations,
       vaultLabel
     );
+    keyAes = derived.keyAes;
+    keyXCha = derived.keyXCha;
+    keySerpent = derived.keySerpent;
+    xorMaskKey = derived.xorMaskKey;
+    hmacAuthKey = derived.hmacAuthKey;
 
     // 3. Verify HMAC commitment tag in constant-time
     const hmacHeader = new Uint8Array(64 + 12 + 24 + 16);
@@ -226,21 +263,19 @@ export async function decryptAssessmentNotesBlock(
     const matches = constantTimeCompare(calculatedTag, expectedTag32);
 
     if (!matches) {
-      zeroizeBuffer(keyAes, keyXCha, keySerpent, xorMaskKey, hmacAuthKey);
       return { valid: false, notes: null, error: 'HMAC authentication mismatch (incorrect keys)', repairedErrors: recoveredErrors };
     }
 
     // 4. Unmask XOR stream
-    const xorStream = await generateCSPRNGKeystream(xorMaskKey, salt64, maskedPayload.length);
-    const l3Ciphertext = new Uint8Array(maskedPayload.length);
+    xorStream = await generateCSPRNGKeystream(xorMaskKey, salt64, maskedPayload.length);
+    l3Ciphertext = new Uint8Array(maskedPayload.length);
     for (let i = 0; i < maskedPayload.length; i++) {
       l3Ciphertext[i] = maskedPayload[i] ^ xorStream[i];
     }
 
     // 5. Decrypt Layer 3: Serpent-256-CTR
-    const l2Combined = serpent256Ctr(l3Ciphertext, keySerpent, ivSerpent);
+    l2Combined = serpent256Ctr(l3Ciphertext, keySerpent, ivSerpent);
     if (l2Combined.length < 16) {
-      zeroizeBuffer(keyAes, keyXCha, keySerpent, xorMaskKey, hmacAuthKey);
       return { valid: false, notes: null, error: 'Invalid decrypted Serpent stream', repairedErrors: recoveredErrors };
     }
 
@@ -248,31 +283,17 @@ export async function decryptAssessmentNotesBlock(
     const l2Tag = l2Combined.subarray(l2Combined.length - 16);
 
     // 6. Decrypt Layer 2: XChaCha20-Poly1305
-    const l1Ciphertext = xchacha20Poly1305Decrypt(l2Ciphertext, l2Tag, keyXCha, nonceXCha);
+    l1Ciphertext = xchacha20Poly1305Decrypt(l2Ciphertext, l2Tag, keyXCha, nonceXCha);
     if (!l1Ciphertext) {
-      zeroizeBuffer(keyAes, keyXCha, keySerpent, xorMaskKey, hmacAuthKey);
       return { valid: false, notes: null, error: 'XChaCha20 Poly1305 authentication failed', repairedErrors: recoveredErrors };
     }
 
     // 7. Decrypt Layer 1: Authenticated AES-256-GCM via Audited Noble Ciphers
     const aesGcmCipher = gcm(keyAes, nonceAes);
-    const plaintext = aesGcmCipher.decrypt(l1Ciphertext);
+    plaintext = aesGcmCipher.decrypt(l1Ciphertext);
 
     const dec = new TextDecoder('utf-8');
     const jsonStr = dec.decode(plaintext);
-    zeroizeBuffer(
-      plaintext,
-      l1Ciphertext,
-      l2Combined,
-      l3Ciphertext,
-      xorStream,
-      maskedPayload,
-      keyAes,
-      keyXCha,
-      keySerpent,
-      xorMaskKey,
-      hmacAuthKey
-    );
     const parsedNotes: VaultAssessmentNotes = JSON.parse(jsonStr);
 
     return {
@@ -287,6 +308,19 @@ export async function decryptAssessmentNotesBlock(
       error: err?.message || 'Decryption failure',
       repairedErrors: 0
     };
+  } finally {
+    zeroizeBuffer(
+      plaintext,
+      l1Ciphertext,
+      l2Combined,
+      l3Ciphertext,
+      xorStream,
+      keyAes,
+      keyXCha,
+      keySerpent,
+      xorMaskKey,
+      hmacAuthKey
+    );
   }
 }
 
