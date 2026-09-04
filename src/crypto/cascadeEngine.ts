@@ -67,6 +67,10 @@ const GUTMANN_PATTERNS = [
   0xdb, 0x7f, 0xbf, 0xdf, 0x00
 ];
 
+/** Single neutral auth failure — zero layer / vault / framing disclosure */
+export const NEUTRAL_AUTH_FAILURE =
+  'Authentication Failed: Invalid key cascade or corrupt payload.';
+
 export function zeroizeBuffer(...buffers: (Uint8Array | Uint32Array | Int16Array | Uint16Array | ArrayBuffer | null | undefined)[]) {
   for (const b of buffers) {
     if (!b) continue;
@@ -790,12 +794,10 @@ export async function decryptCascade5Layers(
     zeroizeBuffer(authKey);
   }
 
-  // Constant-time check: If tag doesn't match, this key set is NOT for this vault
-  if (!constantTimeCompare(computedTag, bundle.tagL4)) {
-    throw new Error('Authentication Failed: Key cascade authentication tag mismatch for this vault.');
-  }
+  // Constant-time HMAC check — do NOT early-abort (timing / layer oracle)
+  const authOk = constantTimeCompare(computedTag, bundle.tagL4);
 
-  onProgress?.(2, 'Decrypting Layer 1: Kyber-1024 PQC Lattice Decapsulation...');
+  onProgress?.(2, 'Authenticating cascade stream...');
   await yieldToMainThread();
   const p1 = (passwords.layer1_kyber || '').trim();
   const p2 = (passwords.layer2_serpent || '').trim();
@@ -824,7 +826,7 @@ export async function decryptCascade5Layers(
     zeroizeBuffer(kyberSeed, kyberKeypair.secretKey, kyberKeypair.publicKey);
     await yieldToMainThread();
 
-    onProgress?.(3, 'Decrypting Layers 2-5: Serpent-256 + XChaCha20 + AES-256 + ChaCha Mask...');
+    onProgress?.(3, 'Decrypting authenticated cascade layers...');
     await yieldToMainThread();
     key2 = await deriveLayerKey(p2, bundle.saltL2, iterations, 'Layer2-Serpent');
     await yieldToMainThread();
@@ -869,7 +871,7 @@ export async function decryptCascade5Layers(
       const decChunk = await decryptChunk5Layers(chunk, offset, keys);
       decryptedChunks.push(decChunk);
       offset += chunk.length;
-      onProgress?.(4, `Decrypted 1 MB chunk ${idx + 1} / ${chunksToDecrypt.length}...`);
+      onProgress?.(4, `Decrypting stream chunk ${idx + 1} / ${chunksToDecrypt.length}...`);
     }
   } finally {
     zeroizeBuffer(key1, key2, key3, key4, key5, pqcSecret);
@@ -893,46 +895,49 @@ export async function decryptCascade5Layers(
     zeroizeBuffer(combined, ...decryptedChunks);
   };
 
-  try {
-    // 4. Validate inner container framing: [Magic (4B), NameLen (4B), NameBytes (N B), Size (8B), RawData]
-    if (combined.length < 16) {
-      throw new Error('Corrupt or truncated decrypted payload.');
-    }
+  // Evaluate framing without early-abort throws — unify to single neutral failure
+  let magicOk = false;
+  let frameOk = false;
+  let originalFilename = '';
+  let originalSize = 0;
+  let data: Uint8Array | null = null;
 
-    // Verify Magic in constant time
-    if (!constantTimeCompare(combined.subarray(0, 4), VAULT_INNER_MAGIC)) {
-      throw new Error('Authentication Failed: Inner container magic verification mismatch.');
-    }
-
+  if (combined.length >= 16) {
+    magicOk = constantTimeCompare(combined.subarray(0, 4), VAULT_INNER_MAGIC);
     const decView = new DataView(combined.buffer, combined.byteOffset, combined.byteLength);
     let dp = 4;
     const nameLen = decView.getUint32(dp, true); dp += 4;
-    if (dp + nameLen + 8 > combined.length) {
-      throw new Error('Corrupt filename descriptor in decrypted stream.');
+    if (dp + nameLen + 8 <= combined.length) {
+      try {
+        const dec = new TextDecoder();
+        originalFilename = dec.decode(combined.subarray(dp, dp + nameLen));
+        dp += nameLen;
+        const rawBigSize = decView.getBigUint64(dp, true); dp += 8;
+        if (rawBigSize <= BigInt(Number.MAX_SAFE_INTEGER)) {
+          originalSize = Number(rawBigSize);
+          if (originalSize >= 0 && dp + originalSize <= combined.length) {
+            data = combined.subarray(dp, dp + originalSize);
+            frameOk = true;
+          }
+        }
+      } catch {
+        frameOk = false;
+      }
     }
-
-    const dec = new TextDecoder();
-    const originalFilename = dec.decode(combined.subarray(dp, dp + nameLen)); dp += nameLen;
-    const rawBigSize = decView.getBigUint64(dp, true); dp += 8;
-    if (rawBigSize > BigInt(Number.MAX_SAFE_INTEGER)) {
-      throw new Error('Corrupt or truncated file payload length: exceeds safe integer bounds.');
-    }
-    const originalSize = Number(rawBigSize);
-    if (originalSize < 0 || dp + originalSize > combined.length) {
-      throw new Error('Corrupt or truncated file payload length.');
-    }
-
-    const data = combined.subarray(dp, dp + originalSize);
-
-    return {
-      data,
-      originalFilename,
-      originalSize
-    };
-  } catch (err) {
-    wipePlaintext();
-    throw err;
   }
+
+  // Constant-time combine of auth + magic + framing (no layer-distinguishing branch on throw)
+  const ok = authOk && magicOk && frameOk && data !== null;
+  if (!ok) {
+    wipePlaintext();
+    throw new Error(NEUTRAL_AUTH_FAILURE);
+  }
+
+  return {
+    data: data!,
+    originalFilename,
+    originalSize
+  };
 }
 
 /**
@@ -1008,7 +1013,7 @@ export function serializeBundle(bundle: EncryptedPayloadBundle): Uint8Array {
  */
 export function deserializeBundle(data: Uint8Array): EncryptedPayloadBundle {
   if (!data || data.length < 2004) {
-    throw new Error('Corrupt or truncated container format');
+    throw new Error(NEUTRAL_AUTH_FAILURE);
   }
 
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
@@ -1016,7 +1021,7 @@ export function deserializeBundle(data: Uint8Array): EncryptedPayloadBundle {
 
   const metaLen = view.getUint32(p, true); p += 4;
   if (metaLen < 1996 || metaLen > data.length) {
-    throw new Error('Corrupt or unrecognized container format');
+    throw new Error(NEUTRAL_AUTH_FAILURE);
   }
 
   let k6BlockLen = 0;
@@ -1036,7 +1041,7 @@ export function deserializeBundle(data: Uint8Array): EncryptedPayloadBundle {
   }
 
   if (p + 320 + 56 + 48 + 1568 > data.length) {
-    throw new Error('Corrupt or truncated cryptographic metadata headers');
+    throw new Error(NEUTRAL_AUTH_FAILURE);
   }
 
   const saltL1 = data.slice(p, p + 64); p += 64;
@@ -1057,7 +1062,7 @@ export function deserializeBundle(data: Uint8Array): EncryptedPayloadBundle {
   let k6Block: Uint8Array | undefined;
   if (hasK6Header && k6BlockLen > 0) {
     if (p + k6BlockLen > data.length) {
-      throw new Error('Truncated or corrupt Key 6 metadata block in container');
+      throw new Error(NEUTRAL_AUTH_FAILURE);
     }
     k6Block = data.slice(p, p + k6BlockLen);
     p += k6BlockLen;
@@ -1066,7 +1071,7 @@ export function deserializeBundle(data: Uint8Array): EncryptedPayloadBundle {
   let notesBlock: Uint8Array | undefined;
   if (hasNotesHeader && notesBlockLen > 0) {
     if (p + notesBlockLen > data.length) {
-      throw new Error('Truncated or corrupt Assessment Notes metadata block in container');
+      throw new Error(NEUTRAL_AUTH_FAILURE);
     }
     notesBlock = data.slice(p, p + notesBlockLen);
     p += notesBlockLen;
@@ -1074,7 +1079,7 @@ export function deserializeBundle(data: Uint8Array): EncryptedPayloadBundle {
 
   // Strict invariant: Parsed metadata headers must match declared metaLen exactly
   if (metaLen !== p) {
-    throw new Error('Corrupt or unrecognized container format: header size mismatch');
+    throw new Error(NEUTRAL_AUTH_FAILURE);
   }
 
   const payload = data.slice(p);

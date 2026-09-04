@@ -185,7 +185,7 @@ export async function unmaskAndVerifyKey6FromRSBlock(
     repairedBlock = rsDecoded.data;
     const recoveredErrors = rsDecoded.recoveredErrors;
     if (repairedBlock.length < 224) {
-      return { valid: false, uniqueId1024Hex: '', repairedErrors: recoveredErrors };
+      return { valid: false, uniqueId1024Hex: '', repairedErrors: 0 };
     }
 
     const salt64 = repairedBlock.subarray(0, 64);
@@ -233,7 +233,8 @@ export async function unmaskAndVerifyKey6FromRSBlock(
       }
       return { valid: true, uniqueId1024Hex: hexString, repairedErrors: recoveredErrors };
     } else {
-      return { valid: false, uniqueId1024Hex: '', repairedErrors: recoveredErrors };
+      // Zero-disclosure: empty ID, no syndrome/hamming/repair leak on failure
+      return { valid: false, uniqueId1024Hex: '', repairedErrors: 0 };
     }
   } catch {
     return { valid: false, uniqueId1024Hex: '', repairedErrors: 0 };

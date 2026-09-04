@@ -212,7 +212,7 @@ export async function decryptAssessmentNotesBlock(
   vaultLabel: 'VaultA' | 'VaultB' = 'VaultA'
 ): Promise<NotesDecryptionResult> {
   if (!rsNotesBlock || rsNotesBlock.length === 0) {
-    return { valid: false, notes: null, error: 'No notes block provided', repairedErrors: 0 };
+    return { valid: false, notes: null, repairedErrors: 0 };
   }
 
   let keyAes: Uint8Array | null = null;
@@ -237,7 +237,8 @@ export async function decryptAssessmentNotesBlock(
 
     // Header size: 64 (salt) + 12 (nonceAes) + 24 (nonceXCha) + 16 (ivSerpent) + 32 (tag) = 148 bytes
     if (envelope.length < 148) {
-      return { valid: false, notes: null, error: 'Corrupt notes block header', repairedErrors: recoveredErrors };
+      // Zero-disclosure: no structural/header oracle
+      return { valid: false, notes: null, repairedErrors: 0 };
     }
 
     let p = 0;
@@ -275,50 +276,52 @@ export async function decryptAssessmentNotesBlock(
     const calculatedTag = hmac(sha256, hmacAuthKey, hmacData);
     const matches = constantTimeCompare(calculatedTag, expectedTag32);
 
-    if (!matches) {
-      return { valid: false, notes: null, error: 'HMAC authentication mismatch (incorrect keys)', repairedErrors: recoveredErrors };
-    }
-
-    // 4. Unmask XOR stream
+    // Always unmask + decrypt path for timing symmetry; discard on HMAC/auth failure
     xorStream = await generateCSPRNGKeystream(xorMaskKey, salt64, maskedPayload.length);
     l3Ciphertext = new Uint8Array(maskedPayload.length);
     for (let i = 0; i < maskedPayload.length; i++) {
       l3Ciphertext[i] = maskedPayload[i] ^ xorStream[i];
     }
 
-    // 5. Decrypt Layer 3: Serpent-256-CTR
     l2Combined = serpent256Ctr(l3Ciphertext, keySerpent, ivSerpent);
-    if (l2Combined.length < 16) {
-      return { valid: false, notes: null, error: 'Invalid decrypted Serpent stream', repairedErrors: recoveredErrors };
+    let serpentOk = l2Combined.length >= 16;
+    let l2Ciphertext = serpentOk ? l2Combined.subarray(0, l2Combined.length - 16) : new Uint8Array(0);
+    let l2Tag = serpentOk ? l2Combined.subarray(l2Combined.length - 16) : new Uint8Array(16);
+
+    l1Ciphertext = serpentOk
+      ? xchacha20Poly1305Decrypt(l2Ciphertext, l2Tag, keyXCha, nonceXCha)
+      : null;
+    const xchachaOk = !!l1Ciphertext;
+
+    let aesOk = false;
+    let parsedNotes: VaultAssessmentNotes | null = null;
+    if (xchachaOk && l1Ciphertext) {
+      try {
+        const aesGcmCipher = gcm(keyAes, nonceAes);
+        plaintext = aesGcmCipher.decrypt(l1Ciphertext);
+        const dec = new TextDecoder('utf-8');
+        const jsonStr = dec.decode(plaintext);
+        parsedNotes = JSON.parse(jsonStr);
+        aesOk = true;
+      } catch {
+        aesOk = false;
+        parsedNotes = null;
+      }
     }
 
-    const l2Ciphertext = l2Combined.subarray(0, l2Combined.length - 16);
-    const l2Tag = l2Combined.subarray(l2Combined.length - 16);
-
-    // 6. Decrypt Layer 2: XChaCha20-Poly1305
-    l1Ciphertext = xchacha20Poly1305Decrypt(l2Ciphertext, l2Tag, keyXCha, nonceXCha);
-    if (!l1Ciphertext) {
-      return { valid: false, notes: null, error: 'XChaCha20 Poly1305 authentication failed', repairedErrors: recoveredErrors };
+    if (!(matches && serpentOk && xchachaOk && aesOk && parsedNotes)) {
+      return { valid: false, notes: null, repairedErrors: 0 };
     }
-
-    // 7. Decrypt Layer 1: Authenticated AES-256-GCM via Audited Noble Ciphers
-    const aesGcmCipher = gcm(keyAes, nonceAes);
-    plaintext = aesGcmCipher.decrypt(l1Ciphertext);
-
-    const dec = new TextDecoder('utf-8');
-    const jsonStr = dec.decode(plaintext);
-    const parsedNotes: VaultAssessmentNotes = JSON.parse(jsonStr);
 
     return {
       valid: true,
       notes: parsedNotes,
       repairedErrors: recoveredErrors
     };
-  } catch (err: any) {
+  } catch {
     return {
       valid: false,
       notes: null,
-      error: err?.message || 'Decryption failure',
       repairedErrors: 0
     };
   } finally {
