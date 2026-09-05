@@ -27,7 +27,9 @@ import {
   DualVaultCreationResult,
   VaultAssessmentNotes,
   createEmptyAssessmentNotes,
-  isAssessmentNotesComplete
+  isAssessmentNotesComplete,
+  StatisticalMetrics,
+  EmbeddingLocationReport
 } from '../types';
 import { createDualVaultPackage } from '../vault/dualVault';
 import { VirtualKeypad } from './VirtualKeypad';
@@ -43,9 +45,10 @@ import { yieldToMainThread } from '../utils/asyncUtils';
 
 interface ProtectWorkflowProps {
   onAddAuditLog: (eventType: 'ENCRYPTION' | 'DUAL_VAULT_CREATION', details: string, digest: string) => void;
+  onMetricsGenerated?: (metrics: StatisticalMetrics, locationReports: EmbeddingLocationReport[]) => void;
 }
 
-export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog }) => {
+export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog, onMetricsGenerated }) => {
   const isMountedRef = useRef(true);
   useEffect(() => {
     isMountedRef.current = true;
@@ -336,6 +339,7 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog 
       if (!isMountedRef.current) return;
       setTotalOperationDurationMs(totalDuration);
       setResult(res);
+      onMetricsGenerated?.(res.metrics, res.locationReports);
       const carrierDesc = activeCarrier ? `Custom Carrier (${activeCarrier.name})` : 'Synthetic Active Stream';
       onAddAuditLog(
         'DUAL_VAULT_CREATION',
@@ -1066,7 +1070,7 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog 
           <StatisticalInspector
             metrics={result.metrics}
             locationReports={result.locationReports}
-            carrierSize={useSyntheticCarrier ? 5242880 : (carrierFile?.size || 5242880)}
+            carrierSize={carrierFile?.size || carrierPreviewBlob?.size || 15360}
             payloadSize={(vaultAFile?.size || 0) + (vaultBFile?.size || 0)}
           />
         </div>

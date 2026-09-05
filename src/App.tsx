@@ -251,7 +251,13 @@ export default function App() {
         
         {/* TAB 1: DUAL-VAULT PROTECTION */}
         {activeTab === 'protect' && (
-          <ProtectWorkflow onAddAuditLog={handleAddAuditLog} />
+          <ProtectWorkflow
+            onAddAuditLog={handleAddAuditLog}
+            onMetricsGenerated={(metrics, locs) => {
+              setInspectorMetrics(metrics);
+              setInspectorLocations(locs);
+            }}
+          />
         )}
 
         {/* TAB 2: EXTRACTION & SELECTIVE REVEAL */}

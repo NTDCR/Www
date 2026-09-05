@@ -329,7 +329,7 @@ export async function embedSpreadSpectrum8Locations(
   for (const box of boxChunks) totalFinalSize += box.length;
 
   let protectedMp4: Uint8Array;
-  if (totalFinalSize <= 32 * 1024 * 1024) {
+  if (totalFinalSize <= 256 * 1024 * 1024) {
     try {
       protectedMp4 = new Uint8Array(totalFinalSize);
       let offset = 0;
@@ -342,7 +342,7 @@ export async function embedSpreadSpectrum8Locations(
       protectedMp4 = boxChunks[0];
     }
   } else {
-    // Multi-megabyte files (>32MB): boxChunks contains all data avoiding duplicate monolithic heap allocation
+    // Extreme files (>256MB): boxChunks contains all data avoiding duplicate monolithic heap allocation
     protectedMp4 = boxChunks[0];
   }
 

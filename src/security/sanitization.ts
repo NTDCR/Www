@@ -113,28 +113,28 @@ export async function execute35PassSecureWipe(
       // Ignored
     }
 
-    // 3. Clear Cache Storage
-    if (typeof window !== 'undefined' && 'caches' in window) {
-      try {
-        const cacheKeys = await window.caches.keys();
-        for (const ck of cacheKeys) {
-          await window.caches.delete(ck);
-        }
-      } catch {
-        // Ignored
-      }
-    }
-
     onPassUpdate?.({
       currentPass: pass + 1,
       totalPasses: total,
       patternName: pattern,
-      targetArea: pass < 12 ? 'IndexedDB & RAM Keys' : pass < 24 ? 'LocalStorage / SessionStorage' : 'Worker Buffers & Cache',
+      targetArea: pass < 12 ? 'IndexedDB & RAM Keys' : pass < 24 ? 'LocalStorage / SessionStorage' : 'Worker Buffers & Storage',
       progressPercentage: pct
     });
 
     // Small async yield to animate smoothly
     await new Promise(r => setTimeout(r, 40));
+  }
+
+  // 3. Clear Cache Storage
+  if (typeof window !== 'undefined' && 'caches' in window) {
+    try {
+      const cacheKeys = await window.caches.keys();
+      for (const ck of cacheKeys) {
+        await window.caches.delete(ck);
+      }
+    } catch {
+      // Ignored
+    }
   }
 
   // 4. Delete IndexedDB databases (Removes recovery codes and all persistent DB storage)

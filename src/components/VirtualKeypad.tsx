@@ -67,16 +67,19 @@ export const VirtualKeypad: React.FC<VirtualKeypadProps> = ({
       </div>
 
       <div className="grid grid-cols-10 gap-1 sm:gap-1.5 mb-3">
-        {keys.map((k, idx) => (
-          <button
-            key={`${k}-${idx}`}
-            type="button"
-            onClick={() => onInput(isShift ? k.toLowerCase() : k)}
-            className="h-9 sm:h-10 bg-slate-800 hover:bg-emerald-500/20 active:bg-emerald-500 text-slate-200 hover:text-emerald-300 font-mono font-bold text-xs sm:text-sm rounded border border-slate-700 hover:border-emerald-500/50 transition-all flex items-center justify-center select-none shadow-sm touch-manipulation"
-          >
-            {isShift ? k.toLowerCase() : k}
-          </button>
-        ))}
+        {keys.map((k, idx) => {
+          const displayChar = isShift ? k.toUpperCase() : k.toLowerCase();
+          return (
+            <button
+              key={`${k}-${idx}`}
+              type="button"
+              onClick={() => onInput(displayChar)}
+              className="h-9 sm:h-10 bg-slate-800 hover:bg-emerald-500/20 active:bg-emerald-500 text-slate-200 hover:text-emerald-300 font-mono font-bold text-xs sm:text-sm rounded border border-slate-700 hover:border-emerald-500/50 transition-all flex items-center justify-center select-none shadow-sm touch-manipulation"
+            >
+              {displayChar}
+            </button>
+          );
+        })}
       </div>
 
       <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-800/80">
