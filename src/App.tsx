@@ -105,12 +105,12 @@ export default function App() {
     },
     {
       id: 'loc5',
-      name: 'Custom Vendor DRM Extension (cgpm)',
-      category: 'Custom cgpm',
+      name: 'Standard ISO skip Discardable Container',
+      category: 'ISO skip Box',
       bytesAllocated: 32768,
       redundancyFactor: 8,
       status: 'Verified',
-      description: 'ContentGuard Pro MAX standard atom with zero magic signature markers'
+      description: 'Standard ISO/IEC 14496-12 discardable skip atom with zero magic signature markers'
     },
     {
       id: 'loc6',

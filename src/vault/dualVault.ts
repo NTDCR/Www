@@ -76,7 +76,7 @@ export function clearContainerInspectionCache() {
  * Fast-path Reed-Solomon decoding for the first N blocks containing container metadata.
  * Decodes only header blocks in < 0.5ms instead of hundreds of thousands of blocks.
  */
-function decodeRSHeaderBlocksFast(encodedData: Uint8Array, maxBlocks: number = 30): Uint8Array {
+function decodeRSHeaderBlocksFast(encodedData: Uint8Array, maxBlocks: number = 80): Uint8Array {
   if (encodedData.length < 16) return new Uint8Array(0);
   const view = new DataView(encodedData.buffer, encodedData.byteOffset, encodedData.byteLength);
   const magic = view.getUint32(0, false);
@@ -139,7 +139,7 @@ async function getOrExtractContainerBundles(
     if (vaultABytes.length > 0) {
       try {
         headerUnshapedA = denormalizeEntropyHeaderFast(vaultABytes, 24576);
-        headerDecodedA = decodeRSHeaderBlocksFast(headerUnshapedA, 30);
+        headerDecodedA = decodeRSHeaderBlocksFast(headerUnshapedA, 80);
         bundleA = deserializeBundle(headerDecodedA);
       } catch {
         try {
@@ -155,7 +155,7 @@ async function getOrExtractContainerBundles(
     if (vaultBBytes.length > 0) {
       try {
         headerUnshapedB = denormalizeEntropyHeaderFast(vaultBBytes, 24576);
-        headerDecodedB = decodeRSHeaderBlocksFast(headerUnshapedB, 30);
+        headerDecodedB = decodeRSHeaderBlocksFast(headerUnshapedB, 80);
         bundleB = deserializeBundle(headerDecodedB);
       } catch {
         try {
