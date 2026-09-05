@@ -328,15 +328,38 @@ export function denormalizeEntropyHeaderFast(normalizedData: Uint8Array, maxByte
   if (normalizedData.length < 24) return new Uint8Array(0);
 
   const streamSalt = normalizedData.subarray(0, 16);
+  let originalLen = 0;
+  for (let i = 0; i < 4; i++) {
+    originalLen |= ((normalizedData[16 + i] ^ streamSalt[i]) << (i * 8));
+  }
+  originalLen >>>= 0;
+
+  let storedChecksum = 0;
+  for (let i = 0; i < 4; i++) {
+    storedChecksum |= ((normalizedData[20 + i] ^ streamSalt[4 + i]) << (i * 8));
+  }
+  storedChecksum >>>= 0;
+
+  // Header integrity verification: abort immediately on corrupted/non-matching carrier header
+  const expectedChecksum = computeHeaderChecksum(streamSalt, originalLen);
+  if (storedChecksum !== expectedChecksum) {
+    return new Uint8Array(0);
+  }
+
+  const maxPossibleLen = Math.floor((normalizedData.length - 24) / 2);
+  if (originalLen <= 0 || originalLen > maxPossibleLen) {
+    return new Uint8Array(0);
+  }
+
+  const targetBytes = Math.min(maxBytes, originalLen);
+  const out = new Uint8Array(targetBytes);
+  let inIdx = 24;
+  let outIdx = 0;
+
   let s0 = (streamSalt[0] | (streamSalt[1] << 8) | (streamSalt[2] << 16) | (streamSalt[3] << 24)) >>> 0;
   let s1 = (streamSalt[4] | (streamSalt[5] << 8) | (streamSalt[6] << 16) | (streamSalt[7] << 24)) >>> 0;
   let s2 = (streamSalt[8] | (streamSalt[9] << 8) | (streamSalt[10] << 16) | (streamSalt[11] << 24)) >>> 0;
   let s3 = (streamSalt[12] | (streamSalt[13] << 8) | (streamSalt[14] << 16) | (streamSalt[15] << 24)) >>> 0;
-
-  const targetBytes = Math.min(maxBytes, Math.floor((normalizedData.length - 24) / 2));
-  const out = new Uint8Array(targetBytes);
-  let inIdx = 24;
-  let outIdx = 0;
 
   while (outIdx < targetBytes && inIdx < normalizedData.length) {
     const result = (s0 + s3) >>> 0;

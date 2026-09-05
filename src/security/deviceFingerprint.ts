@@ -109,25 +109,51 @@ export async function getAudioFingerprint(): Promise<string> {
     gain.connect(audioCtx.destination);
 
     return new Promise((resolve) => {
+      let isSettled = false;
+      let timer: ReturnType<typeof setTimeout> | null = null;
+
+      const cleanup = () => {
+        if (timer) {
+          clearTimeout(timer);
+          timer = null;
+        }
+        try { scriptProcessor.onaudioprocess = null; } catch {}
+        try { oscillator.stop(); } catch {}
+        try { scriptProcessor.disconnect(); } catch {}
+        try { gain.disconnect(); } catch {}
+        try { analyser.disconnect(); } catch {}
+        try { audioCtx.close().catch(() => {}); } catch {}
+      };
+
       scriptProcessor.onaudioprocess = async (e) => {
+        if (isSettled) return;
+        isSettled = true;
         const output = e.inputBuffer.getChannelData(0);
         let sum = 0;
         for (let i = 0; i < output.length; i++) {
           sum += Math.abs(output[i]);
         }
-        oscillator.stop();
-        scriptProcessor.disconnect();
-        gain.disconnect();
-        audioCtx.close().catch(() => {});
+        cleanup();
         const hex = await sha256Hex('audio-' + sum.toFixed(8));
         resolve('au-' + hex.slice(0, 10));
       };
-      oscillator.start(0);
-      // Timeout fallback
-      setTimeout(async () => {
-        audioCtx.close().catch(() => {});
+
+      timer = setTimeout(() => {
+        if (isSettled) return;
+        isSettled = true;
+        cleanup();
         resolve('au-timeout-df81');
       }, 300);
+
+      try {
+        oscillator.start(0);
+      } catch {
+        if (!isSettled) {
+          isSettled = true;
+          cleanup();
+          resolve('au-fallback');
+        }
+      }
     });
   } catch {
     return 'au-fallback';

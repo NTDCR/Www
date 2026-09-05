@@ -484,6 +484,22 @@ export async function createDualVaultPackage(
       sha512Digest
     };
   } finally {
+    if (bundleA) {
+      zeroizeBuffer(
+        bundleA.payload, bundleA.saltL1, bundleA.saltL2, bundleA.saltL3, bundleA.saltL4, bundleA.saltL5,
+        bundleA.ivL2, bundleA.ivL3, bundleA.ivL4, bundleA.tagL3, bundleA.tagL4, bundleA.kyberCt,
+        bundleA.k6Block, bundleA.notesBlock,
+        ...(bundleA.chunkedPayload || [])
+      );
+    }
+    if (bundleB) {
+      zeroizeBuffer(
+        bundleB.payload, bundleB.saltL1, bundleB.saltL2, bundleB.saltL3, bundleB.saltL4, bundleB.saltL5,
+        bundleB.ivL2, bundleB.ivL3, bundleB.ivL4, bundleB.tagL3, bundleB.tagL4, bundleB.kyberCt,
+        bundleB.k6Block, bundleB.notesBlock,
+        ...(bundleB.chunkedPayload || [])
+      );
+    }
     zeroizeBuffer(rawEncryptedA, rawEncryptedB, rsProtectedA, rsProtectedB, finalVaultA, finalVaultB, normalizedA, normalizedB);
   }
 }
@@ -559,19 +575,22 @@ export async function extractFromDualVaultPackage(
     }
   }
 
-  // Always evaluate both vaults (no early-success abort → timing-invariant vault selection)
-  const resultA = await tryExtractCandidate(vaultABytes, 40);
-  const resultB = await tryExtractCandidate(vaultBBytes, 55);
+  try {
+    const resultA = await tryExtractCandidate(vaultABytes, 40);
+    const resultB = await tryExtractCandidate(vaultBBytes, 55);
 
-  clearContainerInspectionCache();
+    clearContainerInspectionCache();
 
-  if (resultA) {
-    return resultA;
+    if (resultA) {
+      return resultA;
+    }
+    if (resultB) {
+      return resultB;
+    }
+    throw new Error(NEUTRAL_AUTH_FAILURE);
+  } finally {
+    zeroizeBuffer(vaultABytes, vaultBBytes);
   }
-  if (resultB) {
-    return resultB;
-  }
-  throw new Error(NEUTRAL_AUTH_FAILURE);
 }
 
 /**

@@ -166,8 +166,9 @@ export function adjustMoovChunkOffsets(moovPayload: Uint8Array, delta: number): 
         // stco: header, 4b version/flags, 4b entry_count, then 4b offsets
         if (curr + headerSize + 8 <= end) {
           const entryCount = view.getUint32(curr + headerSize + 4);
-          const maxEntries = Math.floor((end - (curr + headerSize + 8)) / 4);
-          const n = Math.min(entryCount, Math.max(0, maxEntries));
+          const atomLimit = Math.min(end, curr + boxSize);
+          const maxEntries = Math.max(0, Math.floor((atomLimit - (curr + headerSize + 8)) / 4));
+          const n = Math.min(entryCount, maxEntries);
           for (let i = 0; i < n; i++) {
             const entryPos = curr + headerSize + 8 + i * 4;
             const oldOffset = view.getUint32(entryPos);
@@ -177,8 +178,9 @@ export function adjustMoovChunkOffsets(moovPayload: Uint8Array, delta: number): 
       } else if (type === 'co64') {
         if (curr + headerSize + 8 <= end) {
           const entryCount = view.getUint32(curr + headerSize + 4);
-          const maxEntries = Math.floor((end - (curr + headerSize + 8)) / 8);
-          const n = Math.min(entryCount, Math.max(0, maxEntries));
+          const atomLimit = Math.min(end, curr + boxSize);
+          const maxEntries = Math.max(0, Math.floor((atomLimit - (curr + headerSize + 8)) / 8));
+          const n = Math.min(entryCount, maxEntries);
           for (let i = 0; i < n; i++) {
             const entryPos = curr + headerSize + 8 + i * 8;
             const oldOffset = view.getBigUint64(entryPos);
@@ -566,35 +568,40 @@ export async function extractSpreadSpectrumPayload(protectedMp4: Uint8Array): Pr
 
   await yieldToMainThread();
 
-  // Unpack Vault A and Vault B
-  const view = new DataView(combined.buffer, combined.byteOffset, combined.byteLength);
-  const vaultALen = view.getUint32(0, true);
+  // Unpack Vault A and Vault B with memory isolation and forensic zeroization
+  try {
+    const view = new DataView(combined.buffer, combined.byteOffset, combined.byteLength);
+    const vaultALen = view.getUint32(0, true);
 
-  if (vaultALen <= 0 || 4 + vaultALen > combined.length) {
-    return {
-      vaultABytes: new Uint8Array(0),
-      vaultBBytes: new Uint8Array(0)
-    };
+    if (vaultALen <= 0 || 4 + vaultALen > combined.length) {
+      return {
+        vaultABytes: new Uint8Array(0),
+        vaultBBytes: new Uint8Array(0)
+      };
+    }
+
+    const vaultABytes = new Uint8Array(combined.subarray(4, 4 + vaultALen));
+
+    if (combined.length < 8 + vaultALen) {
+      return {
+        vaultABytes,
+        vaultBBytes: new Uint8Array(0)
+      };
+    }
+
+    const vaultBLen = view.getUint32(4 + vaultALen, true);
+    if (vaultBLen <= 0 || 8 + vaultALen + vaultBLen > combined.length) {
+      return {
+        vaultABytes,
+        vaultBBytes: new Uint8Array(0)
+      };
+    }
+
+    const vaultBBytes = new Uint8Array(combined.subarray(8 + vaultALen, 8 + vaultALen + vaultBLen));
+
+    return { vaultABytes, vaultBBytes };
+  } finally {
+    // Memory hygiene: Wipes temporary interleaved reassembly buffer
+    combined.fill(0);
   }
-
-  const vaultABytes = combined.subarray(4, 4 + vaultALen);
-
-  if (combined.length < 8 + vaultALen) {
-    return {
-      vaultABytes,
-      vaultBBytes: new Uint8Array(0)
-    };
-  }
-
-  const vaultBLen = view.getUint32(4 + vaultALen, true);
-  if (vaultBLen <= 0 || 8 + vaultALen + vaultBLen > combined.length) {
-    return {
-      vaultABytes,
-      vaultBBytes: new Uint8Array(0)
-    };
-  }
-
-  const vaultBBytes = combined.subarray(8 + vaultALen, 8 + vaultALen + vaultBLen);
-
-  return { vaultABytes, vaultBBytes };
 }
