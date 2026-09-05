@@ -187,7 +187,15 @@ export async function generateDeviceFingerprint(): Promise<DeviceFingerprint> {
     hardwareConcurrency: hwConcurrency,
     screenResolution: `${scrWidth}x${scrHeight}`,
     colorDepth: clrDepth,
-    timezone: typeof Intl !== 'undefined' && Intl.DateTimeFormat ? Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' : 'UTC',
+    timezone: (() => {
+      try {
+        return (typeof Intl !== 'undefined' && Intl.DateTimeFormat)
+          ? Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+          : 'UTC';
+      } catch {
+        return 'UTC';
+      }
+    })(),
     userAgentHash: 'ua-' + uaHash.slice(0, 12),
     generatedAt: new Date().toISOString()
   };
