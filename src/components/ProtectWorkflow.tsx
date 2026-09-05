@@ -36,9 +36,9 @@ import { LiveProgressTimer, formatDurationHuman } from './LiveProgressTimer';
 import { Key6BadgeCard } from './Key6BadgeCard';
 import { AssessmentNotesEditor } from './AssessmentNotesEditor';
 import { deriveAndMask1024BitId, generateRandomKey6String, generateFreshKey6Salt } from '../crypto/key6Engine';
-import { createSyntheticMp4Carrier } from '../media/isobmff';
 import { getOrGenerateCarrierBlob } from '../media/mp4Generator';
 import { StreamingFileHandle, createStreamingFileHandle, loadStreamingFileHandleAsync, streamChunksDirectToDisk, sanitizeFilename } from '../utils/fileReader';
+import { VideoPlayerPreview } from './VideoPlayerPreview';
 import { yieldToMainThread } from '../utils/asyncUtils';
 
 interface ProtectWorkflowProps {
@@ -58,6 +58,7 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog 
   const [carrierFile, setCarrierFile] = useState<StreamingFileHandle | null>(null);
   const [useSyntheticCarrier, setUseSyntheticCarrier] = useState<boolean>(false);
   const [carrierPreviewBlob, setCarrierPreviewBlob] = useState<Blob | null>(null);
+  const [showPlayerPreview, setShowPlayerPreview] = useState<boolean>(false);
 
   // Initialize synthetic carrier only if user explicitly selects synthetic mode
   useEffect(() => {
@@ -524,6 +525,30 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog 
                 </div>
               </div>
             </div>
+
+            {/* Live Carrier Video Preview Toggle & Player */}
+            <div className="mt-3">
+              <button
+                type="button"
+                onClick={() => setShowPlayerPreview(!showPlayerPreview)}
+                className="w-full flex items-center justify-center gap-2 py-1.5 px-3 rounded-lg border border-slate-700 bg-slate-950/60 text-slate-300 hover:text-emerald-400 hover:border-emerald-500/40 text-xs font-mono transition-colors"
+              >
+                <Play className="w-3.5 h-3.5 text-emerald-400" />
+                <span>{showPlayerPreview ? 'Hide Carrier Video Player' : 'Live Carrier Video Player Preview'}</span>
+              </button>
+              {showPlayerPreview && (
+                <div className="mt-3">
+                  <VideoPlayerPreview
+                    videoBlob={carrierPreviewBlob}
+                    title={useSyntheticCarrier ? 'Synthetic Carrier Stream' : (carrierFile ? `Carrier: ${carrierFile.name}` : 'Carrier Preview')}
+                    subtitle={useSyntheticCarrier ? '30 FPS ISO/IEC 14496-12 Compliant H.264 Stream' : 'Custom Uploaded Cover Video'}
+                    badgeText="100% Playable Stream"
+                    onNewCarrierGenerated={handleCanvasCarrierGenerated}
+                    showCanvasGenerator={useSyntheticCarrier}
+                  />
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="text-[11px] font-mono text-slate-500 mt-4 pt-3 border-t border-slate-800 flex items-center justify-between">
@@ -551,22 +576,30 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog 
               {/* Stealth Carrier-to-Payload Ratio Gauge */}
               {(() => {
                 const pSize = (vaultAFile?.size || 0) + (vaultBFile?.size || 0);
-                const cSize = useSyntheticCarrier ? 5242880 : (carrierFile?.size || 0);
-                const calcRatio = pSize > 0 && cSize > 0 ? (cSize / pSize) : (useSyntheticCarrier ? 8.5 : 0);
-                const isOptimal = calcRatio >= 3.0;
+                const actualCarrierSize = carrierFile?.size || (carrierPreviewBlob?.size || 0);
+                const calcRatio = pSize > 0 && actualCarrierSize > 0 ? (actualCarrierSize / pSize) : 0;
+                const isOptimal = calcRatio >= 3.0 && !useSyntheticCarrier;
 
                 return (
-                  <div className={`p-2.5 rounded-lg border flex items-center justify-between text-[11px] ${
-                    isOptimal
-                      ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300'
-                      : 'bg-amber-950/40 border-amber-500/40 text-amber-300'
+                  <div className={`p-2.5 rounded-lg border flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-[11px] ${
+                    useSyntheticCarrier
+                      ? 'bg-sky-950/40 border-sky-500/40 text-sky-300'
+                      : (isOptimal
+                        ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300'
+                        : 'bg-amber-950/40 border-amber-500/40 text-amber-300')
                   }`}>
                     <span className="flex items-center gap-1.5 font-bold">
                       <Sparkles className="w-3.5 h-3.5" />
-                      Stealth Ratio: {calcRatio > 0 ? `${calcRatio.toFixed(1)}x` : 'N/A'}
+                      {useSyntheticCarrier
+                        ? `Synthetic Carrier (${actualCarrierSize > 0 ? (actualCarrierSize / 1024).toFixed(0) : '0'} KB)`
+                        : `Carrier Stealth Ratio: ${calcRatio > 0 ? `${calcRatio.toFixed(1)}x` : 'Awaiting files'}`}
                     </span>
                     <span className="text-[10px] uppercase font-bold">
-                      {isOptimal ? '✓ 100/100 Optimal Anti-Forensics' : '⚠ Caution: Use larger carrier MP4 for stealth'}
+                      {useSyntheticCarrier
+                        ? 'ℹ Testing Stream • Upload custom 100MB+ MP4 for high-stakes stealth'
+                        : (isOptimal
+                          ? '✓ 100/100 Optimal Anti-Forensics'
+                          : '⚠ Caution: Use larger carrier MP4 (≥3x to 10x) for stealth')}
                     </span>
                   </div>
                 );

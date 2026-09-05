@@ -580,13 +580,16 @@ export async function extractFromDualVaultPackage(
       const decrypted = await decryptCascade5Layers(bundle, passwords, iterations, (l, d) =>
         onProgress?.(d, progressBase + 5 + l * 8)
       );
-      const digest = await calculateSha512Safe(decrypted.data);
-      const blob = new Blob([decrypted.data], { type: 'application/octet-stream' });
+      const payloadChunks = (decrypted.chunkedPayload && decrypted.chunkedPayload.length > 0)
+        ? decrypted.chunkedPayload
+        : [decrypted.data];
+      const digest = await calculateSha512Safe(payloadChunks);
+      const blob = new Blob(payloadChunks, { type: 'application/octet-stream' });
       return {
         fileBlob: blob,
-        chunkedData: [decrypted.data],
+        chunkedData: payloadChunks,
         filename: sanitizeFilename(decrypted.originalFilename),
-        filesize: decrypted.data.length,
+        filesize: decrypted.originalSize,
         vaultRevealed: 'Authenticated Payload',
         sha512Digest: digest
       };

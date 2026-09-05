@@ -12,13 +12,25 @@ const MAX_WEB_CRYPTO_CHUNK = 65536; // 64 KiB Web Crypto limit per call
  * Safely fills a TypedArray or DataView of ANY size with CSPRNG entropy
  */
 export function safeGetRandomValues<T extends ArrayBufferView>(array: T): T {
+  const cryptoObj = typeof crypto !== 'undefined'
+    ? crypto
+    : (typeof window !== 'undefined' && (window as any).crypto
+      ? (window as any).crypto
+      : (typeof globalThis !== 'undefined' && (globalThis as any).crypto
+        ? (globalThis as any).crypto
+        : null));
+
+  if (!cryptoObj || typeof cryptoObj.getRandomValues !== 'function') {
+    throw new Error('ContentGuard CSPRNG Error: Web Crypto API (crypto.getRandomValues) is required but unavailable in this environment.');
+  }
+
   const uint8 = new Uint8Array(array.buffer, array.byteOffset, array.byteLength);
   const totalLength = uint8.length;
 
   for (let offset = 0; offset < totalLength; offset += MAX_WEB_CRYPTO_CHUNK) {
     const chunkSize = Math.min(MAX_WEB_CRYPTO_CHUNK, totalLength - offset);
     const chunkView = new Uint8Array(uint8.buffer, uint8.byteOffset + offset, chunkSize);
-    crypto.getRandomValues(chunkView);
+    cryptoObj.getRandomValues(chunkView);
   }
 
   return array;

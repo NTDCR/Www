@@ -53,6 +53,7 @@ export interface EncryptedPayloadBundle {
 
 export interface DecryptedPayloadResult {
   data: Uint8Array;
+  chunkedPayload?: Uint8Array[];
   originalFilename: string;
   originalSize: number;
 }
@@ -926,42 +927,29 @@ export async function decryptCascade5Layers(
     }
   }
 
-  // Combine decrypted stream
-  let totalDecLen = 0;
-  for (const c of decryptedChunks) totalDecLen += c.length;
-  const combined = new Uint8Array(totalDecLen);
-  let p = 0;
-  for (const c of decryptedChunks) {
-    combined.set(c, p);
-    p += c.length;
-  }
-
-  const wipePlaintext = () => {
-    zeroizeBuffer(combined, decryptedChunks);
-  };
-
-  // Evaluate framing without early-abort throws — unify to single neutral failure
+  // Evaluate framing directly from decryptedChunks[0] without allocating a monolithic double array
   let magicOk = false;
   let frameOk = false;
   let originalFilename = '';
   let originalSize = 0;
-  let data: Uint8Array | null = null;
+  let dp = 0;
 
-  if (combined.length >= 16) {
-    magicOk = constantTimeCompare(combined.subarray(0, 4), VAULT_INNER_MAGIC);
-    const decView = new DataView(combined.buffer, combined.byteOffset, combined.byteLength);
-    let dp = 4;
-    const nameLen = decView.getUint32(dp, true); dp += 4;
-    if (dp + nameLen + 8 <= combined.length) {
+  if (decryptedChunks.length > 0 && decryptedChunks[0].length >= 16) {
+    const firstChunk = decryptedChunks[0];
+    magicOk = constantTimeCompare(firstChunk.subarray(0, 4), VAULT_INNER_MAGIC);
+    const decView = new DataView(firstChunk.buffer, firstChunk.byteOffset, firstChunk.byteLength);
+    let p = 4;
+    const nameLen = decView.getUint32(p, true); p += 4;
+    if (p + nameLen + 8 <= firstChunk.length) {
       try {
         const dec = new TextDecoder();
-        originalFilename = sanitizeFilename(dec.decode(combined.subarray(dp, dp + nameLen)));
-        dp += nameLen;
-        const rawBigSize = decView.getBigUint64(dp, true); dp += 8;
+        originalFilename = sanitizeFilename(dec.decode(firstChunk.subarray(p, p + nameLen)));
+        p += nameLen;
+        const rawBigSize = decView.getBigUint64(p, true); p += 8;
         if (rawBigSize <= BigInt(Number.MAX_SAFE_INTEGER)) {
           originalSize = Number(rawBigSize);
-          if (originalSize >= 0 && dp + originalSize <= combined.length) {
-            data = combined.subarray(dp, dp + originalSize);
+          if (originalSize >= 0) {
+            dp = p;
             frameOk = true;
           }
         }
@@ -972,17 +960,43 @@ export async function decryptCascade5Layers(
   }
 
   // Constant-time combine of auth + magic + framing (no layer-distinguishing branch on throw)
-  const ok = authOk && magicOk && frameOk && data !== null;
+  const ok = authOk && magicOk && frameOk;
   if (!ok) {
-    wipePlaintext();
+    zeroizeBuffer(decryptedChunks);
     throw new Error(NEUTRAL_AUTH_FAILURE);
   }
 
-  const outData = new Uint8Array(data!);
-  wipePlaintext();
+  // Extract payload slices directly in 1 MB chunks without allocating a massive monolithic double array
+  const payloadChunks: Uint8Array[] = [];
+  let remainingNeeded = originalSize;
+  for (let i = 0; i < decryptedChunks.length && remainingNeeded > 0; i++) {
+    const start = (i === 0 ? dp : 0);
+    const available = decryptedChunks[i].length - start;
+    if (available <= 0) continue;
+    const take = Math.min(available, remainingNeeded);
+    payloadChunks.push(decryptedChunks[i].slice(start, start + take));
+    remainingNeeded -= take;
+  }
+
+  // For small-to-medium files (<= 32 MB), assemble monolithic data buffer for backwards compatibility
+  let outData: Uint8Array;
+  if (originalSize <= 32 * 1024 * 1024) {
+    outData = new Uint8Array(originalSize);
+    let op = 0;
+    for (const pc of payloadChunks) {
+      outData.set(pc, op);
+      op += pc.length;
+    }
+  } else {
+    // For large gigabyte files (> 32 MB), leave outData lightweight to prevent V8 ArrayBuffer allocation failure
+    outData = new Uint8Array(0);
+  }
+
+  zeroizeBuffer(decryptedChunks);
 
   return {
     data: outData,
+    chunkedPayload: payloadChunks,
     originalFilename,
     originalSize
   };

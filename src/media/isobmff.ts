@@ -497,7 +497,8 @@ export async function extractSpreadSpectrumPayload(protectedMp4: Uint8Array): Pr
   scanBoxList(boxes);
 
   // Sony UUID (Slot 0) has an unforgeable 16-byte header signature.
-  // Locate Slot 0 to establish the exact stripe length baseline.
+  // In professional camera footage (e.g. Sony FX3/A7SIII), native metadata boxes may also exist.
+  // Evaluate Slot 0 candidates (prioritizing latest appended injected box) to find the verified anchor.
   const slot0Candidates = candidates.filter(c => c.slot === 0);
   if (slot0Candidates.length === 0) {
     return {
@@ -506,38 +507,43 @@ export async function extractSpreadSpectrumPayload(protectedMp4: Uint8Array): Pr
     };
   }
 
-  // Pick the verified Sony UUID chunk (latest in container if multiple)
-  const sonyCandidate = slot0Candidates[slot0Candidates.length - 1];
-  const baseStripeLen = sonyCandidate.data.length;
+  let selectedSonyCandidate: { slot: number; data: Uint8Array; offset: number } | null = null;
+  let resolvedChunks: (Uint8Array | null)[] = [null, null, null, null, null, null, null, null];
 
-  const chunks: (Uint8Array | null)[] = [null, null, null, null, null, null, null, null];
-  chunks[0] = sonyCandidate.data;
+  for (let idx = slot0Candidates.length - 1; idx >= 0; idx--) {
+    const s0 = slot0Candidates[idx];
+    const baseLen = s0.data.length;
+    const testChunks: (Uint8Array | null)[] = [s0.data, null, null, null, null, null, null, null];
+    let allSlotsFound = true;
 
-  // For slots 1 through 7, disambiguate carrier natural atoms from injected payload atoms
-  // by selecting candidates matching the mathematical stripe length expectation
-  for (let s = 1; s < 8; s++) {
-    const slotMatches = candidates.filter(
-      c => c.slot === s && (c.data.length === baseStripeLen || c.data.length === baseStripeLen - 1)
-    );
-    if (slotMatches.length > 0) {
-      chunks[s] = slotMatches[slotMatches.length - 1].data;
-    } else {
-      const anyMatch = candidates.filter(c => c.slot === s);
-      if (anyMatch.length > 0) {
-        chunks[s] = anyMatch[anyMatch.length - 1].data;
+    for (let s = 1; s < 8; s++) {
+      const validMatches = candidates.filter(
+        c => c.slot === s && (c.data.length === baseLen || c.data.length === baseLen - 1)
+      );
+      if (validMatches.length === 0) {
+        allSlotsFound = false;
+        break;
       }
+      // Prefer the candidate in the injected cluster (offset >= s0.offset)
+      const clusterMatches = validMatches.filter(c => c.offset >= s0.offset);
+      testChunks[s] = clusterMatches.length > 0 ? clusterMatches[0].data : validMatches[validMatches.length - 1].data;
+    }
+
+    if (allSlotsFound) {
+      selectedSonyCandidate = s0;
+      resolvedChunks = testChunks;
+      break;
     }
   }
 
-  // Verify all 8 spread spectrum locations are present
-  for (let c = 0; c < 8; c++) {
-    if (!chunks[c] || chunks[c]!.length === 0) {
-      return {
-        vaultABytes: new Uint8Array(0),
-        vaultBBytes: new Uint8Array(0)
-      };
-    }
+  if (!selectedSonyCandidate || resolvedChunks.some(c => !c || c.length === 0)) {
+    return {
+      vaultABytes: new Uint8Array(0),
+      vaultBBytes: new Uint8Array(0)
+    };
   }
+
+  const chunks = resolvedChunks;
 
   // Count extracted chunks
   let totalCombinedLen = 0;

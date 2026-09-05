@@ -9,6 +9,26 @@
 
 let activeClipboardPurgeTimer: ReturnType<typeof setTimeout> | null = null;
 let lastCopiedPayload: string | null = null;
+let pendingPurgeDeadline = 0;
+
+// Setup resilient window focus / visibility listeners to ensure clipboard is wiped even if tab was backgrounded
+if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+  const checkAndExecutePendingPurge = async () => {
+    if (pendingPurgeDeadline > 0 && Date.now() >= pendingPurgeDeadline) {
+      await purgeClipboard();
+    }
+  };
+
+  window.addEventListener('focus', () => {
+    checkAndExecutePendingPurge();
+  });
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      checkAndExecutePendingPurge();
+    }
+  });
+}
 
 /**
  * Copies text to system clipboard and sets up an automated secure purge
@@ -33,6 +53,7 @@ export async function secureCopyToClipboard(
     }
 
     lastCopiedPayload = text;
+    pendingPurgeDeadline = autoPurgeSeconds > 0 ? Date.now() + autoPurgeSeconds * 1000 : 0;
     await navigator.clipboard.writeText(text);
 
     if (autoPurgeSeconds > 0) {
@@ -52,6 +73,7 @@ export async function secureCopyToClipboard(
         } finally {
           lastCopiedPayload = null;
           activeClipboardPurgeTimer = null;
+          pendingPurgeDeadline = 0;
         }
       }, autoPurgeSeconds * 1000);
     }
@@ -71,6 +93,7 @@ export async function purgeClipboard(): Promise<void> {
     activeClipboardPurgeTimer = null;
   }
   lastCopiedPayload = null;
+  pendingPurgeDeadline = 0;
 
   if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
     try {
