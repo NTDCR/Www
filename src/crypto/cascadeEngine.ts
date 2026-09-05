@@ -737,6 +737,8 @@ export async function encryptCascade5Layers(
       fullCiphertext.set(c, cp);
       cp += c.length;
     }
+    // Release independent chunk allocations to immediately halve heap memory footprint
+    encryptedChunks.length = 0;
   } finally {
     // Unconditionally wipe keys & plaintext even if stream aborts or throws
     if (innerPlaintext) zeroizeBuffer(innerPlaintext);
@@ -793,6 +795,15 @@ export async function encryptCascade5Layers(
     zeroizeBuffer(authKey);
   }
 
+  // Zero-copy chunk subarrays slicing fullCiphertext buffer without extra RAM allocation
+  const zeroCopyChunks: Uint8Array[] = [];
+  let sp = 0;
+  while (sp < fullCiphertext.length) {
+    const nextSp = Math.min(sp + STRICT_CHUNK_SIZE, fullCiphertext.length);
+    zeroCopyChunks.push(fullCiphertext.subarray(sp, nextSp));
+    sp = nextSp;
+  }
+
   return {
     payload: fullCiphertext,
     saltL1,
@@ -811,7 +822,7 @@ export async function encryptCascade5Layers(
     originalSize: totalFileSize,
     k6Block,
     notesBlock,
-    chunkedPayload: encryptedChunks
+    chunkedPayload: zeroCopyChunks
   };
 }
 

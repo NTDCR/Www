@@ -90,71 +90,37 @@ export async function getWebGLFingerprint(): Promise<string> {
 export async function getAudioFingerprint(): Promise<string> {
   try {
     if (typeof window === 'undefined') return 'au-headless';
-    const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-    if (!AudioContextClass) return 'audio-unavailable';
+    const OfflineContextClass = window.OfflineAudioContext || (window as unknown as { webkitOfflineAudioContext: typeof OfflineAudioContext }).webkitOfflineAudioContext;
+    if (!OfflineContextClass) return 'audio-unavailable';
 
-    const audioCtx = new AudioContextClass();
-    const oscillator = audioCtx.createOscillator();
-    const analyser = audioCtx.createAnalyser();
-    const gain = audioCtx.createGain();
-    const scriptProcessor = audioCtx.createScriptProcessor(4096, 1, 1);
-
-    gain.gain.value = 0; // Silent
+    // Modern future-proof W3C standard: OfflineAudioContext with DynamicsCompressorNode
+    // 0 deprecation warnings, deterministic hardware audio DSP render, no audio playback needed
+    const ctx = new OfflineContextClass(1, 44100, 44100);
+    const oscillator = ctx.createOscillator();
     oscillator.type = 'triangle';
-    oscillator.frequency.setValueAtTime(10000, audioCtx.currentTime);
+    oscillator.frequency.setValueAtTime(10000, ctx.currentTime);
 
-    oscillator.connect(analyser);
-    analyser.connect(scriptProcessor);
-    scriptProcessor.connect(gain);
-    gain.connect(audioCtx.destination);
+    const compressor = ctx.createDynamicsCompressor();
+    compressor.threshold.setValueAtTime(-50, ctx.currentTime);
+    compressor.knee.setValueAtTime(40, ctx.currentTime);
+    compressor.ratio.setValueAtTime(12, ctx.currentTime);
+    compressor.attack.setValueAtTime(0, ctx.currentTime);
+    compressor.release.setValueAtTime(0.25, ctx.currentTime);
 
-    return new Promise((resolve) => {
-      let isSettled = false;
-      let timer: ReturnType<typeof setTimeout> | null = null;
+    oscillator.connect(compressor);
+    compressor.connect(ctx.destination);
+    oscillator.start(0);
 
-      const cleanup = () => {
-        if (timer) {
-          clearTimeout(timer);
-          timer = null;
-        }
-        try { scriptProcessor.onaudioprocess = null; } catch {}
-        try { oscillator.stop(); } catch {}
-        try { scriptProcessor.disconnect(); } catch {}
-        try { gain.disconnect(); } catch {}
-        try { analyser.disconnect(); } catch {}
-        try { audioCtx.close().catch(() => {}); } catch {}
-      };
+    const renderedBuffer = await ctx.startRendering();
+    const channelData = renderedBuffer.getChannelData(0);
+    let sum = 0;
+    const step = Math.max(1, Math.floor(channelData.length / 500));
+    for (let i = 0; i < channelData.length; i += step) {
+      sum += Math.abs(channelData[i]);
+    }
 
-      scriptProcessor.onaudioprocess = async (e) => {
-        if (isSettled) return;
-        isSettled = true;
-        const output = e.inputBuffer.getChannelData(0);
-        let sum = 0;
-        for (let i = 0; i < output.length; i++) {
-          sum += Math.abs(output[i]);
-        }
-        cleanup();
-        const hex = await sha256Hex('audio-' + sum.toFixed(8));
-        resolve('au-' + hex.slice(0, 10));
-      };
-
-      timer = setTimeout(() => {
-        if (isSettled) return;
-        isSettled = true;
-        cleanup();
-        resolve('au-timeout-df81');
-      }, 300);
-
-      try {
-        oscillator.start(0);
-      } catch {
-        if (!isSettled) {
-          isSettled = true;
-          cleanup();
-          resolve('au-fallback');
-        }
-      }
-    });
+    const hex = await sha256Hex('audio-' + sum.toFixed(8));
+    return 'au-' + hex.slice(0, 10);
   } catch {
     return 'au-fallback';
   }

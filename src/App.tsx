@@ -114,12 +114,12 @@ export default function App() {
     },
     {
       id: 'loc6',
-      name: 'stco Sample Table Chunk Delta Tables',
-      category: 'stco Offsets',
+      name: 'RED Digital Cinema Camera UUID Box',
+      category: 'RED UUID Box',
       bytesAllocated: 32768,
       redundancyFactor: 8,
       status: 'Verified',
-      description: 'Sample table chunk offset micro-variations maintaining video playback sync'
+      description: 'Standard ISO/IEC 14496-12 root-level RED Cinema acquisition metadata container'
     },
     {
       id: 'loc7',
