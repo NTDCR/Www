@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Cpu, CheckCircle2, Play, RefreshCw, X, AlertTriangle, Zap, Check } from 'lucide-react';
 import { kyber1024KeyGen, kyber1024Encapsulate, kyber1024Decapsulate } from '../crypto/kyber1024';
 import { serpent256Ctr } from '../crypto/serpent';
@@ -26,6 +26,14 @@ interface TestItem {
 
 export const BenchmarkSuite: React.FC<BenchmarkSuiteProps> = ({ onClose }) => {
   const [isRunning, setIsRunning] = useState<boolean>(false);
+  const isMountedRef = useRef<boolean>(true);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
   const [tests, setTests] = useState<TestItem[]>([
     {
       id: 't1',
@@ -110,9 +118,11 @@ export const BenchmarkSuite: React.FC<BenchmarkSuiteProps> = ({ onClose }) => {
   ]);
 
   const runAllTests = async () => {
+    if (isRunning) return;
     setIsRunning(true);
 
     for (let i = 0; i < tests.length; i++) {
+      if (!isMountedRef.current) return;
       const test = tests[i];
       setTests(prev => prev.map((t, idx) => idx === i ? { ...t, status: 'running' } : t));
 
@@ -209,17 +219,21 @@ export const BenchmarkSuite: React.FC<BenchmarkSuiteProps> = ({ onClose }) => {
       }
 
       const elapsed = Math.round(performance.now() - startTime);
-      setTests(prev => prev.map((t, idx) => idx === i ? {
-        ...t,
-        status: passed ? 'passed' : 'failed',
-        durationMs: elapsed
-      } : t));
+      if (isMountedRef.current) {
+        setTests(prev => prev.map((t, idx) => idx === i ? {
+          ...t,
+          status: passed ? 'passed' : 'failed',
+          durationMs: elapsed
+        } : t));
+      }
 
       // Small async tick
       await new Promise(r => setTimeout(r, 60));
     }
 
-    setIsRunning(false);
+    if (isMountedRef.current) {
+      setIsRunning(false);
+    }
   };
 
   const allPassed = tests.every(t => t.status === 'passed');

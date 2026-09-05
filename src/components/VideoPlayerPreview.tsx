@@ -46,6 +46,14 @@ export const VideoPlayerPreview: React.FC<VideoPlayerPreviewProps> = ({
   const [videoDims, setVideoDims] = useState<{ w: number; h: number }>({ w: 640, h: 360 });
   const [isGeneratingCanvas, setIsGeneratingCanvas] = useState<boolean>(false);
   const [mediaError, setMediaError] = useState<string | null>(null);
+  const isMountedRef = useRef<boolean>(true);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   // Manage object URL lifecycle
   useEffect(() => {
@@ -110,16 +118,19 @@ export const VideoPlayerPreview: React.FC<VideoPlayerPreviewProps> = ({
   };
 
   const handleGenerateFreshCarrier = async () => {
+    if (isGeneratingCanvas) return;
     try {
       setIsGeneratingCanvas(true);
       const dynamicBlob = await createAnimatedCanvasCarrierBlob(5);
-      if (onNewCarrierGenerated) {
+      if (isMountedRef.current && onNewCarrierGenerated) {
         onNewCarrierGenerated(dynamicBlob, `Dynamic_Cyber_Radar_Carrier_${Date.now()}.mp4`);
       }
     } catch (err) {
       console.error('Failed to generate dynamic canvas carrier', err);
     } finally {
-      setIsGeneratingCanvas(false);
+      if (isMountedRef.current) {
+        setIsGeneratingCanvas(false);
+      }
     }
   };
 

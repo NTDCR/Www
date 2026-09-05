@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Trash2, AlertTriangle, ShieldAlert, CheckCircle, RefreshCw, X, Shield } from 'lucide-react';
 import { execute35PassSecureWipe, PassStatus } from '../security/sanitization';
 
@@ -11,14 +11,25 @@ export const ZeroizeModal: React.FC<ZeroizeModalProps> = ({ onClose, onZeroizeCo
   const [isRunning, setIsRunning] = useState<boolean>(false);
   const [status, setStatus] = useState<PassStatus | null>(null);
   const [isDone, setIsDone] = useState<boolean>(false);
+  const isMountedRef = useRef<boolean>(true);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   const handleStartWipe = async () => {
+    if (isRunning) return;
     setIsRunning(true);
     await execute35PassSecureWipe((s) => {
-      setStatus(s);
+      if (isMountedRef.current) setStatus(s);
     });
-    setIsRunning(false);
-    setIsDone(true);
+    if (isMountedRef.current) {
+      setIsRunning(false);
+      setIsDone(true);
+    }
     setTimeout(() => {
       onZeroizeComplete();
     }, 2000);
