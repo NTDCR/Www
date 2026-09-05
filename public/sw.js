@@ -48,9 +48,9 @@ self.addEventListener('fetch', (event) => {
           }
           return networkResponse;
         });
-      }).catch(() => {
+      }).catch(async () => {
         // Air-gapped fallback
-        return caches.match('/');
+        return (await caches.match('./index.html')) || (await caches.match('./'));
       });
     })
   );

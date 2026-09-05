@@ -45,7 +45,13 @@ import { yieldToMainThread } from '../utils/asyncUtils';
 
 interface ProtectWorkflowProps {
   onAddAuditLog: (eventType: 'ENCRYPTION' | 'DUAL_VAULT_CREATION', details: string, digest: string) => void;
-  onMetricsGenerated?: (metrics: StatisticalMetrics, locationReports: EmbeddingLocationReport[]) => void;
+  onMetricsGenerated?: (
+    metrics: StatisticalMetrics,
+    locationReports: EmbeddingLocationReport[],
+    carrierSize?: number,
+    payloadSize?: number,
+    carrierName?: string
+  ) => void;
 }
 
 export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog, onMetricsGenerated }) => {
@@ -339,7 +345,10 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
       if (!isMountedRef.current) return;
       setTotalOperationDurationMs(totalDuration);
       setResult(res);
-      onMetricsGenerated?.(res.metrics, res.locationReports);
+      const actualCarrierSize = carrierFile?.size || carrierPreviewBlob?.size || (res.protectedMp4Bytes ? res.protectedMp4Bytes.length : 5242880);
+      const actualPayloadSize = (vaultAFile?.size || 0) + (vaultBFile?.size || 0);
+      const actualCarrierName = activeCarrier ? activeCarrier.name : 'Synthetic Active Stream';
+      onMetricsGenerated?.(res.metrics, res.locationReports, actualCarrierSize, actualPayloadSize, actualCarrierName);
       const carrierDesc = activeCarrier ? `Custom Carrier (${activeCarrier.name})` : 'Synthetic Active Stream';
       onAddAuditLog(
         'DUAL_VAULT_CREATION',
@@ -608,6 +617,20 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
                   </div>
                 );
               })()}
+
+              {Boolean(
+                (carrierFile && carrierFile.size >= 1.5 * 1024 * 1024 * 1024) ||
+                (vaultAFile && vaultAFile.size >= 1.5 * 1024 * 1024 * 1024) ||
+                (vaultBFile && vaultBFile.size >= 1.5 * 1024 * 1024 * 1024)
+              ) && (
+                <div className="p-3 bg-amber-950/60 border border-amber-500/50 rounded-lg text-xs font-mono text-amber-300 flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                  <div>
+                    <span className="font-bold block">Large-File V8 Engine Advisory (&ge; 1.5 GB):</span>
+                    ContentGuard processes large containers using 64KB streaming chunks to minimize memory footprints. Please ensure your host browser machine has at least 4 GB free RAM available during the 5-layer cascade and Reed-Solomon computation.
+                  </div>
+                </div>
+              )}
 
               {/* Vault A Upload */}
               <div className="p-3 bg-slate-950/70 border border-slate-800 rounded-lg">

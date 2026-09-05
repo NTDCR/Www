@@ -6,7 +6,8 @@ import './index.css';
 // Ensure Service Worker is registered for PWA installability & offline support
 if ('serviceWorker' in navigator && typeof window !== 'undefined') {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch((err) => {
+    const swUrl = './sw.js';
+    navigator.serviceWorker.register(swUrl).catch((err) => {
       console.warn('SW registration fallback:', err);
     });
   });

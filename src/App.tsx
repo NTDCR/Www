@@ -141,6 +141,10 @@ export default function App() {
     }
   ]);
 
+  const [inspectorCarrierSize, setInspectorCarrierSize] = useState<number>(5242880);
+  const [inspectorPayloadSize, setInspectorPayloadSize] = useState<number>(1048576);
+  const [inspectorCarrierName, setInspectorCarrierName] = useState<string>('Standard MP4 Video Stream');
+
   // Generate Device Fingerprint on mount & record live audit log
   useEffect(() => {
     generateDeviceFingerprint().then(fp => {
@@ -253,9 +257,12 @@ export default function App() {
         {activeTab === 'protect' && (
           <ProtectWorkflow
             onAddAuditLog={handleAddAuditLog}
-            onMetricsGenerated={(metrics, locs) => {
+            onMetricsGenerated={(metrics, locs, carrierSize, payloadSize, carrierName) => {
               setInspectorMetrics(metrics);
               setInspectorLocations(locs);
+              if (carrierSize !== undefined) setInspectorCarrierSize(carrierSize);
+              if (payloadSize !== undefined) setInspectorPayloadSize(payloadSize);
+              if (carrierName !== undefined) setInspectorCarrierName(carrierName);
             }}
           />
         )}
@@ -281,6 +288,9 @@ export default function App() {
             <StatisticalInspector
               metrics={inspectorMetrics}
               locationReports={inspectorLocations}
+              carrierSize={inspectorCarrierSize}
+              payloadSize={inspectorPayloadSize}
+              carrierName={inspectorCarrierName}
             />
           </div>
         )}

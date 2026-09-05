@@ -14,6 +14,16 @@ import {
 import { VaultAssessmentNotes, isAssessmentNotesComplete, createEmptyAssessmentNotes } from '../types';
 import { ASSESSMENT_QUESTIONS, AssessmentQuestionDef } from '../crypto/notesEngine';
 
+export const PLAUSIBLE_DECOY_TEMPLATE: VaultAssessmentNotes = {
+  q1_relatedEntities: 'Acme Global Operations Ltd., External IT Infrastructure & Compliance Auditing Group.',
+  q2_dataContents: 'Quarterly routine IT infrastructure operational compliance logs, internal system maintenance schedules, and server uptime audit reports.',
+  q3_obtainedMethod: 'Standard automated enterprise log exporter from primary internal datacenter management console during routine system maintenance.',
+  q4_disclosureAction: 'Maintain for standard 90-day internal enterprise retention policy; share solely with authorized IT compliance inspectors upon formal request.',
+  q5_comprehensiveDetails: 'Routine audit data containing benign timestamps, server status codes (HTTP 200/304), sanitized diagnostic metrics, and scheduled patch deployment verification entries.',
+  q6_precautionsAndSafety: 'Standard enterprise access controls applied; stored on internal encrypted volume with restricted role-based operational permissions.',
+  createdAt: new Date().toISOString()
+};
+
 interface AssessmentNotesEditorProps {
   vaultType: 'VaultA' | 'VaultB';
   vaultTitle: string;
@@ -92,6 +102,19 @@ export const AssessmentNotesEditor: React.FC<AssessmentNotesEditorProps> = ({
         </div>
 
         <div className="flex items-center gap-3">
+          {vaultType === 'VaultB' && (
+            <button
+              type="button"
+              onClick={() => onChange({ ...PLAUSIBLE_DECOY_TEMPLATE, createdAt: new Date().toISOString() })}
+              id="btn-load-decoy-template"
+              className="text-xs px-2.5 py-1 rounded-lg bg-amber-950/70 hover:bg-amber-900/90 text-amber-300 hover:text-amber-100 border border-amber-500/50 flex items-center gap-1.5 transition-colors font-mono font-semibold"
+              title="Load standard plausible decoy compliance template"
+            >
+              <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
+              <span>Load Plausible Decoy Template</span>
+            </button>
+          )}
+
           {completedCount > 0 && (
             <button
               type="button"
