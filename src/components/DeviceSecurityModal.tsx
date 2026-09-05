@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { KeyRound, Shield, X, Copy, Check, Printer, RefreshCw, Cpu } from 'lucide-react';
 import { DeviceFingerprint, RecoveryCode } from '../types';
 import { loadStoredRecoveryCodes, generateAndStoreRecoveryCodes, markRecoveryCodeUsed } from '../security/deviceFingerprint';
@@ -13,24 +13,26 @@ export const DeviceSecurityModal: React.FC<DeviceSecurityModalProps> = ({ device
   const [recoveryCodes, setRecoveryCodes] = useState<RecoveryCode[]>([]);
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
+  const isMountedRef = useRef<boolean>(true);
 
   useEffect(() => {
-    let isMounted = true;
+    isMountedRef.current = true;
     loadStoredRecoveryCodes().then(codes => {
-      if (isMounted) setRecoveryCodes(codes);
+      if (isMountedRef.current) setRecoveryCodes(codes);
     });
     return () => {
-      isMounted = false;
+      isMountedRef.current = false;
     };
   }, []);
 
   const handleRegenerateCodes = async () => {
+    if (isGenerating) return;
     setIsGenerating(true);
     try {
       const codes = await generateAndStoreRecoveryCodes();
-      setRecoveryCodes(codes);
+      if (isMountedRef.current) setRecoveryCodes(codes);
     } finally {
-      setIsGenerating(false);
+      if (isMountedRef.current) setIsGenerating(false);
     }
   };
 

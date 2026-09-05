@@ -93,14 +93,15 @@ function getNaturalBiasByte(prngState: number): number {
  */
 export function calculateChiSquareTest(
   observed: number[],
-  expected: number[],
+  expected?: number[],
   sampleCount: number = 1000
 ): { chiSquare: number; pValue: number } {
   let chiSquare = 0;
   const scale = sampleCount / 100;
+  const expDist = (expected && expected.length === 256) ? expected : getNaturalMp4Distribution();
   for (let i = 0; i < 256; i++) {
-    const o = observed[i] || 0.00001;
-    const e = expected[i] || 0.00001;
+    const o = (observed && observed[i]) || 0.00001;
+    const e = expDist[i] || 0.00001;
     chiSquare += scale * Math.pow(o - e, 2) / e;
   }
 
