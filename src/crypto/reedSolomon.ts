@@ -346,6 +346,9 @@ export function encodeRSStream(
     throw new Error('RS encode: kBlockSize + nsym exceeds maximum N=255');
   }
   const totalDataBytes = inputData.length;
+  if (totalDataBytes > 0xffffffff) {
+    throw new Error('Reed-Solomon framing error: inputData exceeds 4GB (32-bit unsigned integer ceiling).');
+  }
   const totalBlocks = Math.ceil(totalDataBytes / kBlockSize);
   const totalParityBytes = totalBlocks * nsym;
   
@@ -468,6 +471,9 @@ export async function encodeRSStreamAsync(
     throw new Error('RS encode: kBlockSize + nsym exceeds maximum N=255');
   }
   const totalDataBytes = inputData.length;
+  if (totalDataBytes > 0xffffffff) {
+    throw new Error('Reed-Solomon framing error: inputData exceeds 4GB (32-bit unsigned integer ceiling).');
+  }
   const totalBlocks = Math.ceil(totalDataBytes / kBlockSize);
   const totalParityBytes = totalBlocks * nsym;
 

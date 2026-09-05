@@ -257,7 +257,7 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
       setResult(res);
       if (res.assessmentNotes) {
         setAssessmentNotes(res.assessmentNotes);
-        setNotesMatchedVault('VaultA');
+        setNotesMatchedVault(res.matchedVault || 'VaultA');
       }
       onAddAuditLog(
         'DECRYPTION',

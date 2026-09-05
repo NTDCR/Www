@@ -67,7 +67,7 @@ export async function deriveAndMask1024BitId(
   commitmentTag32: Uint8Array;
   rsBlock: Uint8Array;
 }> {
-  if (!key6 || key6.trim() === '' || salt64.length < 64) {
+  if (!key6 || key6 === '' || salt64.length < 64) {
     return {
       rawId128: new Uint8Array(0),
       hexString: '',
@@ -78,7 +78,7 @@ export async function deriveAndMask1024BitId(
   }
 
   const enc = new TextEncoder();
-  const keyBytes = enc.encode(key6.trim());
+  const keyBytes = enc.encode(key6);
   let stretched: Uint8Array | null = null;
   let rawId128: Uint8Array | null = null;
   let xorMask128: Uint8Array | null = null;
@@ -168,7 +168,7 @@ export async function unmaskAndVerifyKey6FromRSBlock(
   iterations: number = DEFAULT_PBKDF2_ITERATIONS,
   vaultLabel: 'VaultA' | 'VaultB' = 'VaultA'
 ): Promise<{ valid: boolean; uniqueId1024Hex: string; repairedErrors: number }> {
-  if (!key6 || key6.trim() === '' || !rsBlockData || rsBlockData.length === 0) {
+  if (!key6 || key6 === '' || !rsBlockData || rsBlockData.length === 0) {
     return { valid: false, uniqueId1024Hex: '', repairedErrors: 0 };
   }
 
@@ -193,7 +193,7 @@ export async function unmaskAndVerifyKey6FromRSBlock(
     const expectedCommitmentTag32 = repairedBlock.subarray(64 + 128, 64 + 128 + 32);
 
     const enc = new TextEncoder();
-    keyBytes = enc.encode(key6.trim());
+    keyBytes = enc.encode(key6);
 
     // 2. Hardware-accelerated PBKDF2 stretching
     stretched = await fastPbkdf2HmacSha512(keyBytes, salt64, iterations, 64);

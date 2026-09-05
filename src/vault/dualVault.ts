@@ -40,41 +40,12 @@ import {
 import { deriveAndMask1024BitId, unmaskAndVerifyKey6FromRSBlock } from '../crypto/key6Engine';
 import { decryptAssessmentNotesBlock } from '../crypto/notesEngine';
 
-interface CachedContainerBundles {
-  fileRef: any;
-  bundleA: EncryptedPayloadBundle | null;
-  bundleB: EncryptedPayloadBundle | null;
-  expiresAt: number;
-}
-let containerBundlesCache: CachedContainerBundles | null = null;
-let cacheEvictionTimer: any = null;
-
+/**
+ * Stateless container inspection helper.
+ * Zero global mutable state ensures complete thread-safety across concurrent extractions.
+ */
 export function clearContainerInspectionCache() {
-  if (cacheEvictionTimer) {
-    clearTimeout(cacheEvictionTimer);
-    cacheEvictionTimer = null;
-  }
-  if (containerBundlesCache) {
-    if (containerBundlesCache.bundleA) {
-      const bA = containerBundlesCache.bundleA;
-      zeroizeBuffer(
-        bA.payload, bA.saltL1, bA.saltL2, bA.saltL3, bA.saltL4, bA.saltL5,
-        bA.ivL2, bA.ivL3, bA.ivL4, bA.tagL3, bA.tagL4, bA.kyberCt, bA.otpKey,
-        bA.k6Block, bA.notesBlock,
-        bA.chunkedPayload
-      );
-    }
-    if (containerBundlesCache.bundleB) {
-      const bB = containerBundlesCache.bundleB;
-      zeroizeBuffer(
-        bB.payload, bB.saltL1, bB.saltL2, bB.saltL3, bB.saltL4, bB.saltL5,
-        bB.ivL2, bB.ivL3, bB.ivL4, bB.tagL3, bB.tagL4, bB.kyberCt, bB.otpKey,
-        bB.k6Block, bB.notesBlock,
-        bB.chunkedPayload
-      );
-    }
-    containerBundlesCache = null;
-  }
+  // Maintained as safe no-op for API compatibility
 }
 
 
@@ -115,18 +86,6 @@ function decodeRSHeaderBlocksFast(encodedData: Uint8Array, maxBlocks: number = 8
 async function getOrExtractContainerBundles(
   protectedMp4File: File | StreamingFileHandle | Uint8Array
 ): Promise<{ bundleA: EncryptedPayloadBundle | null; bundleB: EncryptedPayloadBundle | null }> {
-  if (
-    containerBundlesCache &&
-    Date.now() <= containerBundlesCache.expiresAt &&
-    containerBundlesCache.fileRef === protectedMp4File &&
-    (containerBundlesCache.bundleA || containerBundlesCache.bundleB)
-  ) {
-    return containerBundlesCache;
-  }
-
-  // Clear any expired or mismatched cache
-  clearContainerInspectionCache();
-
   await yieldToMainThread();
   const protectedBytes = protectedMp4File instanceof Uint8Array
     ? protectedMp4File
@@ -179,25 +138,16 @@ async function getOrExtractContainerBundles(
       }
     }
 
-    containerBundlesCache = {
-      fileRef: protectedMp4File,
-      bundleA,
-      bundleB,
-      expiresAt: Date.now() + 60000
-    };
-
-    if (cacheEvictionTimer) clearTimeout(cacheEvictionTimer);
-    cacheEvictionTimer = setTimeout(() => {
-      clearContainerInspectionCache();
-    }, 60000);
-
-    return containerBundlesCache;
+    return { bundleA, bundleB };
   } finally {
     zeroizeBuffer(
       vaultABytes, vaultBBytes,
       headerUnshapedA, headerDecodedA, unshapedA, rsRepairedA,
       headerUnshapedB, headerDecodedB, unshapedB, rsRepairedB
     );
+    if (!(protectedMp4File instanceof Uint8Array)) {
+      zeroizeBuffer(protectedBytes);
+    }
   }
 }
 
@@ -293,6 +243,14 @@ export async function createDualVaultPackage(
   const vaultBName = 'name' in vaultBFile ? vaultBFile.name : 'vault_b.bin';
   const vaultASize = 'size' in vaultAFile ? vaultAFile.size : (vaultAFile instanceof Uint8Array ? vaultAFile.length : 0);
   const vaultBSize = 'size' in vaultBFile ? vaultBFile.size : (vaultBFile instanceof Uint8Array ? vaultBFile.length : 0);
+
+  // Pre-flight memory safety boundary: prevent silent browser OOM tab kills
+  const MAX_SAFE_COMBINED_PAYLOAD = 500 * 1024 * 1024; // 500 MB
+  if (vaultASize + vaultBSize > MAX_SAFE_COMBINED_PAYLOAD) {
+    throw new Error(
+      `Memory Safety Boundary: Combined payload size (${Math.round((vaultASize + vaultBSize) / (1024 * 1024))} MB) exceeds safe browser heap threshold (500 MB). Please reduce file sizes to ensure error-free processing.`
+    );
+  }
 
   let carrierBuffer: Uint8Array;
   if (carrierFile) {
@@ -432,7 +390,14 @@ export async function createDualVaultPackage(
 
   try {
     rawEncryptedA = serializeBundle(bundleA);
+    zeroizeBuffer(bundleA.payload, bundleA.chunkedPayload);
+    bundleA.payload = new Uint8Array(0);
+    bundleA.chunkedPayload = undefined;
+
     rawEncryptedB = serializeBundle(bundleB);
+    zeroizeBuffer(bundleB.payload, bundleB.chunkedPayload);
+    bundleB.payload = new Uint8Array(0);
+    bundleB.chunkedPayload = undefined;
     await yieldToMainThread();
 
     // 4. Apply Industry-Grade NASA/ISO Reed-Solomon RS(255,223) Forward Error Correction with cooperative yielding
@@ -627,7 +592,8 @@ export async function extractFromDualVaultPackage(
         filesize: decrypted.originalSize,
         vaultRevealed: 'Authenticated Payload',
         sha512Digest: digest,
-        assessmentNotes: extractedNotes
+        assessmentNotes: extractedNotes,
+        matchedVault: vaultLabel
       };
     } catch {
       return null;

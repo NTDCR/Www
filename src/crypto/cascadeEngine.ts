@@ -190,11 +190,11 @@ export async function deriveMasterAuthKey(
   saltL4: Uint8Array,
   iterations: number = DEFAULT_PBKDF2_ITERATIONS
 ): Promise<Uint8Array> {
-  const p1 = (passwords.layer1_kyber || '').trim();
-  const p2 = (passwords.layer2_serpent || '').trim();
-  const p3 = (passwords.layer3_xchacha || '').trim();
-  const p4 = (passwords.layer4_aes || '').trim();
-  const p5 = (passwords.layer5_otp || '').trim();
+  const p1 = passwords.layer1_kyber || '';
+  const p2 = passwords.layer2_serpent || '';
+  const p3 = passwords.layer3_xchacha || '';
+  const p4 = passwords.layer4_aes || '';
+  const p5 = passwords.layer5_otp || '';
   // Length-prefixed framing eliminates delimiter collision/injection
   const combined = `${p1.length}:${p1}|${p2.length}:${p2}|${p3.length}:${p3}|${p4.length}:${p4}|${p5.length}:${p5}`;
   const combinedSalt = new Uint8Array(saltL1.length + saltL4.length);
@@ -617,11 +617,11 @@ export async function encryptCascade5Layers(
 
   onProgress?.(5, 'Deriving post-quantum subkeys & Kyber-1024 parameters...');
   await yieldToMainThread();
-  const p1 = (passwords.layer1_kyber || '').trim();
-  const p2 = (passwords.layer2_serpent || '').trim();
-  const p3 = (passwords.layer3_xchacha || '').trim();
-  const p4 = (passwords.layer4_aes || '').trim();
-  const p5 = (passwords.layer5_otp || '').trim();
+  const p1 = passwords.layer1_kyber || '';
+  const p2 = passwords.layer2_serpent || '';
+  const p3 = passwords.layer3_xchacha || '';
+  const p4 = passwords.layer4_aes || '';
+  const p5 = passwords.layer5_otp || '';
 
   let key1: Uint8Array | null = null;
   let key2: Uint8Array | null = null;
@@ -756,7 +756,7 @@ export async function encryptCascade5Layers(
 
   // 6. Optional Key 6 Generation (Independent RS-protected XOR Garbage Block)
   let k6Block: Uint8Array | undefined;
-  if (passwords.layer6_key6 && passwords.layer6_key6.trim() !== '') {
+  if (passwords.layer6_key6 && passwords.layer6_key6 !== '') {
     const saltK6 = k6Salt || generateSecureRandomBytes(64);
     const k6Res = await deriveAndMask1024BitId(
       passwords.layer6_key6,
@@ -855,11 +855,11 @@ export async function decryptCascade5Layers(
 
   onProgress?.(2, 'Authenticating cascade stream...');
   await yieldToMainThread();
-  const p1 = (passwords.layer1_kyber || '').trim();
-  const p2 = (passwords.layer2_serpent || '').trim();
-  const p3 = (passwords.layer3_xchacha || '').trim();
-  const p4 = (passwords.layer4_aes || '').trim();
-  const p5 = (passwords.layer5_otp || '').trim();
+  const p1 = passwords.layer1_kyber || '';
+  const p2 = passwords.layer2_serpent || '';
+  const p3 = passwords.layer3_xchacha || '';
+  const p4 = passwords.layer4_aes || '';
+  const p5 = passwords.layer5_otp || '';
 
   let key1: Uint8Array | null = null;
   let key2: Uint8Array | null = null;

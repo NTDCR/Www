@@ -137,4 +137,5 @@ export interface DualVaultExtractionResult {
   vaultRevealed?: string;
   sha512Digest: string;
   assessmentNotes?: VaultAssessmentNotes;
+  matchedVault?: 'VaultA' | 'VaultB';
 }

@@ -22,32 +22,51 @@ function rotl32(x: number, n: number): number {
   return ((x << n) | (x >>> (32 - n))) >>> 0;
 }
 
-// Precomputed 16-bit 4-nibble parallel LUT table for all 8 S-boxes
-const LUT: Uint32Array[] = [];
-for (let s = 0; s < 8; s++) {
-  const lut16 = new Uint32Array(65536);
-  const sb = SBOX[s];
-  for (let in16 = 0; in16 < 65536; in16++) {
-    const n0 = in16 & 0xf;
-    const n1 = (in16 >>> 4) & 0xf;
-    const n2 = (in16 >>> 8) & 0xf;
-    const n3 = (in16 >>> 12) & 0xf;
-    let o0 = 0, o1 = 0, o2 = 0, o3 = 0;
-    for (let b = 0; b < 4; b++) {
-      const nibVal =
-        (((n0 >>> b) & 1) << 0) |
-        (((n1 >>> b) & 1) << 1) |
-        (((n2 >>> b) & 1) << 2) |
-        (((n3 >>> b) & 1) << 3);
-      const outNib = sb[nibVal];
-      o0 |= ((outNib >>> 0) & 1) << b;
-      o1 |= ((outNib >>> 1) & 1) << b;
-      o2 |= ((outNib >>> 2) & 1) << b;
-      o3 |= ((outNib >>> 3) & 1) << b;
-    }
-    lut16[in16] = (o0) | (o1 << 4) | (o2 << 8) | (o3 << 12);
+// Constant-time bitslice Boolean S-box evaluation across 4 32-bit registers (x0, x1, x2, x3)
+// 100% immune to cache-timing side-channel attacks (Flush+Reload, Prime+Probe): zero table lookups
+function bitsliceSbox(
+  sboxIdx: number,
+  x0: number,
+  x1: number,
+  x2: number,
+  x3: number
+): [number, number, number, number] {
+  const sb = SBOX[sboxIdx];
+  const notX0 = ~x0;
+  const notX1 = ~x1;
+  const notX2 = ~x2;
+  const notX3 = ~x3;
+
+  // Compute all 16 minterms simultaneously in 32-bit parallel bitwise operations
+  const m0  = notX0 & notX1 & notX2 & notX3;
+  const m1  =  x0   & notX1 & notX2 & notX3;
+  const m2  = notX0 &  x1   & notX2 & notX3;
+  const m3  =  x0   &  x1   & notX2 & notX3;
+  const m4  = notX0 & notX1 &  x2   & notX3;
+  const m5  =  x0   & notX1 &  x2   & notX3;
+  const m6  = notX0 &  x1   &  x2   & notX3;
+  const m7  =  x0   &  x1   &  x2   & notX3;
+  const m8  = notX0 & notX1 & notX2 &  x3;
+  const m9  =  x0   & notX1 & notX2 &  x3;
+  const m10 = notX0 &  x1   & notX2 &  x3;
+  const m11 =  x0   &  x1   & notX2 &  x3;
+  const m12 = notX0 & notX1 &  x2   &  x3;
+  const m13 =  x0   & notX1 &  x2   &  x3;
+  const m14 = notX0 &  x1   &  x2   &  x3;
+  const m15 =  x0   &  x1   &  x2   &  x3;
+
+  const m = [m0, m1, m2, m3, m4, m5, m6, m7, m8, m9, m10, m11, m12, m13, m14, m15];
+
+  let y0 = 0, y1 = 0, y2 = 0, y3 = 0;
+  for (let v = 0; v < 16; v++) {
+    const outVal = sb[v];
+    if ((outVal & 1) !== 0) y0 |= m[v];
+    if ((outVal & 2) !== 0) y1 |= m[v];
+    if ((outVal & 4) !== 0) y2 |= m[v];
+    if ((outVal & 8) !== 0) y3 |= m[v];
   }
-  LUT.push(lut16);
+
+  return [y0 >>> 0, y1 >>> 0, y2 >>> 0, y3 >>> 0];
 }
 
 // Key Schedule for 256-bit key -> 33 subkeys of 128-bit (4 x 32-bit words)
@@ -72,30 +91,15 @@ export function serpentKeySchedule(key256: Uint8Array): Uint32Array[] {
       w[i] = rotl32(tmp, 11);
     }
 
-    // Apply S-boxes to produce 33 round keys (LUT indices always masked to 16-bit)
+    // Apply constant-time bitsliced S-boxes to produce 33 round keys (zero data-dependent memory accesses)
     for (let r = 0; r < 33; r++) {
       const sboxIdx = (3 + 32 - r) % 8;
-      const lut = LUT[sboxIdx];
-      const w0 = w[4 * r + 0], w1 = w[4 * r + 1], w2 = w[4 * r + 2], w3 = w[4 * r + 3];
-
-      const out0 = lut[((w0 & 0xf) | ((w1 & 0xf) << 4) | ((w2 & 0xf) << 8) | ((w3 & 0xf) << 12)) & 0xffff];
-      const out1 = lut[(((w0 >>> 4) & 0xf) | (((w1 >>> 4) & 0xf) << 4) | (((w2 >>> 4) & 0xf) << 8) | (((w3 >>> 4) & 0xf) << 12)) & 0xffff];
-      const out2 = lut[(((w0 >>> 8) & 0xf) | (((w1 >>> 8) & 0xf) << 4) | (((w2 >>> 8) & 0xf) << 8) | (((w3 >>> 8) & 0xf) << 12)) & 0xffff];
-      const out3 = lut[(((w0 >>> 12) & 0xf) | (((w1 >>> 12) & 0xf) << 4) | (((w2 >>> 12) & 0xf) << 8) | (((w3 >>> 12) & 0xf) << 12)) & 0xffff];
-      const out4 = lut[(((w0 >>> 16) & 0xf) | (((w1 >>> 16) & 0xf) << 4) | (((w2 >>> 16) & 0xf) << 8) | (((w3 >>> 16) & 0xf) << 12)) & 0xffff];
-      const out5 = lut[(((w0 >>> 20) & 0xf) | (((w1 >>> 20) & 0xf) << 4) | (((w2 >>> 20) & 0xf) << 8) | (((w3 >>> 20) & 0xf) << 12)) & 0xffff];
-      const out6 = lut[(((w0 >>> 24) & 0xf) | (((w1 >>> 24) & 0xf) << 4) | (((w2 >>> 24) & 0xf) << 8) | (((w3 >>> 24) & 0xf) << 12)) & 0xffff];
-      const out7 = lut[(((w0 >>> 28) & 0xf) | (((w1 >>> 28) & 0xf) << 4) | (((w2 >>> 28) & 0xf) << 8) | (((w3 >>> 28) & 0xf) << 12)) & 0xffff];
-
+      const [k0, k1, k2, k3] = bitsliceSbox(sboxIdx, w[4 * r + 0], w[4 * r + 1], w[4 * r + 2], w[4 * r + 3]);
       const rk = new Uint32Array(4);
-      rk[0] = (out0 & 0xf) | ((out1 & 0xf) << 4) | ((out2 & 0xf) << 8) | ((out3 & 0xf) << 12) |
-              ((out4 & 0xf) << 16) | ((out5 & 0xf) << 20) | ((out6 & 0xf) << 24) | ((out7 & 0xf) << 28);
-      rk[1] = ((out0 >>> 4) & 0xf) | (((out1 >>> 4) & 0xf) << 4) | (((out2 >>> 4) & 0xf) << 8) | (((out3 >>> 4) & 0xf) << 12) |
-              (((out4 >>> 4) & 0xf) << 16) | (((out5 >>> 4) & 0xf) << 20) | (((out6 >>> 4) & 0xf) << 24) | (((out7 >>> 4) & 0xf) << 28);
-      rk[2] = ((out0 >>> 8) & 0xf) | (((out1 >>> 8) & 0xf) << 4) | (((out2 >>> 8) & 0xf) << 8) | (((out3 >>> 8) & 0xf) << 12) |
-              (((out4 >>> 8) & 0xf) << 16) | (((out5 >>> 8) & 0xf) << 20) | (((out6 >>> 8) & 0xf) << 24) | (((out7 >>> 8) & 0xf) << 28);
-      rk[3] = ((out0 >>> 12) & 0xf) | (((out1 >>> 12) & 0xf) << 4) | (((out2 >>> 12) & 0xf) << 8) | (((out3 >>> 12) & 0xf) << 12) |
-              (((out4 >>> 12) & 0xf) << 16) | (((out5 >>> 12) & 0xf) << 20) | (((out6 >>> 12) & 0xf) << 24) | (((out7 >>> 12) & 0xf) << 28);
+      rk[0] = k0;
+      rk[1] = k1;
+      rk[2] = k2;
+      rk[3] = k3;
       roundKeys.push(rk);
     }
 
@@ -108,7 +112,7 @@ export function serpentKeySchedule(key256: Uint8Array): Uint32Array[] {
   }
 }
 
-// Fast 128-bit block encryption (32 rounds + linear transformation using LUT)
+// Fast 128-bit block encryption (32 rounds + linear transformation using constant-time bitslice Boolean logic)
 function serpentEncryptBlock(
   b0: number,
   b1: number,
@@ -130,25 +134,8 @@ function serpentEncryptBlock(
     x2 = (x2 ^ sk[2]) >>> 0;
     x3 = (x3 ^ sk[3]) >>> 0;
 
-    const lut = LUT[r % 8];
-
-    const out0 = lut[((x0 & 0xf) | ((x1 & 0xf) << 4) | ((x2 & 0xf) << 8) | ((x3 & 0xf) << 12)) & 0xffff];
-    const out1 = lut[(((x0 >>> 4) & 0xf) | (((x1 >>> 4) & 0xf) << 4) | (((x2 >>> 4) & 0xf) << 8) | (((x3 >>> 4) & 0xf) << 12)) & 0xffff];
-    const out2 = lut[(((x0 >>> 8) & 0xf) | (((x1 >>> 8) & 0xf) << 4) | (((x2 >>> 8) & 0xf) << 8) | (((x3 >>> 8) & 0xf) << 12)) & 0xffff];
-    const out3 = lut[(((x0 >>> 12) & 0xf) | (((x1 >>> 12) & 0xf) << 4) | (((x2 >>> 12) & 0xf) << 8) | (((x3 >>> 12) & 0xf) << 12)) & 0xffff];
-    const out4 = lut[(((x0 >>> 16) & 0xf) | (((x1 >>> 16) & 0xf) << 4) | (((x2 >>> 16) & 0xf) << 8) | (((x3 >>> 16) & 0xf) << 12)) & 0xffff];
-    const out5 = lut[(((x0 >>> 20) & 0xf) | (((x1 >>> 20) & 0xf) << 4) | (((x2 >>> 20) & 0xf) << 8) | (((x3 >>> 20) & 0xf) << 12)) & 0xffff];
-    const out6 = lut[(((x0 >>> 24) & 0xf) | (((x1 >>> 24) & 0xf) << 4) | (((x2 >>> 24) & 0xf) << 8) | (((x3 >>> 24) & 0xf) << 12)) & 0xffff];
-    const out7 = lut[(((x0 >>> 28) & 0xf) | (((x1 >>> 28) & 0xf) << 4) | (((x2 >>> 28) & 0xf) << 8) | (((x3 >>> 28) & 0xf) << 12)) & 0xffff];
-
-    const y0 = (out0 & 0xf) | ((out1 & 0xf) << 4) | ((out2 & 0xf) << 8) | ((out3 & 0xf) << 12) |
-               ((out4 & 0xf) << 16) | ((out5 & 0xf) << 20) | ((out6 & 0xf) << 24) | ((out7 & 0xf) << 28);
-    const y1 = ((out0 >>> 4) & 0xf) | (((out1 >>> 4) & 0xf) << 4) | (((out2 >>> 4) & 0xf) << 8) | (((out3 >>> 4) & 0xf) << 12) |
-               (((out4 >>> 4) & 0xf) << 16) | (((out5 >>> 4) & 0xf) << 20) | (((out6 >>> 4) & 0xf) << 24) | (((out7 >>> 4) & 0xf) << 28);
-    const y2 = ((out0 >>> 8) & 0xf) | (((out1 >>> 8) & 0xf) << 4) | (((out2 >>> 8) & 0xf) << 8) | (((out3 >>> 8) & 0xf) << 12) |
-               (((out4 >>> 8) & 0xf) << 16) | (((out5 >>> 8) & 0xf) << 20) | (((out6 >>> 8) & 0xf) << 24) | (((out7 >>> 8) & 0xf) << 28);
-    const y3 = ((out0 >>> 12) & 0xf) | (((out1 >>> 12) & 0xf) << 4) | (((out2 >>> 12) & 0xf) << 8) | (((out3 >>> 12) & 0xf) << 12) |
-               (((out4 >>> 12) & 0xf) << 16) | (((out5 >>> 12) & 0xf) << 20) | (((out6 >>> 12) & 0xf) << 24) | (((out7 >>> 12) & 0xf) << 28);
+    // Constant-time bitsliced S-box substitution (zero memory lookup tables)
+    const [y0, y1, y2, y3] = bitsliceSbox(r % 8, x0, x1, x2, x3);
 
     if (r === 31) {
       // Final round key mixing without linear transformation
