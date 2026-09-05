@@ -209,6 +209,7 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
   };
 
   const handleStartExtraction = async () => {
+    if (isExtracting) return;
     if (!protectedFile) {
       setErrorMsg('Please upload a protected MP4 container first.');
       return;

@@ -263,6 +263,7 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog 
   };
 
   const handleStartProtection = async () => {
+    if (isProcessing) return;
     if (!vaultAFile || !vaultBFile) {
       setErrorMsg('Mandatory Dual-Vault Requirement: Both Vault A (Real) and Vault B (Decoy) files are required.');
       return;
