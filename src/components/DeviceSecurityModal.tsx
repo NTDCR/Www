@@ -55,7 +55,7 @@ export const DeviceSecurityModal: React.FC<DeviceSecurityModalProps> = ({ device
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm overflow-y-auto">
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-3xl w-full p-6 shadow-2xl space-y-6 my-8">
+      <div className="printable-area bg-slate-900 border border-slate-800 rounded-2xl max-w-3xl w-full p-6 shadow-2xl space-y-6 my-8">
         
         {/* Header */}
         <div className="flex items-center justify-between pb-4 border-b border-slate-800">
@@ -75,7 +75,7 @@ export const DeviceSecurityModal: React.FC<DeviceSecurityModalProps> = ({ device
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded-lg transition-colors"
+            className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded-lg transition-colors no-print"
           >
             <X className="w-5 h-5" />
           </button>
@@ -129,7 +129,7 @@ export const DeviceSecurityModal: React.FC<DeviceSecurityModalProps> = ({ device
                 Single-use emergency device recovery keys. Print or store physically in a secure vault.
               </p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 no-print">
               <button
                 type="button"
                 onClick={handlePrint}
@@ -164,7 +164,7 @@ export const DeviceSecurityModal: React.FC<DeviceSecurityModalProps> = ({ device
                   <span className="text-[10px] text-slate-500 font-bold">#{rc.index.toString().padStart(2, '0')}</span>
                   <span className="font-semibold tracking-wider">{rc.code}</span>
                 </div>
-                <div className="flex items-center gap-1.5">
+                <div className="flex items-center gap-1.5 no-print">
                   <button
                     type="button"
                     onClick={() => handleToggleCodeUsed(rc.index)}

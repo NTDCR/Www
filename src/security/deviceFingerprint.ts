@@ -210,6 +210,9 @@ const STORE_NAME = 'recovery_codes';
 
 function openIndexedDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
+    if (typeof indexedDB === 'undefined') {
+      return reject(new Error('IndexedDB is not supported in this environment'));
+    }
     const req = indexedDB.open(DB_NAME, DB_VERSION);
     req.onupgradeneeded = () => {
       const db = req.result;
@@ -217,8 +220,11 @@ function openIndexedDB(): Promise<IDBDatabase> {
         db.createObjectStore(STORE_NAME, { keyPath: 'index' });
       }
     };
+    req.onblocked = () => {
+      reject(new Error('IndexedDB open blocked: database locked by another tab or connection'));
+    };
     req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
+    req.onerror = () => reject(req.error || new Error('IndexedDB open failed'));
   });
 }
 

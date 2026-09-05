@@ -239,15 +239,23 @@ export function serpent256Ctr(
   const blockWords = new Uint32Array(4);
   const fullBlocks = Math.floor(data.length / 16);
 
-  // 64-bit continuous monotonic counter with initial block offset
+  // 128-bit continuous monotonic counter with initial block offset
+  let cWord0 = counterWords[0];
+  let cWord1 = counterWords[1];
   const initialCtr64 = BigInt(counterWords[2]) | (BigInt(counterWords[3]) << 32n);
   const totalCtr64 = initialCtr64 + BigInt(initialBlockOffset);
   let cLow = Number(totalCtr64 & 0xffffffffn) >>> 0;
   let cHigh = Number((totalCtr64 >> 32n) & 0xffffffffn) >>> 0;
+  const carry64 = totalCtr64 >> 64n;
+  if (carry64 > 0n) {
+    const totalUpper = (BigInt(cWord0) | (BigInt(cWord1) << 32n)) + carry64;
+    cWord0 = Number(totalUpper & 0xffffffffn) >>> 0;
+    cWord1 = Number((totalUpper >> 32n) & 0xffffffffn) >>> 0;
+  }
 
   try {
     for (let b = 0; b < fullBlocks; b++) {
-      serpentEncryptBlock(counterWords[0], counterWords[1], cLow, cHigh, subkeys, blockWords);
+      serpentEncryptBlock(cWord0, cWord1, cLow, cHigh, subkeys, blockWords);
 
       const wordIdx = b * 4;
       out32[wordIdx + 0] = data32[wordIdx + 0] ^ blockWords[0];
@@ -255,15 +263,23 @@ export function serpent256Ctr(
       out32[wordIdx + 2] = data32[wordIdx + 2] ^ blockWords[2];
       out32[wordIdx + 3] = data32[wordIdx + 3] ^ blockWords[3];
 
-      // Increment 64-bit lower counter
+      // Increment full 128-bit counter
       cLow = (cLow + 1) >>> 0;
-      if (cLow === 0) cHigh = (cHigh + 1) >>> 0;
+      if (cLow === 0) {
+        cHigh = (cHigh + 1) >>> 0;
+        if (cHigh === 0) {
+          cWord1 = (cWord1 + 1) >>> 0;
+          if (cWord1 === 0) {
+            cWord0 = (cWord0 + 1) >>> 0;
+          }
+        }
+      }
     }
 
     // Trailing remainder bytes
     const rem = data.length % 16;
     if (rem > 0) {
-      serpentEncryptBlock(counterWords[0], counterWords[1], cLow, cHigh, subkeys, blockWords);
+      serpentEncryptBlock(cWord0, cWord1, cLow, cHigh, subkeys, blockWords);
       const ksBytes = new Uint8Array(blockWords.buffer, blockWords.byteOffset, 16);
       const startByte = fullBlocks * 16;
       for (let i = 0; i < rem; i++) {
@@ -316,10 +332,19 @@ export async function serpent256CtrAsync(
   const blockWords = new Uint32Array(4);
   const fullBlocks = Math.floor(data.length / 16);
 
+  // 128-bit continuous monotonic counter with initial block offset
+  let cWord0 = counterWords[0];
+  let cWord1 = counterWords[1];
   const initialCtr64 = BigInt(counterWords[2]) | (BigInt(counterWords[3]) << 32n);
   const totalCtr64 = initialCtr64 + BigInt(initialBlockOffset);
   let cLow = Number(totalCtr64 & 0xffffffffn) >>> 0;
   let cHigh = Number((totalCtr64 >> 32n) & 0xffffffffn) >>> 0;
+  const carry64 = totalCtr64 >> 64n;
+  if (carry64 > 0n) {
+    const totalUpper = (BigInt(cWord0) | (BigInt(cWord1) << 32n)) + carry64;
+    cWord0 = Number(totalUpper & 0xffffffffn) >>> 0;
+    cWord1 = Number((totalUpper >> 32n) & 0xffffffffn) >>> 0;
+  }
 
   try {
     for (let b = 0; b < fullBlocks; b++) {
@@ -327,7 +352,7 @@ export async function serpent256CtrAsync(
         await yieldToMainThread();
       }
 
-      serpentEncryptBlock(counterWords[0], counterWords[1], cLow, cHigh, subkeys, blockWords);
+      serpentEncryptBlock(cWord0, cWord1, cLow, cHigh, subkeys, blockWords);
 
       const wordIdx = b * 4;
       out32[wordIdx + 0] = data32[wordIdx + 0] ^ blockWords[0];
@@ -335,13 +360,22 @@ export async function serpent256CtrAsync(
       out32[wordIdx + 2] = data32[wordIdx + 2] ^ blockWords[2];
       out32[wordIdx + 3] = data32[wordIdx + 3] ^ blockWords[3];
 
+      // Increment full 128-bit counter
       cLow = (cLow + 1) >>> 0;
-      if (cLow === 0) cHigh = (cHigh + 1) >>> 0;
+      if (cLow === 0) {
+        cHigh = (cHigh + 1) >>> 0;
+        if (cHigh === 0) {
+          cWord1 = (cWord1 + 1) >>> 0;
+          if (cWord1 === 0) {
+            cWord0 = (cWord0 + 1) >>> 0;
+          }
+        }
+      }
     }
 
     const rem = data.length % 16;
     if (rem > 0) {
-      serpentEncryptBlock(counterWords[0], counterWords[1], cLow, cHigh, subkeys, blockWords);
+      serpentEncryptBlock(cWord0, cWord1, cLow, cHigh, subkeys, blockWords);
       const ksBytes = new Uint8Array(blockWords.buffer, blockWords.byteOffset, 16);
       const startByte = fullBlocks * 16;
       for (let i = 0; i < rem; i++) {

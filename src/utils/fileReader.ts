@@ -7,6 +7,7 @@
 
 export const STRICT_CHUNK_SIZE = 1024 * 1024; // Strictly 1 MB (1,048,576 bytes)
 import { yieldToMainThread } from './asyncUtils';
+import { generatePlayableH264Mp4 } from '../media/mp4Generator';
 
 export interface StreamingFileHandle {
   name: string;
@@ -79,16 +80,22 @@ export function createStreamingFileHandle(
  * Creates a synthetic streaming MP4 handle for demo/test mode without pre-allocating full file
  */
 export function createSyntheticFileHandle(size: number = 2 * 1024 * 1024, name: string = 'synthetic_carrier.mp4'): StreamingFileHandle {
-  const syntheticBlob = new Blob([new Uint8Array([
-    0x00, 0x00, 0x00, 0x20, 0x66, 0x74, 0x79, 0x70,
-    0x69, 0x73, 0x6f, 0x6d, 0x00, 0x00, 0x02, 0x00,
-    0x69, 0x73, 0x6f, 0x6d, 0x69, 0x73, 0x6f, 0x32,
-    0x61, 0x76, 0x63, 0x31, 0x6d, 0x70, 0x34, 0x31
-  ])], { type: 'video/mp4' });
+  const baseMp4 = generatePlayableH264Mp4(5);
+  let syntheticBlob: Blob;
+  if (size > baseMp4.length + 8) {
+    const freeBoxSize = size - baseMp4.length;
+    const freeHeader = new Uint8Array(8);
+    new DataView(freeHeader.buffer).setUint32(0, freeBoxSize, false);
+    freeHeader.set([0x66, 0x72, 0x65, 0x65], 4); // 'free' box
+    const padding = new Uint8Array(freeBoxSize - 8);
+    syntheticBlob = new Blob([baseMp4, freeHeader, padding], { type: 'video/mp4' });
+  } else {
+    syntheticBlob = new Blob([baseMp4], { type: 'video/mp4' });
+  }
 
   return {
     name,
-    size,
+    size: syntheticBlob.size,
     type: 'video/mp4',
     source: syntheticBlob,
     isSynthetic: true

@@ -68,76 +68,76 @@ export default function App() {
 
   const [inspectorLocations, setInspectorLocations] = useState<EmbeddingLocationReport[]>([
     {
-      id: 'loc-1',
-      name: 'Sony UUID Box (ISOBMFF)',
-      category: 'Vendor Atom Extension',
+      id: 'loc1',
+      name: 'Sony Professional Metadata UUID Atom',
+      category: 'Sony UUID',
       bytesAllocated: 65536,
-      redundancyFactor: 5,
-      status: 'Active',
-      description: 'Encapsulated within custom Sony vendor UUID container'
+      redundancyFactor: 8,
+      status: 'Verified',
+      description: 'Vendor-compliant Sony hardware signature with zero header distortion'
     },
     {
-      id: 'loc-2',
-      name: 'Canon UUID Box (ISOBMFF)',
-      category: 'Vendor Atom Extension',
+      id: 'loc2',
+      name: 'Canon Cinema EOS Metadata UUID Atom',
+      category: 'Canon UUID',
       bytesAllocated: 65536,
-      redundancyFactor: 5,
-      status: 'Active',
-      description: 'Interleaved across Canon camera metadata structures'
+      redundancyFactor: 8,
+      status: 'Verified',
+      description: 'Broadcast-grade Canon Cinema EOS EXIF block with valid timing offsets'
     },
     {
-      id: 'loc-3',
-      name: 'mdat Inter-NAL Padding',
-      category: 'Media Stream Payload',
+      id: 'loc3',
+      name: 'free Box Filler Stream',
+      category: 'free Box',
       bytesAllocated: 131072,
-      redundancyFactor: 5,
-      status: 'Active',
-      description: 'Distributed between video NAL units without corrupting playback'
+      redundancyFactor: 8,
+      status: 'Verified',
+      description: 'Standard filler container with balanced entropy noise shaping'
     },
     {
-      id: 'loc-4',
-      name: 'free / wide Extension Space',
-      category: 'Standard Container Atoms',
+      id: 'loc4',
+      name: 'wide Box 64-bit Expansion Atom',
+      category: 'wide Box',
       bytesAllocated: 65536,
-      redundancyFactor: 5,
-      status: 'Active',
-      description: 'Standard ISOBMFF discardable container blocks'
+      redundancyFactor: 8,
+      status: 'Verified',
+      description: '64-bit wide container spacer carrying inter-frame payload stream'
     },
     {
-      id: 'loc-5',
-      name: 'stco / co64 Chunk Offset Deltas',
-      category: 'Sample Table Metadata',
+      id: 'loc5',
+      name: 'Custom Vendor DRM Extension (cgpm)',
+      category: 'Custom cgpm',
       bytesAllocated: 32768,
-      redundancyFactor: 5,
-      status: 'Active',
-      description: 'Zero-anomaly parity modulation across sample table atom'
+      redundancyFactor: 8,
+      status: 'Verified',
+      description: 'ContentGuard Pro MAX standard atom with zero magic signature markers'
     },
     {
-      id: 'loc-6',
-      name: 'I-Frame 8x8 DCT Mid-Frequency',
-      category: 'Visual Spatial Domain',
-      bytesAllocated: 16384,
-      redundancyFactor: 5,
-      status: 'Active',
-      description: 'Canvas 2D mid-frequency coefficient injection (PSNR > 48dB)'
-    },
-    {
-      id: 'loc-7',
-      name: 'P-Frame Motion Vector Modulation',
-      category: 'Temporal Predictive Domain',
-      bytesAllocated: 16384,
-      redundancyFactor: 5,
-      status: 'Active',
-      description: 'Spread-spectrum modulation across inter-frame vectors'
-    },
-    {
-      id: 'loc-8',
-      name: 'cgpm Custom Vendor Extension',
-      category: 'Proprietary DRM Signature',
+      id: 'loc6',
+      name: 'stco Sample Table Chunk Delta Tables',
+      category: 'stco Offsets',
       bytesAllocated: 32768,
-      redundancyFactor: 5,
-      status: 'Active',
-      description: 'Compliant vendor atom for hardware tamper validation'
+      redundancyFactor: 8,
+      status: 'Verified',
+      description: 'Sample table chunk offset micro-variations maintaining video playback sync'
+    },
+    {
+      id: 'loc7',
+      name: 'prvm Private DRM Metadata Atom',
+      category: 'Private prvm',
+      bytesAllocated: 16384,
+      redundancyFactor: 8,
+      status: 'Verified',
+      description: 'Private stream descriptor preserving ISO parser compatibility'
+    },
+    {
+      id: 'loc8',
+      name: 'udta User Data Sub-Atom',
+      category: 'udta Atom',
+      bytesAllocated: 32768,
+      redundancyFactor: 8,
+      status: 'Verified',
+      description: 'User data atom encapsulation maintaining 100% video stream integrity'
     }
   ]);
 
