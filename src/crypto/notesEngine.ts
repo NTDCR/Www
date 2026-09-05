@@ -167,6 +167,14 @@ export async function encryptAssessmentNotesBlock(
   const jsonString = JSON.stringify(notes);
   const plaintext = enc.encode(jsonString);
 
+  // Pre-flight check: Prevent encrypting oversized notes that would silently fail during extraction
+  if (plaintext.length > NOTES_JSON_MAX_BYTES) {
+    throw new Error(
+      `Assessment notes payload (${(plaintext.length / 1024).toFixed(1)} KB) exceeds the maximum allowed size of ${(NOTES_JSON_MAX_BYTES / 1024)} KB. ` +
+      `Please shorten your entries to prevent extraction rejection.`
+    );
+  }
+
   // 1. Fresh 64-byte CSPRNG salt & nonces
   const salt64 = generateSecureRandomBytes(64);
   const nonceAes = generateSecureRandomBytes(12);

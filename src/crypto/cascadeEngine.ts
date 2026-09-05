@@ -17,7 +17,7 @@ import { kyber1024KeyGen, kyber1024Encapsulate, kyber1024Decapsulate } from './k
 import { serpent256Ctr, serpent256CtrAsync, serpentKeySchedule } from './serpent';
 import { chacha20Process } from './xchacha20poly1305';
 import { ctr } from '@noble/ciphers/aes.js';
-import { pbkdf2 } from '@noble/hashes/pbkdf2.js';
+import { pbkdf2, pbkdf2Async } from '@noble/hashes/pbkdf2.js';
 import { hkdf } from '@noble/hashes/hkdf.js';
 import { sha512, sha256 } from '@noble/hashes/sha2.js';
 import { hmac } from '@noble/hashes/hmac.js';
@@ -144,7 +144,8 @@ export async function fastPbkdf2HmacSha512(
       // Fallback to noble if subtle is unavailable
     }
   }
-  return pbkdf2(sha512, passBytes, salt, {
+  await yieldToMainThread();
+  return pbkdf2Async(sha512, passBytes, salt, {
     c: Math.max(1, iterations),
     dkLen
   });

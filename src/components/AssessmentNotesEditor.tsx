@@ -298,6 +298,7 @@ export const AssessmentNotesEditor: React.FC<AssessmentNotesEditorProps> = ({
                   spellCheck={false}
                   data-lpignore="true"
                   data-1p-ignore="true"
+                  maxLength={40000}
                   className={`w-full px-3.5 py-2.5 text-xs text-slate-100 bg-slate-950/80 rounded-xl border focus:outline-none transition-all resize-y font-sans ${
                     isFieldFilled
                       ? isEmerald
@@ -308,7 +309,9 @@ export const AssessmentNotesEditor: React.FC<AssessmentNotesEditorProps> = ({
                 />
                 <div className="flex justify-between items-center mt-1 px-1 text-[11px] text-slate-500">
                   <span>UTF-8 Multiline Assessment Record</span>
-                  <span>{value.length} characters</span>
+                  <span className={value.length > 38000 ? 'text-amber-400 font-mono font-bold' : 'text-slate-500 font-mono'}>
+                    {value.length.toLocaleString()} / 40,000 max
+                  </span>
                 </div>
               </div>
             </div>
