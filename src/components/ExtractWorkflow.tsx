@@ -482,7 +482,7 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
 
           <Key6BadgeCard
             title={key6VerifiedUniqueId ? 'Container Identity Key 6 (Authenticated)' : 'Container Identity Key 6'}
-            vaultType={key6MatchedVault === 'VaultB' ? 'B' : 'A'}
+            vaultType="A"
             key6Value={key6Input}
             uniqueId1024Hex={key6VerifiedUniqueId}
             onKey6Change={(val) => {
@@ -501,9 +501,7 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
               <div
                 className={`w-9 h-9 rounded-xl flex items-center justify-center text-sm font-bold shadow-md ${
                   assessmentNotes
-                    ? notesMatchedVault === 'VaultA'
-                      ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
-                      : 'bg-amber-500/20 text-amber-400 border border-amber-500/40'
+                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
                     : 'bg-slate-800 text-slate-400 border border-slate-700'
                 }`}
               >
@@ -520,13 +518,7 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
                       Checking Notes Parity...
                     </span>
                   ) : assessmentNotes ? (
-                    <span
-                      className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded flex items-center gap-1 border ${
-                        notesMatchedVault === 'VaultA'
-                          ? 'bg-emerald-950 text-emerald-300 border-emerald-500/40'
-                          : 'bg-amber-950 text-amber-300 border-amber-500/40'
-                      }`}
-                    >
+                    <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded flex items-center gap-1 border bg-emerald-950 text-emerald-300 border-emerald-500/40">
                       <CheckCircle2 className="w-3 h-3" />
                       Container Assessment Notes Authenticated
                     </span>
@@ -549,9 +541,7 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
               disabled={!assessmentNotes}
               className={`px-4 py-2.5 rounded-lg font-mono font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-all shadow-md shrink-0 ${
                 assessmentNotes
-                  ? notesMatchedVault === 'VaultA'
-                    ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-950/60 active:scale-95'
-                    : 'bg-amber-600 hover:bg-amber-500 text-white shadow-amber-950/60 active:scale-95'
+                  ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-950/60 active:scale-95'
                   : 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700/50'
               }`}
             >

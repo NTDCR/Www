@@ -69,7 +69,7 @@ function ctSelect(mask: number, a: Uint8Array, b: Uint8Array): Uint8Array {
   return out;
 }
 
-function zeroize(...buffers: (Uint8Array | Uint16Array | Uint32Array | null | undefined)[]) {
+function zeroize(...buffers: (Uint8Array | Uint16Array | Uint32Array | Int16Array | null | undefined)[]) {
   for (const b of buffers) {
     if (b) b.fill(0);
   }
@@ -386,27 +386,33 @@ export async function kyber1024Decapsulate(
   let cPrime: Uint8Array | null = null;
   let aCoeffs: Uint16Array | null = null;
   let rho: Uint8Array | null = null;
+  let s0: Int16Array | null = null;
+  let s1: Int16Array | null = null;
+  let u0: Int16Array | null = null;
+  let u1: Int16Array | null = null;
+  let sTu0: Int16Array | null = null;
+  let sTu1: Int16Array | null = null;
 
   try {
     // Reconstruct s vector (2 polynomials)
-    const s0 = new Int16Array(256);
-    const s1 = new Int16Array(256);
+    s0 = new Int16Array(256);
+    s1 = new Int16Array(256);
     for (let i = 0; i < 256; i++) {
       s0[i] = sView.getUint16(i * 2, true);
       s1[i] = sView.getUint16(512 + i * 2, true);
     }
 
     // Reconstruct u vector (2 polynomials)
-    const u0 = new Int16Array(256);
-    const u1 = new Int16Array(256);
+    u0 = new Int16Array(256);
+    u1 = new Int16Array(256);
     for (let i = 0; i < 256; i++) {
       u0[i] = uView.getUint16(i * 2, true);
       u1[i] = uView.getUint16(512 + i * 2, true);
     }
 
     // Decrypt: v - s^T * u = v - (s0 * u0 + s1 * u1)
-    const sTu0 = polyMulRq(s0, u0);
-    const sTu1 = polyMulRq(s1, u1);
+    sTu0 = polyMulRq(s0, u0);
+    sTu1 = polyMulRq(s1, u1);
 
     const quarterQ = Math.round(KYBER_Q / 4); // 832
     const threeQuarterQ = Math.round((3 * KYBER_Q) / 4); // 2497
@@ -460,6 +466,6 @@ export async function kyber1024Decapsulate(
     zeroize(kOk, kRej);
     return sharedSecret;
   } finally {
-    zeroize(recoveredM, mAndPk, kr, kBar, rCoins, kOkBuf, kRejBuf, cPrime, pkHash, z, aCoeffs, rho);
+    zeroize(recoveredM, mAndPk, kr, kBar, rCoins, kOkBuf, kRejBuf, cPrime, pkHash, z, aCoeffs, rho, s0, s1, u0, u1, sTu0, sTu1);
   }
 }

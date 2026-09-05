@@ -100,13 +100,7 @@ export const AssessmentNotesPreviewModal: React.FC<AssessmentNotesPreviewModalPr
         {/* Modal Header */}
         <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/80">
           <div className="flex items-center gap-3">
-            <div
-              className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm shadow-md ${
-                isVaultA
-                  ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
-                  : 'bg-amber-500/20 text-amber-400 border border-amber-500/40'
-              }`}
-            >
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm shadow-md bg-emerald-500/20 text-emerald-400 border border-emerald-500/40">
               <ShieldCheck className="w-6 h-6" />
             </div>
             <div>
@@ -114,13 +108,7 @@ export const AssessmentNotesPreviewModal: React.FC<AssessmentNotesPreviewModalPr
                 <h2 className="text-base font-bold text-white tracking-wide">
                   Pre-Decryption Assessment Notes Preview
                 </h2>
-                <span
-                  className={`text-xs px-2.5 py-0.5 rounded-full font-bold uppercase tracking-wider border ${
-                    isVaultA
-                      ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
-                      : 'bg-amber-500/20 text-amber-300 border-amber-500/30'
-                  }`}
-                >
+                <span className="text-xs px-2.5 py-0.5 rounded-full font-bold uppercase tracking-wider border bg-emerald-500/20 text-emerald-300 border-emerald-500/30">
                   {vaultTitle}
                 </span>
               </div>
