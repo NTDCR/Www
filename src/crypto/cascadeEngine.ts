@@ -345,7 +345,10 @@ export async function encryptChunk5Layers(
     ivL4: Uint8Array;
     pqcSecret: Uint8Array;
     aesCipher?: any;
+    saltL1?: Uint8Array;
     pqcMask32?: Uint32Array;
+    pqcStreamKey?: Uint8Array;
+    pqcStreamNonce?: Uint8Array;
     serpentSubkeys?: Uint32Array[];
   }
 ): Promise<Uint8Array> {
@@ -405,28 +408,27 @@ export async function encryptChunk5Layers(
   current = await serpent256CtrAsync(current, keys.key2, keys.ivL2, keys.serpentSubkeys, blockOffset16) as Uint8Array;
   await yieldToMainThread();
 
-  // --- LAYER 1: Kyber-1024 PQC Lattice Key Encapsulation (Aligned 32-bit Vector Word XOR) ---
-  const mask32 = keys.pqcMask32 || (() => {
-    const m = new Uint32Array(8);
-    const mb = new Uint8Array(m.buffer);
-    for (let i = 0; i < 32; i++) mb[i] = keys.pqcSecret[i] ^ keys.key1[i];
-    return m;
-  })();
-
-  const wordShift = Math.floor(chunkGlobalOffset / 4) & 7;
-  if (current.byteOffset % 4 !== 0) {
-    current = new Uint8Array(current);
+  // --- LAYER 1: Kyber-1024 PQC Lattice Stream Cipher (HKDF-SHA512 + ChaCha20) ---
+  let pKey = keys.pqcStreamKey;
+  let pNonce = keys.pqcStreamNonce;
+  let shouldZeroizePqc = false;
+  if (!pKey || !pNonce) {
+    const ikm = new Uint8Array(32);
+    for (let i = 0; i < 32; i++) ikm[i] = keys.pqcSecret[i] ^ keys.key1[i];
+    const salt = keys.saltL1 && keys.saltL1.length >= 32 ? keys.saltL1.subarray(0, 32) : new Uint8Array(32);
+    const derived = hkdf(sha512, ikm, salt, new TextEncoder().encode('ContentGuard-L1-ChaCha20-PQC'), 44);
+    pKey = derived.slice(0, 32);
+    pNonce = derived.slice(32, 44);
+    ikm.fill(0);
+    derived.fill(0);
+    shouldZeroizePqc = true;
   }
-  const cur32 = new Uint32Array(current.buffer, current.byteOffset, Math.floor(current.length / 4));
-  for (let i = 0; i < cur32.length; i++) {
-    cur32[i] ^= mask32[(i + wordShift) & 7];
-  }
-  const remBytes = current.length % 4;
-  if (remBytes > 0) {
-    const maskBytes = new Uint8Array(mask32.buffer, mask32.byteOffset, mask32.byteLength);
-    const startIdx = current.length - remBytes;
-    for (let r = 0; r < remBytes; r++) {
-      current[startIdx + r] ^= maskBytes[(chunkGlobalOffset + startIdx + r) % 32];
+  try {
+    current = chacha20Process(pKey, pNonce, blockOffset64, current) as Uint8Array;
+  } finally {
+    if (shouldZeroizePqc) {
+      if (pKey) pKey.fill(0);
+      if (pNonce) pNonce.fill(0);
     }
   }
 
@@ -451,7 +453,10 @@ export async function decryptChunk5Layers(
     ivL4: Uint8Array;
     pqcSecret: Uint8Array;
     aesCipher?: any;
+    saltL1?: Uint8Array;
     pqcMask32?: Uint32Array;
+    pqcStreamKey?: Uint8Array;
+    pqcStreamNonce?: Uint8Array;
     serpentSubkeys?: Uint32Array[];
   }
 ): Promise<Uint8Array> {
@@ -460,28 +465,27 @@ export async function decryptChunk5Layers(
   const blockOffset16 = Math.floor(chunkGlobalOffset / 16);
   const blockOffset64 = Math.floor(chunkGlobalOffset / 64);
 
-  // --- UNPACK LAYER 1: Kyber-1024 PQC Blend (Aligned 32-bit Vector Word XOR) ---
-  const mask32 = keys.pqcMask32 || (() => {
-    const m = new Uint32Array(8);
-    const mb = new Uint8Array(m.buffer);
-    for (let i = 0; i < 32; i++) mb[i] = keys.pqcSecret[i] ^ keys.key1[i];
-    return m;
-  })();
-
-  const wordShift = Math.floor(chunkGlobalOffset / 4) & 7;
-  if (current.byteOffset % 4 !== 0) {
-    current = new Uint8Array(current);
+  // --- UNPACK LAYER 1: Kyber-1024 PQC Lattice Stream Cipher (HKDF-SHA512 + ChaCha20) ---
+  let pKey = keys.pqcStreamKey;
+  let pNonce = keys.pqcStreamNonce;
+  let shouldZeroizePqc = false;
+  if (!pKey || !pNonce) {
+    const ikm = new Uint8Array(32);
+    for (let i = 0; i < 32; i++) ikm[i] = keys.pqcSecret[i] ^ keys.key1[i];
+    const salt = keys.saltL1 && keys.saltL1.length >= 32 ? keys.saltL1.subarray(0, 32) : new Uint8Array(32);
+    const derived = hkdf(sha512, ikm, salt, new TextEncoder().encode('ContentGuard-L1-ChaCha20-PQC'), 44);
+    pKey = derived.slice(0, 32);
+    pNonce = derived.slice(32, 44);
+    ikm.fill(0);
+    derived.fill(0);
+    shouldZeroizePqc = true;
   }
-  const cur32 = new Uint32Array(current.buffer, current.byteOffset, Math.floor(current.length / 4));
-  for (let i = 0; i < cur32.length; i++) {
-    cur32[i] ^= mask32[(i + wordShift) & 7];
-  }
-  const remBytes = current.length % 4;
-  if (remBytes > 0) {
-    const maskBytes = new Uint8Array(mask32.buffer, mask32.byteOffset, mask32.byteLength);
-    const startIdx = current.length - remBytes;
-    for (let r = 0; r < remBytes; r++) {
-      current[startIdx + r] ^= maskBytes[(chunkGlobalOffset + startIdx + r) % 32];
+  try {
+    current = chacha20Process(pKey, pNonce, blockOffset64, current) as Uint8Array;
+  } finally {
+    if (shouldZeroizePqc) {
+      if (pKey) pKey.fill(0);
+      if (pNonce) pNonce.fill(0);
     }
   }
   await yieldToMainThread();
@@ -625,7 +629,8 @@ export async function encryptCascade5Layers(
   let key4: Uint8Array | null = null;
   let key5: Uint8Array | null = null;
   let pqcSecret: Uint8Array | null = null;
-  let pqcMask32: Uint32Array | null = null;
+  let pqcStreamKey: Uint8Array | null = null;
+  let pqcStreamNonce: Uint8Array | null = null;
   let serpentSubkeys: ReturnType<typeof serpentKeySchedule> | null = null;
   let kyberCt: Uint8Array | null = null;
   const encryptedChunks: Uint8Array[] = [];
@@ -654,11 +659,15 @@ export async function encryptCascade5Layers(
     zeroizeBuffer(kyberSeed, kyberKeypair.secretKey, kyberKeypair.publicKey);
     await yieldToMainThread();
 
-    pqcMask32 = new Uint32Array(8);
-    const pqcMaskBytes = new Uint8Array(pqcMask32.buffer);
-    for (let i = 0; i < 32; i++) pqcMaskBytes[i] = pqcSecret[i] ^ key1[i];
-    const aesCipher = ctr(key4, ivL4);
+    const ikm = new Uint8Array(32);
+    for (let i = 0; i < 32; i++) ikm[i] = pqcSecret[i] ^ key1[i];
+    const derivedPqc = hkdf(sha512, ikm, saltL1.subarray(0, 32), new TextEncoder().encode('ContentGuard-L1-ChaCha20-PQC'), 44);
+    const pqcStreamKey = derivedPqc.slice(0, 32);
+    const pqcStreamNonce = derivedPqc.slice(32, 44);
+    ikm.fill(0);
+    derivedPqc.fill(0);
 
+    const aesCipher = ctr(key4, ivL4);
     serpentSubkeys = serpentKeySchedule(key2);
 
     const keys = {
@@ -667,13 +676,15 @@ export async function encryptCascade5Layers(
       key3,
       key4,
       key5,
+      saltL1,
       saltL5,
       ivL2,
       ivL3,
       ivL4,
       pqcSecret,
       aesCipher,
-      pqcMask32,
+      pqcStreamKey,
+      pqcStreamNonce,
       serpentSubkeys
     };
 
@@ -733,8 +744,7 @@ export async function encryptCascade5Layers(
     if (rawDataOrHandle && typeof rawDataOrHandle === 'object' && 'name' in rawDataOrHandle) {
       zeroizeStreamingHandle(rawDataOrHandle);
     }
-    zeroizeBuffer(key1, key2, key3, key4, key5, pqcSecret);
-    if (pqcMask32) pqcMask32.fill(0);
+    zeroizeBuffer(key1, key2, key3, key4, key5, pqcSecret, pqcStreamKey, pqcStreamNonce);
     if (serpentSubkeys) {
       for (const rk of serpentSubkeys) rk.fill(0);
     }
@@ -857,7 +867,8 @@ export async function decryptCascade5Layers(
   let key4: Uint8Array | null = null;
   let key5: Uint8Array | null = null;
   let pqcSecret: Uint8Array | null = null;
-  let pqcMask32: Uint32Array | null = null;
+  let pqcStreamKey: Uint8Array | null = null;
+  let pqcStreamNonce: Uint8Array | null = null;
   let serpentSubkeys: ReturnType<typeof serpentKeySchedule> | null = null;
   const decryptedChunks: Uint8Array[] = [];
 
@@ -883,11 +894,15 @@ export async function decryptCascade5Layers(
     key5 = await deriveLayerKey(p5, bundle.saltL5, iterations, 'Layer5-OTP');
     await yieldToMainThread();
 
-    pqcMask32 = new Uint32Array(8);
-    const pqcMaskBytes = new Uint8Array(pqcMask32.buffer);
-    for (let i = 0; i < 32; i++) pqcMaskBytes[i] = pqcSecret[i] ^ key1[i];
-    const aesCipher = ctr(key4, bundle.ivL4);
+    const ikm = new Uint8Array(32);
+    for (let i = 0; i < 32; i++) ikm[i] = pqcSecret[i] ^ key1[i];
+    const derivedPqc = hkdf(sha512, ikm, bundle.saltL1.subarray(0, 32), new TextEncoder().encode('ContentGuard-L1-ChaCha20-PQC'), 44);
+    const pqcStreamKey = derivedPqc.slice(0, 32);
+    const pqcStreamNonce = derivedPqc.slice(32, 44);
+    ikm.fill(0);
+    derivedPqc.fill(0);
 
+    const aesCipher = ctr(key4, bundle.ivL4);
     serpentSubkeys = serpentKeySchedule(key2);
 
     const keys = {
@@ -896,13 +911,15 @@ export async function decryptCascade5Layers(
       key3,
       key4,
       key5,
+      saltL1: bundle.saltL1,
       saltL5: bundle.saltL5,
       ivL2: bundle.ivL2,
       ivL3: bundle.ivL3,
       ivL4: bundle.ivL4,
       pqcSecret,
       aesCipher,
-      pqcMask32,
+      pqcStreamKey,
+      pqcStreamNonce,
       serpentSubkeys
     };
 
@@ -920,8 +937,7 @@ export async function decryptCascade5Layers(
       onProgress?.(4, `Decrypting stream chunk ${idx + 1} / ${chunksToDecrypt.length}...`);
     }
   } finally {
-    zeroizeBuffer(key1, key2, key3, key4, key5, pqcSecret);
-    if (pqcMask32) pqcMask32.fill(0);
+    zeroizeBuffer(key1, key2, key3, key4, key5, pqcSecret, pqcStreamKey, pqcStreamNonce);
     if (serpentSubkeys) {
       for (const rk of serpentSubkeys) rk.fill(0);
     }

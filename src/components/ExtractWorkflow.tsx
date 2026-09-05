@@ -257,7 +257,7 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
       setResult(res);
       if (res.assessmentNotes) {
         setAssessmentNotes(res.assessmentNotes);
-        setNotesMatchedVault(res.vaultRevealed === 'Vault A' ? 'VaultA' : 'VaultB');
+        setNotesMatchedVault('VaultA');
       }
       onAddAuditLog(
         'DECRYPTION',
@@ -481,7 +481,7 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
           </div>
 
           <Key6BadgeCard
-            title={key6MatchedVault === 'VaultB' ? 'Vault B (Decoy) Verified Key 6' : 'Vault A (Real Secret) Key 6'}
+            title={key6VerifiedUniqueId ? 'Container Identity Key 6 (Authenticated)' : 'Container Identity Key 6'}
             vaultType={key6MatchedVault === 'VaultB' ? 'B' : 'A'}
             key6Value={key6Input}
             uniqueId1024Hex={key6VerifiedUniqueId}
@@ -528,7 +528,7 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
                       }`}
                     >
                       <CheckCircle2 className="w-3 h-3" />
-                      {notesMatchedVault === 'VaultA' ? 'Vault A (Real Secret) Notes Authenticated' : 'Vault B (Decoy) Notes Authenticated'}
+                      Container Assessment Notes Authenticated
                     </span>
                   ) : (
                     <span className="text-[10px] font-mono text-slate-500 bg-slate-900 px-2 py-0.5 rounded border border-slate-800">

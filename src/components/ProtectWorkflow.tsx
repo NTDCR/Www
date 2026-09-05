@@ -78,6 +78,9 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
         setCarrierPreviewBlob(blob);
         const handle = createStreamingFileHandle(blob, 'ContentGuard_Carrier_Stream.mp4');
         setCarrierFile(handle);
+      }).catch(err => {
+        if (!isMounted) return;
+        setErrorMsg('Failed to initialize synthetic carrier: ' + (err?.message || 'Carrier generation failed'));
       });
     }
     return () => {

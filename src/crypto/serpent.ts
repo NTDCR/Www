@@ -268,9 +268,9 @@ export function serpent256Ctr(
       if (cLow === 0) {
         cHigh = (cHigh + 1) >>> 0;
         if (cHigh === 0) {
-          cWord1 = (cWord1 + 1) >>> 0;
-          if (cWord1 === 0) {
-            cWord0 = (cWord0 + 1) >>> 0;
+          cWord0 = (cWord0 + 1) >>> 0;
+          if (cWord0 === 0) {
+            cWord1 = (cWord1 + 1) >>> 0;
           }
         }
       }
@@ -365,9 +365,9 @@ export async function serpent256CtrAsync(
       if (cLow === 0) {
         cHigh = (cHigh + 1) >>> 0;
         if (cHigh === 0) {
-          cWord1 = (cWord1 + 1) >>> 0;
-          if (cWord1 === 0) {
-            cWord0 = (cWord0 + 1) >>> 0;
+          cWord0 = (cWord0 + 1) >>> 0;
+          if (cWord0 === 0) {
+            cWord1 = (cWord1 + 1) >>> 0;
           }
         }
       }

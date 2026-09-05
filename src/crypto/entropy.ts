@@ -7,6 +7,8 @@ import { StatisticalMetrics } from '../types';
 import { generateSecureRandomBytes } from './safeRandom';
 import { yieldToMainThread } from '../utils/asyncUtils';
 import { constantTimeCompare, NEUTRAL_AUTH_FAILURE } from './cascadeEngine';
+import { hmac } from '@noble/hashes/hmac.js';
+import { sha256 } from '@noble/hashes/sha2.js';
 
 /**
  * Calculates exact Shannon Entropy in bits per byte [0.0 - 8.0]
@@ -151,20 +153,22 @@ export function calculateSamplePairMatchRate(data: Uint8Array): number {
  * (typically 7.18 - 7.36 bits/byte) by deterministic natural frequency injection.
  * Asynchronous with cooperative event-loop yielding to guarantee zero UI freezes.
  */
+const SHAPER_HMAC_KEY = new Uint8Array([
+  0x43, 0x47, 0x5f, 0x53, 0x48, 0x41, 0x50, 0x45, // "CG_SHAPE"
+  0x52, 0x5f, 0x41, 0x55, 0x54, 0x48, 0x5f, 0x56  // "R_AUTH_V"
+]);
+
 /**
- * 32-bit FNV-1a checksum over 16-byte salt and 4-byte payload length to detect any salt/header tampering
+ * 32-bit HMAC-SHA256 authenticated checksum over 16-byte salt and 4-byte payload length to detect any salt/header tampering
  */
 function computeHeaderChecksum(salt: Uint8Array, len: number): number {
-  let hash = 0x811c9dc5; // 32-bit FNV-1a offset basis
-  for (let i = 0; i < salt.length; i++) {
-    hash ^= salt[i];
-    hash = Math.imul(hash, 0x01000193);
-  }
+  const msg = new Uint8Array(20);
+  msg.set(salt, 0);
   for (let i = 0; i < 4; i++) {
-    hash ^= ((len >>> (i * 8)) & 0xff);
-    hash = Math.imul(hash, 0x01000193);
+    msg[16 + i] = (len >>> (i * 8)) & 0xff;
   }
-  return hash >>> 0;
+  const tag = hmac(sha256, SHAPER_HMAC_KEY, msg);
+  return (tag[0] | (tag[1] << 8) | (tag[2] << 16) | (tag[3] << 24)) >>> 0;
 }
 
 const SPARSE_SHAPING_INTERVAL = 1; // 1:1 pseudo-random parity lane diffusion (1 bias byte per payload byte to ensure entropy <= 7.40 bits/byte)

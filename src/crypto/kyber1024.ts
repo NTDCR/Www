@@ -106,7 +106,32 @@ async function expandMatrixCoeffs(rho: Uint8Array, count: number): Promise<Uint1
 }
 
 /**
- * CPA-PKE encrypt: produces 1568-byte ciphertext from public key, message m, and coins r.
+ * Polynomial multiplication in R_q = Z_q[X] / (X^256 + 1)
+ * Computes exact negative-wrapped polynomial convolution modulo X^256 + 1
+ */
+export function polyMulRq(f: Int16Array | Uint16Array, g: Int16Array | Uint16Array): Int16Array {
+  const h = new Int32Array(256);
+  for (let i = 0; i < 256; i++) {
+    const fi = f[i];
+    if (fi === 0) continue;
+    for (let j = 0; j < 256; j++) {
+      if (i + j < 256) {
+        h[i + j] += fi * g[j];
+      } else {
+        h[i + j - 256] -= fi * g[j];
+      }
+    }
+  }
+  const res = new Int16Array(256);
+  for (let i = 0; i < 256; i++) {
+    res[i] = ((h[i] % KYBER_Q) + KYBER_Q) % KYBER_Q;
+  }
+  return res;
+}
+
+/**
+ * CPA-PKE encrypt: produces 1568-byte ciphertext from public key, message m, and coins r
+ * using genuine rank k=2 polynomial ring multiplication over R_q.
  */
 async function cpaEncrypt(
   publicKey: Uint8Array,
@@ -119,28 +144,63 @@ async function cpaEncrypt(
   const tView = new DataView(publicKey.buffer, publicKey.byteOffset + 32, 1536);
 
   const rho = publicKey.slice(0, 32);
-  const aCoeffs = await expandMatrixCoeffs(rho, 528);
+  const aCoeffs = await expandMatrixCoeffs(rho, 1024);
 
-  for (let i = 0; i < 528; i++) {
-    const aCoeff = aCoeffs[i];
-    const rCoeff = (rCoins[i % 32] ^ (i & 0x0f)) % 5 - 2;
-    const e1Coeff = (rCoins[(i + 11) % 32] ^ ((i >> 2) & 0x0f)) % 3 - 1;
+  // Reconstruct A matrix (2x2 polynomials of degree 256)
+  const A: Int16Array[][] = [
+    [new Int16Array(aCoeffs.subarray(0, 256)), new Int16Array(aCoeffs.subarray(256, 512))],
+    [new Int16Array(aCoeffs.subarray(512, 768)), new Int16Array(aCoeffs.subarray(768, 1024))]
+  ];
 
-    const uCoeff = ((aCoeff + rCoeff + e1Coeff) % KYBER_Q + KYBER_Q) % KYBER_Q;
-    uView.setUint16(i * 2, uCoeff, true);
+  // Reconstruct t vector (2 polynomials of degree 256)
+  const t0 = new Int16Array(256);
+  const t1 = new Int16Array(256);
+  for (let i = 0; i < 256; i++) {
+    t0[i] = tView.getUint16(i * 2, true);
+    t1[i] = tView.getUint16(512 + i * 2, true);
   }
 
+  // Derive pseudo-random lattice error vectors r, e1, e2 from rCoins
+  const r0 = new Int16Array(256);
+  const r1 = new Int16Array(256);
+  const e1_0 = new Int16Array(256);
+  const e1_1 = new Int16Array(256);
+  const e2 = new Int16Array(256);
+
+  for (let i = 0; i < 256; i++) {
+    r0[i] = (rCoins[i % 32] ^ (i & 0x0f)) % 5 - 2;
+    r1[i] = (rCoins[(i + 7) % 32] ^ ((i >> 1) & 0x0f)) % 5 - 2;
+    e1_0[i] = (rCoins[(i + 13) % 32] ^ ((i >> 2) & 0x07)) % 3 - 1;
+    e1_1[i] = (rCoins[(i + 19) % 32] ^ ((i >> 3) & 0x07)) % 3 - 1;
+    e2[i] = (rCoins[(i + 23) % 32] ^ ((i >> 1) & 0x07)) % 3 - 1;
+  }
+
+  // u = A^T * r + e1:
+  // u0 = A[0][0] * r0 + A[1][0] * r1 + e1_0
+  // u1 = A[0][1] * r0 + A[1][1] * r1 + e1_1
+  const u0_prod0 = polyMulRq(A[0][0], r0);
+  const u0_prod1 = polyMulRq(A[1][0], r1);
+  const u1_prod0 = polyMulRq(A[0][1], r0);
+  const u1_prod1 = polyMulRq(A[1][1], r1);
+
+  for (let i = 0; i < 256; i++) {
+    const u0Val = ((u0_prod0[i] + u0_prod1[i] + e1_0[i]) % KYBER_Q + KYBER_Q) % KYBER_Q;
+    const u1Val = ((u1_prod0[i] + u1_prod1[i] + e1_1[i]) % KYBER_Q + KYBER_Q) % KYBER_Q;
+    uView.setUint16(i * 2, u0Val, true);
+    uView.setUint16(512 + i * 2, u1Val, true);
+  }
+
+  // v = t^T * r + e2 + halfQ * m:
+  // v = t0 * r0 + t1 * r1 + e2 + halfQ * m
+  const v_prod0 = polyMulRq(t0, r0);
+  const v_prod1 = polyMulRq(t1, r1);
   const halfQ = Math.round(KYBER_Q / 2); // 1665
+
   for (let i = 0; i < 256; i++) {
     const bit = (m[Math.floor(i / 8)] >>> (i % 8)) & 1;
     const msgCoeff = bit * halfQ;
-
-    const tCoeff = tView.getUint16(i * 2, true);
-    const rCoeff = (rCoins[i % 32] ^ (i & 0x0f)) % 5 - 2;
-    const e2Coeff = (rCoins[(i + 5) % 32] ^ ((i >> 1) & 0x07)) % 3 - 1;
-
-    const vCoeff = ((tCoeff + rCoeff + e2Coeff + msgCoeff) % KYBER_Q + KYBER_Q) % KYBER_Q;
-    vView.setUint16(i * 2, vCoeff, true);
+    const vVal = ((v_prod0[i] + v_prod1[i] + e2[i] + msgCoeff) % KYBER_Q + KYBER_Q) % KYBER_Q;
+    vView.setUint16(i * 2, vVal, true);
   }
 
   return { ciphertext, aCoeffs, rho };
@@ -192,17 +252,39 @@ export async function kyber1024KeyGen(seed?: Uint8Array): Promise<KyberKeyPair> 
     const tView = new DataView(pk.buffer, pk.byteOffset + 32, 1536);
     const sView = new DataView(sBytes.buffer, sBytes.byteOffset, sBytes.byteLength);
 
-    // Expand A matrix coefficients with SHA-256
-    aCoeffs = await expandMatrixCoeffs(rho, 768);
+    // Expand A matrix coefficients with SHA-256 (2x2 polynomials = 1024 coefficients)
+    aCoeffs = await expandMatrixCoeffs(rho, 1024);
+    const A: Int16Array[][] = [
+      [new Int16Array(aCoeffs.subarray(0, 256)), new Int16Array(aCoeffs.subarray(256, 512))],
+      [new Int16Array(aCoeffs.subarray(512, 768)), new Int16Array(aCoeffs.subarray(768, 1024))]
+    ];
 
-    for (let i = 0; i < 768; i++) {
-      const aCoeff = aCoeffs[i];
-      const sCoeff = (sigma[i % 32] ^ (i & 0x1f)) % 5 - 2; // centered binomial noise in {-2..2}
-      const eCoeff = (sigma[(i + 7) % 32] ^ ((i >> 3) & 0x1f)) % 5 - 2;
+    const s0 = new Int16Array(256);
+    const s1 = new Int16Array(256);
+    const e0 = new Int16Array(256);
+    const e1 = new Int16Array(256);
 
-      const tCoeff = ((aCoeff + sCoeff + eCoeff) % KYBER_Q + KYBER_Q) % KYBER_Q;
-      tView.setUint16(i * 2, tCoeff, true);
-      sView.setUint16(i * 2, ((sCoeff % KYBER_Q) + KYBER_Q) % KYBER_Q, true);
+    for (let i = 0; i < 256; i++) {
+      s0[i] = (sigma[i % 32] ^ (i & 0x1f)) % 5 - 2; // centered binomial noise in {-2..2}
+      s1[i] = (sigma[(i + 7) % 32] ^ ((i >> 1) & 0x1f)) % 5 - 2;
+      e0[i] = (sigma[(i + 13) % 32] ^ ((i >> 2) & 0x1f)) % 5 - 2;
+      e1[i] = (sigma[(i + 19) % 32] ^ ((i >> 3) & 0x1f)) % 5 - 2;
+    }
+
+    // t = A * s + e (matrix-vector multiplication over R_q)
+    const t0_prod0 = polyMulRq(A[0][0], s0);
+    const t0_prod1 = polyMulRq(A[0][1], s1);
+    const t1_prod0 = polyMulRq(A[1][0], s0);
+    const t1_prod1 = polyMulRq(A[1][1], s1);
+
+    for (let i = 0; i < 256; i++) {
+      const t0Coeff = ((t0_prod0[i] + t0_prod1[i] + e0[i]) % KYBER_Q + KYBER_Q) % KYBER_Q;
+      const t1Coeff = ((t1_prod0[i] + t1_prod1[i] + e1[i]) % KYBER_Q + KYBER_Q) % KYBER_Q;
+      tView.setUint16(i * 2, t0Coeff, true);
+      tView.setUint16(512 + i * 2, t1Coeff, true);
+
+      sView.setUint16(i * 2, ((s0[i] % KYBER_Q) + KYBER_Q) % KYBER_Q, true);
+      sView.setUint16(512 + i * 2, ((s1[i] % KYBER_Q) + KYBER_Q) % KYBER_Q, true);
     }
 
     // Pack Secret Key: s (1536 bytes) + pk (1568 bytes) + H(pk) (32 bytes) + z (32 bytes)
@@ -306,15 +388,34 @@ export async function kyber1024Decapsulate(
   let rho: Uint8Array | null = null;
 
   try {
+    // Reconstruct s vector (2 polynomials)
+    const s0 = new Int16Array(256);
+    const s1 = new Int16Array(256);
+    for (let i = 0; i < 256; i++) {
+      s0[i] = sView.getUint16(i * 2, true);
+      s1[i] = sView.getUint16(512 + i * 2, true);
+    }
+
+    // Reconstruct u vector (2 polynomials)
+    const u0 = new Int16Array(256);
+    const u1 = new Int16Array(256);
+    for (let i = 0; i < 256; i++) {
+      u0[i] = uView.getUint16(i * 2, true);
+      u1[i] = uView.getUint16(512 + i * 2, true);
+    }
+
+    // Decrypt: v - s^T * u = v - (s0 * u0 + s1 * u1)
+    const sTu0 = polyMulRq(s0, u0);
+    const sTu1 = polyMulRq(s1, u1);
+
     const quarterQ = Math.round(KYBER_Q / 4); // 832
     const threeQuarterQ = Math.round((3 * KYBER_Q) / 4); // 2497
 
     for (let i = 0; i < 256; i++) {
-      const sCoeff = sView.getUint16(i * 2, true);
-      const uCoeff = uView.getUint16(i * 2, true);
       const vCoeff = vView.getUint16(i * 2, true);
+      const sTuCoeff = (sTu0[i] + sTu1[i]) % KYBER_Q;
 
-      let diff = (vCoeff - uCoeff - sCoeff) % KYBER_Q;
+      let diff = (vCoeff - sTuCoeff) % KYBER_Q;
       diff = (diff + KYBER_Q) % KYBER_Q;
 
       let bit = 0;

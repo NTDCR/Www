@@ -37,7 +37,7 @@ export const AssessmentNotesPreviewModal: React.FC<AssessmentNotesPreviewModalPr
   if (!isOpen || !notes) return null;
 
   const isVaultA = vaultMatched === 'VaultA';
-  const vaultTitle = isVaultA ? 'Vault A (Real Secret)' : 'Vault B (Decoy Secret)';
+  const vaultTitle = 'Security Assessment Record';
 
   const handleCopyField = async (id: string, text: string) => {
     await secureCopyToClipboard(text, 45);
@@ -47,7 +47,7 @@ export const AssessmentNotesPreviewModal: React.FC<AssessmentNotesPreviewModalPr
 
   const handleCopyAll = async () => {
     let fullReport = `=== ContentGuard Pro MAX - Pre-Decryption Assessment Notes Report ===\n`;
-    fullReport += `Vault Classification: ${vaultTitle}\n`;
+    fullReport += `Record Status: Authenticated & Integrity Verified\n`;
     fullReport += `Date Created: ${notes.createdAt || 'N/A'}\n`;
     fullReport += `Reed-Solomon RS(255,223) Error Correction: ${repairedErrors} symbols repaired\n`;
     fullReport += `Cascade Verification: AES-256-GCM + XChaCha20-Poly1305 + Serpent-256 Authenticated\n\n`;
@@ -64,7 +64,7 @@ export const AssessmentNotesPreviewModal: React.FC<AssessmentNotesPreviewModalPr
 
   const handleDownloadReport = () => {
     let fullReport = `=== ContentGuard Pro MAX - Pre-Decryption Assessment Notes Report ===\n`;
-    fullReport += `Vault Classification: ${vaultTitle}\n`;
+    fullReport += `Record Status: Authenticated & Integrity Verified\n`;
     fullReport += `Date Created: ${notes.createdAt || 'N/A'}\n`;
     fullReport += `Reed-Solomon RS(255,223) Error Correction: ${repairedErrors} symbols repaired\n\n`;
 
@@ -79,7 +79,7 @@ export const AssessmentNotesPreviewModal: React.FC<AssessmentNotesPreviewModalPr
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `Assessment_Notes_${vaultMatched || 'Vault'}_${new Date().toISOString().slice(0, 10)}.txt`;
+    a.download = `Assessment_Notes_Report_${new Date().toISOString().slice(0, 10)}.txt`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);

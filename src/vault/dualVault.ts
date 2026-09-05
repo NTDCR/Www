@@ -18,6 +18,7 @@ import {
   deserializeBundle,
   zeroizeBuffer,
   EncryptedPayloadBundle,
+  DecryptedPayloadResult,
   DEFAULT_PBKDF2_ITERATIONS,
   NEUTRAL_AUTH_FAILURE
 } from '../crypto/cascadeEngine';
@@ -43,10 +44,16 @@ interface CachedContainerBundles {
   fileRef: any;
   bundleA: EncryptedPayloadBundle | null;
   bundleB: EncryptedPayloadBundle | null;
+  expiresAt: number;
 }
 let containerBundlesCache: CachedContainerBundles | null = null;
+let cacheEvictionTimer: any = null;
 
 export function clearContainerInspectionCache() {
+  if (cacheEvictionTimer) {
+    clearTimeout(cacheEvictionTimer);
+    cacheEvictionTimer = null;
+  }
   if (containerBundlesCache) {
     if (containerBundlesCache.bundleA) {
       const bA = containerBundlesCache.bundleA;
@@ -110,11 +117,15 @@ async function getOrExtractContainerBundles(
 ): Promise<{ bundleA: EncryptedPayloadBundle | null; bundleB: EncryptedPayloadBundle | null }> {
   if (
     containerBundlesCache &&
+    Date.now() <= containerBundlesCache.expiresAt &&
     containerBundlesCache.fileRef === protectedMp4File &&
     (containerBundlesCache.bundleA || containerBundlesCache.bundleB)
   ) {
     return containerBundlesCache;
   }
+
+  // Clear any expired or mismatched cache
+  clearContainerInspectionCache();
 
   await yieldToMainThread();
   const protectedBytes = protectedMp4File instanceof Uint8Array
@@ -171,8 +182,14 @@ async function getOrExtractContainerBundles(
     containerBundlesCache = {
       fileRef: protectedMp4File,
       bundleA,
-      bundleB
+      bundleB,
+      expiresAt: Date.now() + 60000
     };
+
+    if (cacheEvictionTimer) clearTimeout(cacheEvictionTimer);
+    cacheEvictionTimer = setTimeout(() => {
+      clearContainerInspectionCache();
+    }, 60000);
 
     return containerBundlesCache;
   } finally {
@@ -547,7 +564,7 @@ export async function extractFromDualVaultPackage(
   const { vaultABytes, vaultBBytes } = await extractSpreadSpectrumPayload(protectedBytes);
 
   if (vaultABytes.length === 0 && vaultBBytes.length === 0) {
-    throw new Error('No ContentGuard payload found in this container.');
+    throw new Error(NEUTRAL_AUTH_FAILURE);
   }
 
   // Neutral progress: Zero exposure of vault names or trial switching
@@ -568,6 +585,8 @@ export async function extractFromDualVaultPackage(
     let unshaped: Uint8Array | null = null;
     let rsRepaired: Uint8Array | null = null;
     let bundle: EncryptedPayloadBundle | null = null;
+    let decrypted: DecryptedPayloadResult | null = null;
+    let success = false;
     try {
       unshaped = await denormalizeEntropy(vaultBytes);
       const rsRes = await decodeRSStreamAsync(unshaped, (pct) => {
@@ -578,7 +597,7 @@ export async function extractFromDualVaultPackage(
       });
       rsRepaired = rsRes.data;
       bundle = deserializeBundle(rsRepaired);
-      const decrypted = await decryptCascade5Layers(bundle, passwords, iterations, (l, d) =>
+      decrypted = await decryptCascade5Layers(bundle, passwords, iterations, (l, d) =>
         onProgress?.(d, progressBase + 5 + l * 8)
       );
       const payloadChunks = (decrypted.chunkedPayload && decrypted.chunkedPayload.length > 0)
@@ -600,12 +619,13 @@ export async function extractFromDualVaultPackage(
         }
       }
 
+      success = true;
       return {
         fileBlob: blob,
         chunkedData: payloadChunks,
         filename: sanitizeFilename(decrypted.originalFilename),
         filesize: decrypted.originalSize,
-        vaultRevealed: vaultLabel === 'VaultA' ? 'Vault A' : 'Vault B',
+        vaultRevealed: 'Authenticated Payload',
         sha512Digest: digest,
         assessmentNotes: extractedNotes
       };
@@ -620,6 +640,9 @@ export async function extractFromDualVaultPackage(
           bundle.chunkedPayload
         );
       }
+      if (!success && decrypted) {
+        zeroizeBuffer(decrypted.data, decrypted.chunkedPayload);
+      }
       zeroizeBuffer(unshaped, rsRepaired);
     }
   }
@@ -631,6 +654,9 @@ export async function extractFromDualVaultPackage(
     clearContainerInspectionCache();
 
     if (resultA) {
+      if (resultB && resultB.chunkedData) {
+        zeroizeBuffer(resultB.chunkedData);
+      }
       return resultA;
     }
     if (resultB) {

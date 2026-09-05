@@ -329,21 +329,18 @@ export async function embedSpreadSpectrum8Locations(
   for (const box of boxChunks) totalFinalSize += box.length;
 
   let protectedMp4: Uint8Array;
-  if (totalFinalSize <= 256 * 1024 * 1024) {
-    try {
-      protectedMp4 = new Uint8Array(totalFinalSize);
-      let offset = 0;
-      for (const box of boxChunks) {
-        protectedMp4.set(box, offset);
-        offset += box.length;
-      }
-    } catch {
-      // If V8 heap cannot allocate continuous array, boxChunks holds full chunks for streaming/Blob
-      protectedMp4 = boxChunks[0];
+  try {
+    protectedMp4 = new Uint8Array(totalFinalSize);
+    let offset = 0;
+    for (const box of boxChunks) {
+      protectedMp4.set(box, offset);
+      offset += box.length;
     }
-  } else {
-    // Extreme files (>256MB): boxChunks contains all data avoiding duplicate monolithic heap allocation
-    protectedMp4 = boxChunks[0];
+  } catch {
+    throw new Error(
+      `Container assembly failed: insufficient contiguous memory to allocate ${(totalFinalSize / (1024 * 1024)).toFixed(1)} MB buffer. ` +
+      `Please reduce carrier or payload size for in-memory processing.`
+    );
   }
 
   const locationReports: EmbeddingLocationReport[] = [
