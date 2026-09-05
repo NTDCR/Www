@@ -162,11 +162,14 @@ export async function readSliceWithFallback(slice: Blob, maxRetries: number = 3)
     try {
       if (typeof URL !== 'undefined' && typeof fetch !== 'undefined') {
         const blobUrl = URL.createObjectURL(slice);
-        const resp = await fetch(blobUrl);
-        const ab = await resp.arrayBuffer();
-        URL.revokeObjectURL(blobUrl);
-        if (ab && ab.byteLength >= 0) {
-          return new Uint8Array(ab);
+        try {
+          const resp = await fetch(blobUrl);
+          const ab = await resp.arrayBuffer();
+          if (ab && ab.byteLength >= 0) {
+            return new Uint8Array(ab);
+          }
+        } finally {
+          URL.revokeObjectURL(blobUrl);
         }
       }
     } catch (e) { lastError = e; }
@@ -469,10 +472,13 @@ export async function readRootFileAsUint8Array(file: File | Blob): Promise<Uint8
   try {
     if (typeof URL !== 'undefined' && typeof fetch !== 'undefined') {
       const url = URL.createObjectURL(file);
-      const resp = await fetch(url);
-      const ab = await resp.arrayBuffer();
-      URL.revokeObjectURL(url);
-      if (ab && ab.byteLength >= 0) return new Uint8Array(ab);
+      try {
+        const resp = await fetch(url);
+        const ab = await resp.arrayBuffer();
+        if (ab && ab.byteLength >= 0) return new Uint8Array(ab);
+      } finally {
+        URL.revokeObjectURL(url);
+      }
     }
   } catch {}
 
