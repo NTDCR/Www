@@ -2,12 +2,14 @@ import React, { useState } from 'react';
 import { Cpu, CheckCircle2, Play, RefreshCw, X, AlertTriangle, Zap, Check } from 'lucide-react';
 import { kyber1024KeyGen, kyber1024Encapsulate, kyber1024Decapsulate } from '../crypto/kyber1024';
 import { serpent256Ctr } from '../crypto/serpent';
-import { xchacha20Poly1305Encrypt, xchacha20Poly1305Decrypt } from '../crypto/xchacha20poly1305';
+import { xchacha20Poly1305Encrypt, xchacha20Poly1305Decrypt, chacha20Process } from '../crypto/xchacha20poly1305';
 import { deriveLayerKey, encryptCascade5Layers, decryptCascade5Layers } from '../crypto/cascadeEngine';
 import { calculateShannonEntropy, normalizeEntropyToTarget, denormalizeEntropy, calculateChiSquareTest, getNaturalMp4Distribution, calculateHistogram } from '../crypto/entropy';
 import { embedSpreadSpectrum8Locations, extractSpreadSpectrumPayload, createSyntheticMp4Carrier } from '../media/isobmff';
 import { generateDeviceFingerprint, generateAndStoreRecoveryCodes } from '../security/deviceFingerprint';
 import { generateSecureRandomBytes } from '../crypto/safeRandom';
+import { createDualVaultPackage } from '../vault/dualVault';
+import { CascadePasswords } from '../types';
 
 interface BenchmarkSuiteProps {
   onClose: () => void;
@@ -146,14 +148,16 @@ export const BenchmarkSuite: React.FC<BenchmarkSuiteProps> = ({ onClose }) => {
           const key = await deriveLayerKey('TestPassword99!', salt, 1000, 'TestLayer');
           if (key.length !== 32) throw new Error('Key derivation invalid length');
         } else if (test.id === 't5') {
+          const key = generateSecureRandomBytes(32);
+          const nonce = generateSecureRandomBytes(12);
           const data = generateSecureRandomBytes(1024);
-          const otp = generateSecureRandomBytes(1024);
-          const ct = new Uint8Array(1024);
-          for (let k = 0; k < 1024; k++) ct[k] = data[k] ^ otp[k];
-          for (let k = 0; k < 1024; k++) ct[k] ^= otp[k];
+          const ct = chacha20Process(key, nonce, 0, data);
+          const pt = chacha20Process(key, nonce, 0, ct);
           let match = true;
-          for (let k = 0; k < 1024; k++) if (ct[k] !== data[k]) match = false;
-          if (!match) throw new Error('OTP failed');
+          for (let k = 0; k < 1024; k++) {
+            if (pt[k] !== data[k]) match = false;
+          }
+          if (!match) throw new Error('ChaCha20 keystream masking roundtrip failed');
         } else if (test.id === 't6') {
           const ct = generateSecureRandomBytes(2048);
           const normalized = await normalizeEntropyToTarget(ct, 7.38);
@@ -182,11 +186,17 @@ export const BenchmarkSuite: React.FC<BenchmarkSuiteProps> = ({ onClose }) => {
             if (extracted.vaultBBytes[k] !== vB[k]) throw new Error('Vault B payload mismatch');
           }
         } else if (test.id === 't8') {
-          // Dual vault size match
-          const vA = new Uint8Array(100);
-          const vB = new Uint8Array(250);
-          const maxSize = Math.max(vA.length, vB.length);
-          if (maxSize !== 250) throw new Error('Dual vault size calculation error');
+          const vA = generateSecureRandomBytes(64);
+          const vB = generateSecureRandomBytes(128);
+          const pwA: CascadePasswords = { layer1_kyber: 'k1A', layer2_serpent: 'k2A', layer3_xchacha: 'k3A', layer4_aes: 'k4A', layer5_otp: 'k5A' };
+          const pwB: CascadePasswords = { layer1_kyber: 'kB1', layer2_serpent: 'kB2', layer3_xchacha: 'kB3', layer4_aes: 'kB4', layer5_otp: 'kB5' };
+          const pkg = await createDualVaultPackage(null, vA, vB, pwA, pwB, 1000);
+          if (pkg.vaultASize !== vA.length || pkg.vaultBSize !== vB.length) {
+            throw new Error('Dual vault size calculation error');
+          }
+          if (!pkg.protectedMp4Blob || pkg.protectedMp4Blob.size === 0) {
+            throw new Error('Dual vault container blob generation failed');
+          }
         } else if (test.id === 't9') {
           const fp = await generateDeviceFingerprint();
           if (!fp.visitorId.startsWith('CGP-')) throw new Error('Fingerprint format invalid');

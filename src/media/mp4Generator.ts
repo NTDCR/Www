@@ -85,28 +85,28 @@ export function generatePlayableH264Mp4(durationSeconds: number = 5): Uint8Array
 
     if (isKeyframe) {
       // SPS
-      const spsView = new DataView(mdatPayload.buffer, pos, 4);
+      const spsView = new DataView(mdatPayload.buffer, mdatPayload.byteOffset + pos, 4);
       spsView.setUint32(0, sps.length);
       pos += 4;
       mdatPayload.set(sps, pos);
       pos += sps.length;
 
       // PPS
-      const ppsView = new DataView(mdatPayload.buffer, pos, 4);
+      const ppsView = new DataView(mdatPayload.buffer, mdatPayload.byteOffset + pos, 4);
       ppsView.setUint32(0, pps.length);
       pos += 4;
       mdatPayload.set(pps, pos);
       pos += pps.length;
 
       // IDR
-      const idrView = new DataView(mdatPayload.buffer, pos, 4);
+      const idrView = new DataView(mdatPayload.buffer, mdatPayload.byteOffset + pos, 4);
       idrView.setUint32(0, idrPayload.length);
       pos += 4;
       mdatPayload.set(idrPayload, pos);
       pos += idrPayload.length;
     } else {
       // P-Slice
-      const pView = new DataView(mdatPayload.buffer, pos, 4);
+      const pView = new DataView(mdatPayload.buffer, mdatPayload.byteOffset + pos, 4);
       pView.setUint32(0, pSlicePayload.length);
       pos += 4;
       mdatPayload.set(pSlicePayload, pos);
@@ -119,7 +119,7 @@ export function generatePlayableH264Mp4(durationSeconds: number = 5): Uint8Array
   // 3. Construct standard moov box structure
   // mvhd: Movie Header
   const mvhd = new Uint8Array(100);
-  const mvhdView = new DataView(mvhd.buffer);
+  const mvhdView = new DataView(mvhd.buffer, mvhd.byteOffset, mvhd.byteLength);
   mvhdView.setUint32(0, 0); // version 0 & flags
   mvhdView.setUint32(4, 0); // creation_time
   mvhdView.setUint32(8, 0); // modification_time
@@ -136,7 +136,7 @@ export function generatePlayableH264Mp4(durationSeconds: number = 5): Uint8Array
 
   // tkhd: Track Header — creation/modification fixed to Epoch 1904 (0)
   const tkhd = new Uint8Array(84);
-  const tkhdView = new DataView(tkhd.buffer);
+  const tkhdView = new DataView(tkhd.buffer, tkhd.byteOffset, tkhd.byteLength);
   tkhdView.setUint32(0, 0x00000007); // flags: Track_enabled | Track_in_movie | Track_in_preview
   tkhdView.setUint32(4, 0); // creation_time = 0 (1904 epoch)
   tkhdView.setUint32(8, 0); // modification_time = 0 (1904 epoch)
@@ -152,7 +152,7 @@ export function generatePlayableH264Mp4(durationSeconds: number = 5): Uint8Array
 
   // mdhd: Media Header — creation/modification fixed to Epoch 1904 (0)
   const mdhd = new Uint8Array(24);
-  const mdhdView = new DataView(mdhd.buffer);
+  const mdhdView = new DataView(mdhd.buffer, mdhd.byteOffset, mdhd.byteLength);
   mdhdView.setUint32(4, 0); // creation_time = 0
   mdhdView.setUint32(8, 0); // modification_time = 0
   mdhdView.setUint32(12, timescale); // timescale
@@ -162,7 +162,7 @@ export function generatePlayableH264Mp4(durationSeconds: number = 5): Uint8Array
 
   // hdlr: Handler Box
   const hdlr = new Uint8Array(25 + 13);
-  const hdlrView = new DataView(hdlr.buffer);
+  const hdlrView = new DataView(hdlr.buffer, hdlr.byteOffset, hdlr.byteLength);
   hdlrView.setUint32(8, 0x76696465); // handler_type 'vide'
   const hdlrName = new TextEncoder().encode('VideoHandler\0');
   hdlr.set(hdlrName, 24);
@@ -170,14 +170,14 @@ export function generatePlayableH264Mp4(durationSeconds: number = 5): Uint8Array
 
   // vmhd: Video Media Header
   const vmhd = new Uint8Array(12);
-  const vmhdView = new DataView(vmhd.buffer);
+  const vmhdView = new DataView(vmhd.buffer, vmhd.byteOffset, vmhd.byteLength);
   vmhdView.setUint32(0, 1); // flags = 1
   const vmhdBox = buildBox('vmhd', vmhd);
 
   // dinf -> dref
   const drefEntry = new Uint8Array([0x00, 0x00, 0x00, 0x0c, 0x75, 0x72, 0x6c, 0x20, 0x00, 0x00, 0x00, 0x01]);
   const drefPayload = new Uint8Array(8 + drefEntry.length);
-  const drefView = new DataView(drefPayload.buffer);
+  const drefView = new DataView(drefPayload.buffer, drefPayload.byteOffset, drefPayload.byteLength);
   drefView.setUint32(4, 1); // 1 entry
   drefPayload.set(drefEntry, 8);
   const drefBox = buildBox('dref', drefPayload);
@@ -201,7 +201,7 @@ export function generatePlayableH264Mp4(durationSeconds: number = 5): Uint8Array
 
   // avc1 Sample Entry
   const avc1Payload = new Uint8Array(78 + avccBox.length);
-  const avc1View = new DataView(avc1Payload.buffer);
+  const avc1View = new DataView(avc1Payload.buffer, avc1Payload.byteOffset, avc1Payload.byteLength);
   avc1View.setUint16(6, 1); // data_reference_index = 1
   avc1View.setUint16(24, width); // width 640
   avc1View.setUint16(26, height); // height 360
@@ -218,14 +218,14 @@ export function generatePlayableH264Mp4(durationSeconds: number = 5): Uint8Array
 
   // stsd: Sample Description Box
   const stsdPayload = new Uint8Array(8 + avc1Box.length);
-  const stsdView = new DataView(stsdPayload.buffer);
+  const stsdView = new DataView(stsdPayload.buffer, stsdPayload.byteOffset, stsdPayload.byteLength);
   stsdView.setUint32(4, 1); // 1 entry
   stsdPayload.set(avc1Box, 8);
   const stsdBox = buildBox('stsd', stsdPayload);
 
   // stts: Time-to-Sample Box
   const sttsPayload = new Uint8Array(16);
-  const sttsView = new DataView(sttsPayload.buffer);
+  const sttsView = new DataView(sttsPayload.buffer, sttsPayload.byteOffset, sttsPayload.byteLength);
   sttsView.setUint32(4, 1); // 1 entry
   sttsView.setUint32(8, totalFrames); // sample_count
   sttsView.setUint32(12, frameDuration); // sample_delta
@@ -233,7 +233,7 @@ export function generatePlayableH264Mp4(durationSeconds: number = 5): Uint8Array
 
   // stsc: Sample-to-Chunk Box (1 sample per chunk)
   const stscPayload = new Uint8Array(20);
-  const stscView = new DataView(stscPayload.buffer);
+  const stscView = new DataView(stscPayload.buffer, stscPayload.byteOffset, stscPayload.byteLength);
   stscView.setUint32(4, 1); // 1 entry
   stscView.setUint32(8, 1); // first_chunk = 1
   stscView.setUint32(12, 1); // samples_per_chunk = 1
@@ -242,7 +242,7 @@ export function generatePlayableH264Mp4(durationSeconds: number = 5): Uint8Array
 
   // stsz: Sample Size Box
   const stszPayload = new Uint8Array(12 + totalFrames * 4);
-  const stszView = new DataView(stszPayload.buffer);
+  const stszView = new DataView(stszPayload.buffer, stszPayload.byteOffset, stszPayload.byteLength);
   stszView.setUint32(4, 0); // sample_size (0 = variable)
   stszView.setUint32(8, totalFrames); // sample_count
   for (let i = 0; i < totalFrames; i++) {
@@ -258,7 +258,7 @@ export function generatePlayableH264Mp4(durationSeconds: number = 5): Uint8Array
 
   // stco: Chunk Offset Box
   const stcoPayload = new Uint8Array(8 + totalFrames * 4);
-  const stcoView = new DataView(stcoPayload.buffer);
+  const stcoView = new DataView(stcoPayload.buffer, stcoPayload.byteOffset, stcoPayload.byteLength);
   stcoView.setUint32(4, totalFrames); // entry_count
   for (let i = 0; i < totalFrames; i++) {
     stcoView.setUint32(8 + i * 4, mdatDataStart + frameOffsets[i]);

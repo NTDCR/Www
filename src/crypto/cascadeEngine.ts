@@ -560,7 +560,7 @@ export async function encryptCascade5Layers(
   const nameBytes = enc.encode(filename);
   const innerHeaderLen = 4 + 4 + nameBytes.length + 8;
   const innerHeader = new Uint8Array(innerHeaderLen);
-  const innerView = new DataView(innerHeader.buffer);
+  const innerView = new DataView(innerHeader.buffer, innerHeader.byteOffset, innerHeader.byteLength);
 
   let ip = 0;
   innerHeader.set(VAULT_INNER_MAGIC, ip); ip += 4;
