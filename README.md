@@ -2,7 +2,12 @@
 
 > **Zero-Knowledge Air-Gapped Cryptographic Preservation & Plausible Deniability Platform**
 
+[![Security Audit](https://img.shields.io/badge/Security%20Audit-100%25%20PASS%20(94%2F94)-brightgreen.svg)](./AUDIT_REPORT.md)
+[![License](https://img.shields.io/badge/License-Proprietary-blue.svg)](#license--attribution)
+
 ContentGuard Pro MAX is an enterprise-grade, air-gapped cryptographic and steganographic system engineered for high-consequence data preservation, plausible deniability, and multi-century confidentiality.
+
+Official cryptographic audit report: [AUDIT_REPORT.md](./AUDIT_REPORT.md).
 
 ---
 
