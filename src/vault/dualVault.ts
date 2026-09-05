@@ -559,7 +559,8 @@ export async function extractFromDualVaultPackage(
    */
   async function tryExtractCandidate(
     vaultBytes: Uint8Array,
-    progressBase: number
+    progressBase: number,
+    vaultLabel: 'VaultA' | 'VaultB' = 'VaultA'
   ): Promise<DualVaultExtractionResult | null> {
     if (!vaultBytes || vaultBytes.length === 0) {
       return null;
@@ -585,13 +586,28 @@ export async function extractFromDualVaultPackage(
         : [decrypted.data];
       const digest = await calculateSha512Safe(payloadChunks);
       const blob = new Blob(payloadChunks, { type: 'application/octet-stream' });
+
+      // Automatically unmask assessment notes if present in bundle
+      let extractedNotes: VaultAssessmentNotes | undefined = undefined;
+      if (bundle.notesBlock && bundle.notesBlock.length > 0) {
+        try {
+          const notesRes = await decryptAssessmentNotesBlock(bundle.notesBlock, passwords, iterations, vaultLabel);
+          if (notesRes && notesRes.valid && notesRes.notes) {
+            extractedNotes = notesRes.notes;
+          }
+        } catch {
+          // Non-fatal if notes block was corrupt or empty
+        }
+      }
+
       return {
         fileBlob: blob,
         chunkedData: payloadChunks,
         filename: sanitizeFilename(decrypted.originalFilename),
         filesize: decrypted.originalSize,
-        vaultRevealed: 'Authenticated Payload',
-        sha512Digest: digest
+        vaultRevealed: vaultLabel === 'VaultA' ? 'Vault A' : 'Vault B',
+        sha512Digest: digest,
+        assessmentNotes: extractedNotes
       };
     } catch {
       return null;
@@ -609,8 +625,8 @@ export async function extractFromDualVaultPackage(
   }
 
   try {
-    const resultA = await tryExtractCandidate(vaultABytes, 40);
-    const resultB = await tryExtractCandidate(vaultBBytes, 55);
+    const resultA = await tryExtractCandidate(vaultABytes, 40, 'VaultA');
+    const resultB = await tryExtractCandidate(vaultBBytes, 55, 'VaultB');
 
     clearContainerInspectionCache();
 

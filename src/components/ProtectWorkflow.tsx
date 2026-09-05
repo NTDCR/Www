@@ -345,7 +345,9 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
       if (!isMountedRef.current) return;
       setTotalOperationDurationMs(totalDuration);
       setResult(res);
-      const actualCarrierSize = carrierFile?.size || carrierPreviewBlob?.size || (res.protectedMp4Bytes ? res.protectedMp4Bytes.length : 5242880);
+      const actualCarrierSize = useSyntheticCarrier
+        ? (carrierPreviewBlob?.size || 15360)
+        : (carrierFile?.size || 5242880);
       const actualPayloadSize = (vaultAFile?.size || 0) + (vaultBFile?.size || 0);
       const actualCarrierName = activeCarrier ? activeCarrier.name : 'Synthetic Active Stream';
       onMetricsGenerated?.(res.metrics, res.locationReports, actualCarrierSize, actualPayloadSize, actualCarrierName);
@@ -473,7 +475,12 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
 
               <button
                 type="button"
-                onClick={() => setUseSyntheticCarrier(false)}
+                onClick={() => {
+                  setUseSyntheticCarrier(false);
+                  if (carrierFile?.name === 'ContentGuard_Carrier_Stream.mp4') {
+                    setCarrierFile(null);
+                  }
+                }}
                 className={`p-3 rounded-lg border text-left transition-colors ${
                   !useSyntheticCarrier
                     ? 'bg-emerald-950/50 border-emerald-500/60 text-emerald-300'
@@ -1093,7 +1100,7 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
           <StatisticalInspector
             metrics={result.metrics}
             locationReports={result.locationReports}
-            carrierSize={carrierFile?.size || carrierPreviewBlob?.size || 15360}
+            carrierSize={useSyntheticCarrier ? (carrierPreviewBlob?.size || 15360) : (carrierFile?.size || 5242880)}
             payloadSize={(vaultAFile?.size || 0) + (vaultBFile?.size || 0)}
           />
         </div>

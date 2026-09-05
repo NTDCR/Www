@@ -255,6 +255,10 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
       if (!isMountedRef.current) return;
       setTotalOperationDurationMs(totalDuration);
       setResult(res);
+      if (res.assessmentNotes) {
+        setAssessmentNotes(res.assessmentNotes);
+        setNotesMatchedVault(res.vaultRevealed === 'Vault A' ? 'VaultA' : 'VaultB');
+      }
       onAddAuditLog(
         'DECRYPTION',
         `Successfully unlocked and extracted authenticated payload: ${res.filename} (${res.filesize} bytes) in ${formatDurationHuman(totalDuration)}. Complete 5-layer integrity passed.`,
@@ -390,6 +394,16 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
                 <span className="text-slate-500">Device Playback:</span>
                 <span className="text-emerald-400 font-semibold">✓ Smooth in Device Player</span>
               </div>
+            </div>
+          </div>
+        )}
+
+        {protectedFile && protectedFile.size >= 1.5 * 1024 * 1024 * 1024 && (
+          <div className="mt-4 p-3 bg-amber-950/60 border border-amber-500/50 rounded-lg text-xs font-mono text-amber-300 flex items-start gap-2">
+            <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+            <div>
+              <span className="font-bold block">Large-Container V8 Engine Advisory (&ge; 1.5 GB):</span>
+              Extracting containers &ge; 1.5 GB requires significant browser memory allocation during atom demuxing. Please ensure your host browser machine has at least 4 GB free RAM available and close unneeded browser tabs.
             </div>
           </div>
         )}
