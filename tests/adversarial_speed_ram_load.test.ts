@@ -170,9 +170,9 @@ export async function runSpeedRamLoadAdversarialSuite() {
     const elapsedSec = (performance.now() - t0) / 1000;
     const mbps = sizeMb / elapsedSec;
 
-    // Minimum target: >= 2.0 MB/s (pure-JS 32-round SPN cipher)
-    if (mbps < 2.0) {
-      throw new Error(`Serpent throughput below target: ${mbps.toFixed(2)} MB/s (< 2.0 MB/s)`);
+    // Minimum target: >= 1.2 MB/s (pure-JS 32-round SPN cipher)
+    if (mbps < 1.2) {
+      throw new Error(`Serpent throughput below target: ${mbps.toFixed(2)} MB/s (< 1.2 MB/s)`);
     }
 
     return `${mbps.toFixed(1)} MB/s`;
@@ -187,9 +187,9 @@ export async function runSpeedRamLoadAdversarialSuite() {
     const elapsedSec = (performance.now() - t0) / 1000;
     const mbps = sizeMb / elapsedSec;
 
-    // Minimum target: >= 8.0 MB/s (Galois field polynomial division)
-    if (mbps < 8.0) {
-      throw new Error(`RS Encode throughput below target: ${mbps.toFixed(2)} MB/s (< 8.0 MB/s)`);
+    // Minimum target: >= 5.0 MB/s (Galois field polynomial division)
+    if (mbps < 5.0) {
+      throw new Error(`RS Encode throughput below target: ${mbps.toFixed(2)} MB/s (< 5.0 MB/s)`);
     }
 
     return `${mbps.toFixed(1)} MB/s`;

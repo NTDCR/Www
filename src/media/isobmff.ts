@@ -432,9 +432,9 @@ export async function extractSpreadSpectrumPayload(protectedMp4: Uint8Array): Pr
   vaultBBytes: Uint8Array;
 }> {
   const boxes = parseIsobmffBoxes(protectedMp4);
-  const chunks: (Uint8Array | null)[] = [null, null, null, null, null, null, null, null];
+  const candidates: { slot: number; data: Uint8Array; offset: number }[] = [];
 
-  function unpackTaggedChunk(payload: Uint8Array, expectedIndex: number) {
+  function recordCandidate(payload: Uint8Array, expectedIndex: number, offset: number) {
     if (payload.length === 0) return;
     const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
 
@@ -444,15 +444,13 @@ export async function extractSpreadSpectrumPayload(protectedMp4: Uint8Array): Pr
       const res = view.getUint16(2, true);
       const len = view.getUint32(4, true);
       if (index === expectedIndex && res === 0 && payload.length === 8 + len) {
-        chunks[expectedIndex] = payload.subarray(8, 8 + len);
+        candidates.push({ slot: expectedIndex, data: payload.subarray(8, 8 + len), offset });
         return;
       }
     }
 
     // Direct stealth raw chunk (zero headers, zero metadata fingerprints)
-    if (chunks[expectedIndex] === null) {
-      chunks[expectedIndex] = payload;
-    }
+    candidates.push({ slot: expectedIndex, data: payload, offset });
   }
 
   function scanBoxList(boxList: Mp4Box[], isRoot: boolean = true) {
@@ -469,25 +467,25 @@ export async function extractSpreadSpectrumPayload(protectedMp4: Uint8Array): Pr
             if (box.data[i] !== CANON_UUID[i]) { isCanon = false; break; }
           }
           if (isSony) {
-            unpackTaggedChunk(box.data.subarray(16), 0);
+            recordCandidate(box.data.subarray(16), 0, box.offset);
           } else if (isCanon) {
-            unpackTaggedChunk(box.data.subarray(16), 1);
+            recordCandidate(box.data.subarray(16), 1, box.offset);
           }
         }
       } else if (box.type === 'free' && isRoot) {
-        unpackTaggedChunk(box.data, 2);
+        recordCandidate(box.data, 2, box.offset);
       } else if (box.type === 'wide' && isRoot) {
-        unpackTaggedChunk(box.data, 3);
+        recordCandidate(box.data, 3, box.offset);
       } else if ((box.type === 'skip' || box.type === 'cgpm') && isRoot) {
-        unpackTaggedChunk(box.data, 4);
+        recordCandidate(box.data, 4, box.offset);
       } else if (box.type === 'stco' && isRoot) {
         if (box.data.length >= 8) {
-          unpackTaggedChunk(box.data.subarray(8), 5);
+          recordCandidate(box.data.subarray(8), 5, box.offset);
         }
       } else if (box.type === 'prvm' && isRoot) {
-        unpackTaggedChunk(box.data, 6);
+        recordCandidate(box.data, 6, box.offset);
       } else if (box.type === 'udta' && isRoot) {
-        unpackTaggedChunk(box.data, 7);
+        recordCandidate(box.data, 7, box.offset);
       }
 
       if (box.children && box.children.length > 0) {
@@ -497,6 +495,39 @@ export async function extractSpreadSpectrumPayload(protectedMp4: Uint8Array): Pr
   }
 
   scanBoxList(boxes);
+
+  // Sony UUID (Slot 0) has an unforgeable 16-byte header signature.
+  // Locate Slot 0 to establish the exact stripe length baseline.
+  const slot0Candidates = candidates.filter(c => c.slot === 0);
+  if (slot0Candidates.length === 0) {
+    return {
+      vaultABytes: new Uint8Array(0),
+      vaultBBytes: new Uint8Array(0)
+    };
+  }
+
+  // Pick the verified Sony UUID chunk (latest in container if multiple)
+  const sonyCandidate = slot0Candidates[slot0Candidates.length - 1];
+  const baseStripeLen = sonyCandidate.data.length;
+
+  const chunks: (Uint8Array | null)[] = [null, null, null, null, null, null, null, null];
+  chunks[0] = sonyCandidate.data;
+
+  // For slots 1 through 7, disambiguate carrier natural atoms from injected payload atoms
+  // by selecting candidates matching the mathematical stripe length expectation
+  for (let s = 1; s < 8; s++) {
+    const slotMatches = candidates.filter(
+      c => c.slot === s && (c.data.length === baseStripeLen || c.data.length === baseStripeLen - 1)
+    );
+    if (slotMatches.length > 0) {
+      chunks[s] = slotMatches[slotMatches.length - 1].data;
+    } else {
+      const anyMatch = candidates.filter(c => c.slot === s);
+      if (anyMatch.length > 0) {
+        chunks[s] = anyMatch[anyMatch.length - 1].data;
+      }
+    }
+  }
 
   // Verify all 8 spread spectrum locations are present
   for (let c = 0; c < 8; c++) {

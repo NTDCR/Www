@@ -24,7 +24,7 @@ import {
 import { normalizeEntropyToTarget, denormalizeEntropy, denormalizeEntropyHeaderFast, analyzeStatisticalCompliance } from '../crypto/entropy';
 import { embedSpreadSpectrum8Locations, extractSpreadSpectrumPayload, createSyntheticMp4Carrier } from '../media/isobmff';
 import { getOrGenerateCarrierBlob } from '../media/mp4Generator';
-import { readFileAsUint8Array, StreamingFileHandle, STRICT_CHUNK_SIZE, readChunkFromHandle } from '../utils/fileReader';
+import { readFileAsUint8Array, StreamingFileHandle, STRICT_CHUNK_SIZE, readChunkFromHandle, sanitizeFilename } from '../utils/fileReader';
 import { generateSecureRandomBytes } from '../crypto/safeRandom';
 import { yieldToMainThread } from '../utils/asyncUtils';
 import {
@@ -54,7 +54,7 @@ export function clearContainerInspectionCache() {
         bA.payload, bA.saltL1, bA.saltL2, bA.saltL3, bA.saltL4, bA.saltL5,
         bA.ivL2, bA.ivL3, bA.ivL4, bA.tagL3, bA.tagL4, bA.kyberCt, bA.otpKey,
         bA.k6Block, bA.notesBlock,
-        ...(bA.chunkedPayload || [])
+        bA.chunkedPayload
       );
     }
     if (containerBundlesCache.bundleB) {
@@ -63,7 +63,7 @@ export function clearContainerInspectionCache() {
         bB.payload, bB.saltL1, bB.saltL2, bB.saltL3, bB.saltL4, bB.saltL5,
         bB.ivL2, bB.ivL3, bB.ivL4, bB.tagL3, bB.tagL4, bB.kyberCt, bB.otpKey,
         bB.k6Block, bB.notesBlock,
-        ...(bB.chunkedPayload || [])
+        bB.chunkedPayload
       );
     }
     containerBundlesCache = null;
@@ -512,7 +512,7 @@ export async function createDualVaultPackage(
         bundleA.payload, bundleA.saltL1, bundleA.saltL2, bundleA.saltL3, bundleA.saltL4, bundleA.saltL5,
         bundleA.ivL2, bundleA.ivL3, bundleA.ivL4, bundleA.tagL3, bundleA.tagL4, bundleA.kyberCt,
         bundleA.k6Block, bundleA.notesBlock,
-        ...(bundleA.chunkedPayload || [])
+        bundleA.chunkedPayload
       );
     }
     if (bundleB) {
@@ -520,7 +520,7 @@ export async function createDualVaultPackage(
         bundleB.payload, bundleB.saltL1, bundleB.saltL2, bundleB.saltL3, bundleB.saltL4, bundleB.saltL5,
         bundleB.ivL2, bundleB.ivL3, bundleB.ivL4, bundleB.tagL3, bundleB.tagL4, bundleB.kyberCt,
         bundleB.k6Block, bundleB.notesBlock,
-        ...(bundleB.chunkedPayload || [])
+        bundleB.chunkedPayload
       );
     }
     zeroizeBuffer(rawEncryptedA, rawEncryptedB, rsProtectedA, rsProtectedB, finalVaultA, finalVaultB, normalizedA, normalizedB);
@@ -585,7 +585,7 @@ export async function extractFromDualVaultPackage(
       return {
         fileBlob: blob,
         chunkedData: [decrypted.data],
-        filename: decrypted.originalFilename,
+        filename: sanitizeFilename(decrypted.originalFilename),
         filesize: decrypted.data.length,
         vaultRevealed: 'Authenticated Payload',
         sha512Digest: digest
@@ -598,7 +598,7 @@ export async function extractFromDualVaultPackage(
           bundle.payload, bundle.saltL1, bundle.saltL2, bundle.saltL3, bundle.saltL4, bundle.saltL5,
           bundle.ivL2, bundle.ivL3, bundle.ivL4, bundle.tagL3, bundle.tagL4, bundle.kyberCt, bundle.otpKey,
           bundle.k6Block, bundle.notesBlock,
-          ...(bundle.chunkedPayload || [])
+          bundle.chunkedPayload
         );
       }
       zeroizeBuffer(unshaped, rsRepaired);

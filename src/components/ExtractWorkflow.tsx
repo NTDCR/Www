@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Unlock,
   UploadCloud,
@@ -28,7 +28,7 @@ import { VirtualKeypad } from './VirtualKeypad';
 import { LiveProgressTimer, formatDurationHuman } from './LiveProgressTimer';
 import { Key6BadgeCard } from './Key6BadgeCard';
 import { AssessmentNotesPreviewModal } from './AssessmentNotesPreviewModal';
-import { StreamingFileHandle, createStreamingFileHandle, loadStreamingFileHandleAsync, streamChunksDirectToDisk } from '../utils/fileReader';
+import { StreamingFileHandle, createStreamingFileHandle, loadStreamingFileHandleAsync, streamChunksDirectToDisk, sanitizeFilename } from '../utils/fileReader';
 import { yieldToMainThread } from '../crypto/cascadeEngine';
 
 interface ExtractWorkflowProps {
@@ -36,6 +36,14 @@ interface ExtractWorkflowProps {
 }
 
 export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog }) => {
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
   const [protectedFile, setProtectedFile] = useState<StreamingFileHandle | null>(null);
   const [protectedBlob, setProtectedBlob] = useState<Blob | null>(null);
 
@@ -243,6 +251,7 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
       );
 
       const totalDuration = performance.now() - overallOpStartTime;
+      if (!isMountedRef.current) return;
       setTotalOperationDurationMs(totalDuration);
       setResult(res);
       onAddAuditLog(
@@ -251,43 +260,54 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
         res.sha512Digest
       );
     } catch (err: unknown) {
+      if (!isMountedRef.current) return;
       const msg = err instanceof Error ? err.message : 'Extraction failed';
       setErrorMsg(msg);
     } finally {
-      setIsExtracting(false);
+      if (isMountedRef.current) {
+        setIsExtracting(false);
+      }
     }
   };
 
   const handleSaveDirectToDisk = async () => {
     if (!result) return;
+    const safeName = sanitizeFilename(result.filename);
     try {
-      setDiskSaveStatus('Streaming 1 MB chunks directly to disk...');
+      if (isMountedRef.current) setDiskSaveStatus('Streaming 1 MB chunks directly to disk...');
       const chunks = result.chunkedData || [];
-      const outcome = await streamChunksDirectToDisk(result.filename, chunks, (bytes, status) => {
-        setDiskSaveStatus(status);
+      const outcome = await streamChunksDirectToDisk(safeName, chunks, (_bytes, status) => {
+        if (isMountedRef.current) setDiskSaveStatus(status);
       });
+      if (!isMountedRef.current) return;
       if (outcome.streamedDirectly) {
         setDiskSaveStatus('Decrypted file saved directly to disk (Zero RAM overhead)!');
       } else {
         setDiskSaveStatus('Downloaded via streaming chunked assembly.');
       }
-      setTimeout(() => setDiskSaveStatus(null), 6000);
+      setTimeout(() => {
+        if (isMountedRef.current) setDiskSaveStatus(null);
+      }, 6000);
     } catch (err: any) {
+      if (!isMountedRef.current) return;
       if (err.message?.includes('cancelled')) {
         setDiskSaveStatus('Disk write cancelled.');
       } else {
         setDiskSaveStatus(`Disk write error: ${err.message}`);
       }
-      setTimeout(() => setDiskSaveStatus(null), 6000);
+      setTimeout(() => {
+        if (isMountedRef.current) setDiskSaveStatus(null);
+      }, 6000);
     }
   };
 
   const handleDownloadExtractedFile = () => {
     if (!result) return;
+    const safeName = sanitizeFilename(result.filename);
     const url = URL.createObjectURL(result.fileBlob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = result.filename;
+    a.download = safeName;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);

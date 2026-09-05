@@ -80,8 +80,10 @@ export const AssessmentNotesPreviewModal: React.FC<AssessmentNotesPreviewModalPr
     const a = document.createElement('a');
     a.href = url;
     a.download = `Assessment_Notes_${vaultMatched || 'Vault'}_${new Date().toISOString().slice(0, 10)}.txt`;
+    document.body.appendChild(a);
     a.click();
-    URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
   };
 
   return (

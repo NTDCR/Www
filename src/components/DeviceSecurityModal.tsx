@@ -15,14 +15,23 @@ export const DeviceSecurityModal: React.FC<DeviceSecurityModalProps> = ({ device
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
 
   useEffect(() => {
-    loadStoredRecoveryCodes().then(setRecoveryCodes);
+    let isMounted = true;
+    loadStoredRecoveryCodes().then(codes => {
+      if (isMounted) setRecoveryCodes(codes);
+    });
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const handleRegenerateCodes = async () => {
     setIsGenerating(true);
-    const codes = await generateAndStoreRecoveryCodes();
-    setRecoveryCodes(codes);
-    setIsGenerating(false);
+    try {
+      const codes = await generateAndStoreRecoveryCodes();
+      setRecoveryCodes(codes);
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
   const handleToggleCodeUsed = async (index: number) => {

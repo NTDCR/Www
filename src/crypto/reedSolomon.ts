@@ -106,21 +106,32 @@ export function rsEncodeBlock(msg: Uint8Array, nsym: number = RS_DEFAULT_PARITY_
   const out = new Uint8Array(msg.length + nsym);
   out.set(msg, 0);
 
-  for (let i = 0; i < msg.length; i++) {
-    const coef = out[i];
-    if (coef !== 0) {
-      const logCoef = GF_LOG[coef];
-      for (let j = 0; j < gen.length; j++) {
-        out[i + j] ^= GF_EXP[logCoef + (nsym === RS_DEFAULT_PARITY_LEN ? DEFAULT_GEN_LOG[j] : GF_LOG[gen[j]])];
+  if (nsym === RS_DEFAULT_PARITY_LEN) {
+    const genLen = DEFAULT_GEN_POLY.length;
+    for (let i = 0; i < msg.length; i++) {
+      const coef = out[i];
+      if (coef !== 0) {
+        const row = coef * genLen;
+        for (let j = 0; j < genLen; j++) {
+          out[i + j] ^= DEFAULT_RS_LUT[row + j];
+        }
+      }
+    }
+  } else {
+    for (let i = 0; i < msg.length; i++) {
+      const coef = out[i];
+      if (coef !== 0) {
+        const logCoef = GF_LOG[coef];
+        for (let j = 0; j < gen.length; j++) {
+          out[i + j] ^= GF_EXP[logCoef + GF_LOG[gen[j]]];
+        }
       }
     }
   }
 
-  // Final codeword = msg + remainder (parity)
-  const codeword = new Uint8Array(msg.length + nsym);
-  codeword.set(msg, 0);
-  codeword.set(out.subarray(msg.length), msg.length);
-  return codeword;
+  // Final codeword = msg + remainder (parity in-place)
+  out.set(msg, 0);
+  return out;
 }
 
 /**
@@ -295,6 +306,12 @@ export function rsDecodeBlock(
   }
 
   const corrected = rsCorrectErrors(codeword, synd, Lambda, roots);
+  const postSynd = rsCalcSyndromes(corrected, nsym);
+  if (!rsCheckSyndromes(postSynd)) {
+    const k = Math.max(0, originalDataLen ?? (codeword.length - nsym));
+    return { data: codeword.slice(0, k), correctedErrors: 0, success: false };
+  }
+
   const k = Math.max(0, originalDataLen ?? (codeword.length - nsym));
   return {
     data: corrected.slice(0, k),
@@ -364,9 +381,9 @@ export function encodeRSStream(
     // Direct memory copy to output
     output.set(inputData.subarray(inOffset, inOffset + curLen), outOffset);
 
-    // Calculate remainder
-    remainder.fill(0, 0, curLen + nsym);
+    // Calculate remainder (only zero parity section)
     remainder.set(inputData.subarray(inOffset, inOffset + curLen), 0);
+    remainder.fill(0, curLen, curLen + nsym);
 
     if (nsym === RS_DEFAULT_PARITY_LEN) {
       for (let i = 0; i < curLen; i++) {
@@ -483,8 +500,8 @@ export async function encodeRSStreamAsync(
     const curLen = Math.min(kBlockSize, totalDataBytes - inOffset);
     output.set(inputData.subarray(inOffset, inOffset + curLen), outOffset);
 
-    remainder.fill(0, 0, curLen + nsym);
     remainder.set(inputData.subarray(inOffset, inOffset + curLen), 0);
+    remainder.fill(0, curLen, curLen + nsym);
 
     if (nsym === RS_DEFAULT_PARITY_LEN) {
       for (let i = 0; i < curLen; i++) {

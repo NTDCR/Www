@@ -223,14 +223,19 @@ export async function readChunkFromHandle(
       let bytesCopied = 0;
       let currentOffset = offset;
 
-      while (bytesCopied < totalToRead) {
-        const internalChunkSize = handle.chunks[0].length || STRICT_CHUNK_SIZE;
-        const chunkIdx = Math.floor(currentOffset / internalChunkSize);
-        if (chunkIdx >= handle.chunks.length) break;
-        const chunk = handle.chunks[chunkIdx];
-        const chunkOffset = currentOffset % internalChunkSize;
+      let accumulated = 0;
+      for (let i = 0; i < handle.chunks.length && bytesCopied < totalToRead; i++) {
+        const chunk = handle.chunks[i];
+        const chunkStart = accumulated;
+        const chunkEnd = accumulated + chunk.length;
+        accumulated = chunkEnd;
+
+        if (currentOffset >= chunkEnd) continue;
+        if (currentOffset < chunkStart) break;
+
+        const chunkOffset = currentOffset - chunkStart;
         const available = chunk.length - chunkOffset;
-        if (available <= 0) break;
+        if (available <= 0) continue;
         const toCopy = Math.min(available, totalToRead - bytesCopied);
         result.set(chunk.subarray(chunkOffset, chunkOffset + toCopy), bytesCopied);
         bytesCopied += toCopy;
@@ -682,7 +687,9 @@ export async function streamChunksDirectToDisk(
   // Fallback: Assemble array of chunks into standard Blob stream
   const chunks: Uint8Array[] = [];
   if (Array.isArray(chunkGenerator)) {
-    chunks.push(...chunkGenerator);
+    for (let i = 0; i < chunkGenerator.length; i++) {
+      chunks.push(chunkGenerator[i]);
+    }
   } else {
     const gen = typeof chunkGenerator === 'function' ? chunkGenerator() : chunkGenerator;
     for await (const chunk of gen) {
@@ -705,6 +712,45 @@ export async function streamChunksDirectToDisk(
   }
 
   return { success: true, streamedDirectly: false };
+}
+
+/**
+ * Sanitizes an untrusted filename against path traversal attacks (CWE-22)
+ * and Windows/POSIX filesystem reserved name collisions.
+ */
+export function sanitizeFilename(rawName: string, fallback: string = 'extracted_payload.bin'): string {
+  if (!rawName || typeof rawName !== 'string') return fallback;
+
+  // 1. Strip null bytes, control characters (0x00 - 0x1F, 0x7F), and leading/trailing whitespace
+  let clean = rawName.replace(/[\x00-\x1f\x7f]/g, '').trim();
+
+  // 2. Remove directory path components (both POSIX / and Windows \)
+  clean = clean.replace(/^.*[/\\]/, '');
+
+  // 3. Remove dangerous filesystem characters: < > : " / \ | ? *
+  clean = clean.replace(/[<>:"/\\|?*]/g, '_');
+
+  // 4. Strip leading dots (hidden files/parent traversal) and trailing dots/spaces (invalid in NTFS)
+  clean = clean.replace(/^\.+/, '').replace(/[\s.]+$/, '');
+
+  // 5. Guard against reserved DOS/Windows device names (CON, PRN, AUX, NUL, COM1-9, LPT1-9)
+  const reservedRegex = /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\..*)?$/i;
+  if (reservedRegex.test(clean)) {
+    clean = `_${clean}`;
+  }
+
+  // 6. Max length limit (255 bytes for standard filesystems)
+  if (clean.length > 255) {
+    const extIdx = clean.lastIndexOf('.');
+    if (extIdx > 0 && clean.length - extIdx <= 10) {
+      const ext = clean.slice(extIdx);
+      clean = clean.slice(0, 255 - ext.length) + ext;
+    } else {
+      clean = clean.slice(0, 255);
+    }
+  }
+
+  return clean.length > 0 ? clean : fallback;
 }
 
 /**

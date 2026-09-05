@@ -22,7 +22,7 @@ import { hkdf } from '@noble/hashes/hkdf.js';
 import { sha512, sha256 } from '@noble/hashes/sha2.js';
 import { hmac } from '@noble/hashes/hmac.js';
 import { generateSecureRandomBytes, generateCSPRNGKeystream } from './safeRandom';
-import { STRICT_CHUNK_SIZE, StreamingFileHandle, readFileAsUint8Array, readChunkFromHandle, zeroizeStreamingHandle } from '../utils/fileReader';
+import { STRICT_CHUNK_SIZE, StreamingFileHandle, readFileAsUint8Array, readChunkFromHandle, zeroizeStreamingHandle, sanitizeFilename } from '../utils/fileReader';
 import { yieldToMainThread } from '../utils/asyncUtils';
 export { yieldToMainThread };
 import { deriveAndMask1024BitId } from './key6Engine';
@@ -71,9 +71,22 @@ const GUTMANN_PATTERNS = [
 export const NEUTRAL_AUTH_FAILURE =
   'Authentication Failed: Invalid key cascade or corrupt payload.';
 
-export function zeroizeBuffer(...buffers: (Uint8Array | Uint32Array | Int16Array | Uint16Array | ArrayBuffer | null | undefined)[]) {
+export function zeroizeBuffer(...buffers: (Uint8Array | Uint32Array | Int16Array | Uint16Array | ArrayBuffer | (Uint8Array | Uint32Array | Int16Array | Uint16Array | ArrayBuffer | null | undefined)[] | null | undefined)[]) {
   for (const b of buffers) {
     if (!b) continue;
+    if (Array.isArray(b)) {
+      for (let i = 0; i < b.length; i++) {
+        const item = b[i];
+        if (item) {
+          if (item instanceof ArrayBuffer) {
+            new Uint8Array(item).fill(0);
+          } else if ('fill' in item && item.length > 0) {
+            item.fill(0);
+          }
+        }
+      }
+      continue;
+    }
     if (b instanceof ArrayBuffer) {
       new Uint8Array(b).fill(0);
       continue;
@@ -186,7 +199,11 @@ export async function deriveMasterAuthKey(
   const combinedSalt = new Uint8Array(saltL1.length + saltL4.length);
   combinedSalt.set(saltL1, 0);
   combinedSalt.set(saltL4, saltL1.length);
-  return deriveLayerKey(combined, combinedSalt, iterations, 'ContentGuard-MasterAuth-HMAC');
+  try {
+    return await deriveLayerKey(combined, combinedSalt, iterations, 'ContentGuard-MasterAuth-HMAC');
+  } finally {
+    zeroizeBuffer(combinedSalt);
+  }
 }
 
 /**
@@ -681,6 +698,7 @@ export async function encryptCascade5Layers(
           const fChunk = await readChunkFromHandle(rawDataOrHandle as File | StreamingFileHandle, fileOffset, needed);
           chunk.set(fChunk.subarray(0, needed), written);
           written += needed;
+          fChunk.fill(0);
         }
         if (written < chunkSize) {
           const padNeeded = chunkSize - written;
@@ -689,6 +707,9 @@ export async function encryptCascade5Layers(
         }
       }
       const encChunk = await encryptChunk5Layers(chunk, offset, keys);
+      if (innerPlaintext === null) {
+        chunk.fill(0);
+      }
       encryptedChunks.push(encChunk);
       offset += chunkSize;
       const pct = Math.min(99, Math.round((offset / effectiveInnerLength) * 100));
@@ -916,7 +937,7 @@ export async function decryptCascade5Layers(
   }
 
   const wipePlaintext = () => {
-    zeroizeBuffer(combined, ...decryptedChunks);
+    zeroizeBuffer(combined, decryptedChunks);
   };
 
   // Evaluate framing without early-abort throws — unify to single neutral failure
@@ -934,7 +955,7 @@ export async function decryptCascade5Layers(
     if (dp + nameLen + 8 <= combined.length) {
       try {
         const dec = new TextDecoder();
-        originalFilename = dec.decode(combined.subarray(dp, dp + nameLen));
+        originalFilename = sanitizeFilename(dec.decode(combined.subarray(dp, dp + nameLen)));
         dp += nameLen;
         const rawBigSize = decView.getBigUint64(dp, true); dp += 8;
         if (rawBigSize <= BigInt(Number.MAX_SAFE_INTEGER)) {

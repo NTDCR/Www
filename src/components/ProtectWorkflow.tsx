@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   ShieldCheck,
   UploadCloud,
@@ -38,7 +38,7 @@ import { AssessmentNotesEditor } from './AssessmentNotesEditor';
 import { deriveAndMask1024BitId, generateRandomKey6String, generateFreshKey6Salt } from '../crypto/key6Engine';
 import { createSyntheticMp4Carrier } from '../media/isobmff';
 import { getOrGenerateCarrierBlob } from '../media/mp4Generator';
-import { StreamingFileHandle, createStreamingFileHandle, loadStreamingFileHandleAsync, streamChunksDirectToDisk } from '../utils/fileReader';
+import { StreamingFileHandle, createStreamingFileHandle, loadStreamingFileHandleAsync, streamChunksDirectToDisk, sanitizeFilename } from '../utils/fileReader';
 import { yieldToMainThread } from '../utils/asyncUtils';
 
 interface ProtectWorkflowProps {
@@ -46,6 +46,14 @@ interface ProtectWorkflowProps {
 }
 
 export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog }) => {
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
   // Carrier File State (Stored as lightweight streaming handle)
   const [carrierFile, setCarrierFile] = useState<StreamingFileHandle | null>(null);
   const [useSyntheticCarrier, setUseSyntheticCarrier] = useState<boolean>(false);
@@ -323,6 +331,7 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog 
       );
 
       const totalDuration = performance.now() - overallOpStartTime;
+      if (!isMountedRef.current) return;
       setTotalOperationDurationMs(totalDuration);
       setResult(res);
       const carrierDesc = activeCarrier ? `Custom Carrier (${activeCarrier.name})` : 'Synthetic Active Stream';
@@ -332,37 +341,46 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog 
         res.sha512Digest
       );
     } catch (err: unknown) {
+      if (!isMountedRef.current) return;
       const msg = err instanceof Error ? err.message : 'Protection workflow failed';
       setErrorMsg(msg);
     } finally {
-      setIsProcessing(false);
+      if (isMountedRef.current) {
+        setIsProcessing(false);
+      }
     }
   };
 
   const handleSaveDirectToDisk = async () => {
     if (!result) return;
     try {
-      setDiskSaveStatus('Streaming 1 MB chunks directly to disk...');
+      if (isMountedRef.current) setDiskSaveStatus('Streaming 1 MB chunks directly to disk...');
       const rawName = carrierFile && !useSyntheticCarrier ? carrierFile.name : 'PROTECTED_CONTAINER.mp4';
       const baseName = rawName.replace(/\.[^/.]+$/, '');
-      const filename = `${baseName}_dualvault.mp4`;
+      const filename = sanitizeFilename(`${baseName}_dualvault.mp4`);
       const chunks = result.protectedChunks || [result.protectedMp4Bytes];
-      const outcome = await streamChunksDirectToDisk(filename, chunks, (bytes, status) => {
-        setDiskSaveStatus(status);
+      const outcome = await streamChunksDirectToDisk(filename, chunks, (_bytes, status) => {
+        if (isMountedRef.current) setDiskSaveStatus(status);
       });
+      if (!isMountedRef.current) return;
       if (outcome.streamedDirectly) {
         setDiskSaveStatus('Successfully saved directly to disk (Zero RAM overhead)!');
       } else {
         setDiskSaveStatus('Downloaded via streaming chunked assembly.');
       }
-      setTimeout(() => setDiskSaveStatus(null), 6000);
+      setTimeout(() => {
+        if (isMountedRef.current) setDiskSaveStatus(null);
+      }, 6000);
     } catch (err: any) {
+      if (!isMountedRef.current) return;
       if (err.message?.includes('cancelled')) {
         setDiskSaveStatus('Disk write cancelled.');
       } else {
         setDiskSaveStatus(`Disk write error: ${err.message}`);
       }
-      setTimeout(() => setDiskSaveStatus(null), 6000);
+      setTimeout(() => {
+        if (isMountedRef.current) setDiskSaveStatus(null);
+      }, 6000);
     }
   };
 
@@ -373,7 +391,7 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog 
     a.href = url;
     const rawName = carrierFile && !useSyntheticCarrier ? carrierFile.name : 'PROTECTED_CONTAINER.mp4';
     const baseName = rawName.replace(/\.[^/.]+$/, '');
-    a.download = `${baseName}_dualvault.mp4`;
+    a.download = sanitizeFilename(`${baseName}_dualvault.mp4`);
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
