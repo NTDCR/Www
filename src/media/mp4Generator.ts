@@ -368,7 +368,7 @@ export async function createAnimatedCanvasCarrierBlob(durationSeconds: number = 
       canvas.height = 360;
       const ctx = canvas.getContext('2d');
 
-      if (!ctx || !canvas.captureStream) {
+      if (!ctx || !canvas.captureStream || typeof MediaRecorder === 'undefined') {
         const bytes = generatePlayableH264Mp4(durationSeconds);
         const fallback = new Blob([bytes], { type: 'video/mp4' });
         cachedCarrierBlob = fallback;

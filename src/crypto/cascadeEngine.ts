@@ -405,7 +405,7 @@ export async function encryptChunk5Layers(
   }
   const remBytes = current.length % 4;
   if (remBytes > 0) {
-    const maskBytes = new Uint8Array(mask32.buffer);
+    const maskBytes = new Uint8Array(mask32.buffer, mask32.byteOffset, mask32.byteLength);
     const startIdx = current.length - remBytes;
     for (let r = 0; r < remBytes; r++) {
       current[startIdx + r] ^= maskBytes[(chunkGlobalOffset + startIdx + r) % 32];
@@ -460,7 +460,7 @@ export async function decryptChunk5Layers(
   }
   const remBytes = current.length % 4;
   if (remBytes > 0) {
-    const maskBytes = new Uint8Array(mask32.buffer);
+    const maskBytes = new Uint8Array(mask32.buffer, mask32.byteOffset, mask32.byteLength);
     const startIdx = current.length - remBytes;
     for (let r = 0; r < remBytes; r++) {
       current[startIdx + r] ^= maskBytes[(chunkGlobalOffset + startIdx + r) % 32];
@@ -957,8 +957,11 @@ export async function decryptCascade5Layers(
     throw new Error(NEUTRAL_AUTH_FAILURE);
   }
 
+  const outData = new Uint8Array(data!);
+  wipePlaintext();
+
   return {
-    data: data!,
+    data: outData,
     originalFilename,
     originalSize
   };
@@ -1036,7 +1039,7 @@ export function serializeBundle(bundle: EncryptedPayloadBundle): Uint8Array {
  * Deserializes raw binary payload back to EncryptedPayloadBundle
  */
 export function deserializeBundle(data: Uint8Array): EncryptedPayloadBundle {
-  if (!data || data.length < 2004) {
+  if (!data || data.length < 1996) {
     throw new Error(NEUTRAL_AUTH_FAILURE);
   }
 

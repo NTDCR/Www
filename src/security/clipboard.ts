@@ -38,17 +38,17 @@ export async function secureCopyToClipboard(
     if (autoPurgeSeconds > 0) {
       activeClipboardPurgeTimer = setTimeout(async () => {
         try {
-          // If the clipboard still contains our secret, wipe it with empty string
+          // If clipboard matches our secret or readText permission is blocked/denied (null), wipe it
           if (navigator.clipboard.readText) {
             const current = await navigator.clipboard.readText().catch(() => null);
-            if (current === lastCopiedPayload) {
+            if (current === null || current === lastCopiedPayload) {
               await navigator.clipboard.writeText('');
             }
           } else {
             await navigator.clipboard.writeText('');
           }
         } catch {
-          // Silent fallback
+          try { await navigator.clipboard.writeText(''); } catch {}
         } finally {
           lastCopiedPayload = null;
           activeClipboardPurgeTimer = null;

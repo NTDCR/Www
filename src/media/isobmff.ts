@@ -107,17 +107,17 @@ export function buildBox(type: string, payload: Uint8Array): Uint8Array {
 
   if (isLarge) {
     view.setUint32(0, 1);
-    box[4] = type.charCodeAt(0);
-    box[5] = type.charCodeAt(1);
-    box[6] = type.charCodeAt(2);
-    box[7] = type.charCodeAt(3);
+    box[4] = type.charCodeAt(0) || 0x20;
+    box[5] = type.charCodeAt(1) || 0x20;
+    box[6] = type.charCodeAt(2) || 0x20;
+    box[7] = type.charCodeAt(3) || 0x20;
     view.setBigUint64(8, BigInt(size));
   } else {
     view.setUint32(0, size);
-    box[4] = type.charCodeAt(0);
-    box[5] = type.charCodeAt(1);
-    box[6] = type.charCodeAt(2);
-    box[7] = type.charCodeAt(3);
+    box[4] = type.charCodeAt(0) || 0x20;
+    box[5] = type.charCodeAt(1) || 0x20;
+    box[6] = type.charCodeAt(2) || 0x20;
+    box[7] = type.charCodeAt(3) || 0x20;
   }
 
   box.set(payload, headerSize);
@@ -571,9 +571,23 @@ export async function extractSpreadSpectrumPayload(protectedMp4: Uint8Array): Pr
   // Unpack Vault A and Vault B with memory isolation and forensic zeroization
   try {
     const view = new DataView(combined.buffer, combined.byteOffset, combined.byteLength);
+    if (combined.length < 8) {
+      return {
+        vaultABytes: new Uint8Array(0),
+        vaultBBytes: new Uint8Array(0)
+      };
+    }
     const vaultALen = view.getUint32(0, true);
 
-    if (vaultALen <= 0 || 4 + vaultALen > combined.length) {
+    if (vaultALen <= 0 || 4 + vaultALen > combined.length - 4) {
+      return {
+        vaultABytes: new Uint8Array(0),
+        vaultBBytes: new Uint8Array(0)
+      };
+    }
+
+    const vaultBLen = view.getUint32(4 + vaultALen, true);
+    if (vaultBLen <= 0 || 8 + vaultALen + vaultBLen !== combined.length) {
       return {
         vaultABytes: new Uint8Array(0),
         vaultBBytes: new Uint8Array(0)
@@ -581,22 +595,6 @@ export async function extractSpreadSpectrumPayload(protectedMp4: Uint8Array): Pr
     }
 
     const vaultABytes = new Uint8Array(combined.subarray(4, 4 + vaultALen));
-
-    if (combined.length < 8 + vaultALen) {
-      return {
-        vaultABytes,
-        vaultBBytes: new Uint8Array(0)
-      };
-    }
-
-    const vaultBLen = view.getUint32(4 + vaultALen, true);
-    if (vaultBLen <= 0 || 8 + vaultALen + vaultBLen > combined.length) {
-      return {
-        vaultABytes,
-        vaultBBytes: new Uint8Array(0)
-      };
-    }
-
     const vaultBBytes = new Uint8Array(combined.subarray(8 + vaultALen, 8 + vaultALen + vaultBLen));
 
     return { vaultABytes, vaultBBytes };

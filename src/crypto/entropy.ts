@@ -315,6 +315,7 @@ export async function denormalizeEntropy(normalizedData: Uint8Array): Promise<Ui
   }
 
   if (outIdx !== originalLen) {
+    out.fill(0);
     throw new Error(NEUTRAL_AUTH_FAILURE);
   }
 

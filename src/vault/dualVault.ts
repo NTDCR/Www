@@ -84,6 +84,7 @@ function decodeRSHeaderBlocksFast(encodedData: Uint8Array, maxBlocks: number = 3
 
   const kBlockSize = view.getUint16(8, false); // 223
   const nsym = view.getUint16(10, false);       // 32
+  if (kBlockSize <= 0 || nsym <= 0 || kBlockSize + nsym > 255) return new Uint8Array(0);
   const totalBlocks = view.getUint32(12, false);
   const blockSize = kBlockSize + nsym;          // 255
 
@@ -125,44 +126,62 @@ async function getOrExtractContainerBundles(
 
   let bundleA: EncryptedPayloadBundle | null = null;
   let bundleB: EncryptedPayloadBundle | null = null;
+  let headerUnshapedA: Uint8Array | null = null;
+  let headerDecodedA: Uint8Array | null = null;
+  let unshapedA: Uint8Array | null = null;
+  let rsRepairedA: Uint8Array | null = null;
+  let headerUnshapedB: Uint8Array | null = null;
+  let headerDecodedB: Uint8Array | null = null;
+  let unshapedB: Uint8Array | null = null;
+  let rsRepairedB: Uint8Array | null = null;
 
-  if (vaultABytes.length > 0) {
-    try {
-      const headerUnshapedA = denormalizeEntropyHeaderFast(vaultABytes, 24576);
-      const headerDecodedA = decodeRSHeaderBlocksFast(headerUnshapedA, 30);
-      bundleA = deserializeBundle(headerDecodedA);
-    } catch {
+  try {
+    if (vaultABytes.length > 0) {
       try {
-        await yieldToMainThread();
-        const unshapedA = await denormalizeEntropy(vaultABytes);
-        const { data: rsRepairedA } = decodeRSStream(unshapedA);
-        bundleA = deserializeBundle(rsRepairedA);
-      } catch {}
+        headerUnshapedA = denormalizeEntropyHeaderFast(vaultABytes, 24576);
+        headerDecodedA = decodeRSHeaderBlocksFast(headerUnshapedA, 30);
+        bundleA = deserializeBundle(headerDecodedA);
+      } catch {
+        try {
+          await yieldToMainThread();
+          unshapedA = await denormalizeEntropy(vaultABytes);
+          const { data } = decodeRSStream(unshapedA);
+          rsRepairedA = data;
+          bundleA = deserializeBundle(rsRepairedA);
+        } catch {}
+      }
     }
-  }
 
-  if (vaultBBytes.length > 0) {
-    try {
-      const headerUnshapedB = denormalizeEntropyHeaderFast(vaultBBytes, 24576);
-      const headerDecodedB = decodeRSHeaderBlocksFast(headerUnshapedB, 30);
-      bundleB = deserializeBundle(headerDecodedB);
-    } catch {
+    if (vaultBBytes.length > 0) {
       try {
-        await yieldToMainThread();
-        const unshapedB = await denormalizeEntropy(vaultBBytes);
-        const { data: rsRepairedB } = decodeRSStream(unshapedB);
-        bundleB = deserializeBundle(rsRepairedB);
-      } catch {}
+        headerUnshapedB = denormalizeEntropyHeaderFast(vaultBBytes, 24576);
+        headerDecodedB = decodeRSHeaderBlocksFast(headerUnshapedB, 30);
+        bundleB = deserializeBundle(headerDecodedB);
+      } catch {
+        try {
+          await yieldToMainThread();
+          unshapedB = await denormalizeEntropy(vaultBBytes);
+          const { data } = decodeRSStream(unshapedB);
+          rsRepairedB = data;
+          bundleB = deserializeBundle(rsRepairedB);
+        } catch {}
+      }
     }
+
+    containerBundlesCache = {
+      fileRef: protectedMp4File,
+      bundleA,
+      bundleB
+    };
+
+    return containerBundlesCache;
+  } finally {
+    zeroizeBuffer(
+      vaultABytes, vaultBBytes,
+      headerUnshapedA, headerDecodedA, unshapedA, rsRepairedA,
+      headerUnshapedB, headerDecodedB, unshapedB, rsRepairedB
+    );
   }
-
-  containerBundlesCache = {
-    fileRef: protectedMp4File,
-    bundleA,
-    bundleB
-  };
-
-  return containerBundlesCache;
 }
 
 import { sha512 } from '@noble/hashes/sha2.js';
@@ -363,9 +382,11 @@ export async function createDualVaultPackage(
     if (!bundleA.k6Block && bundleB.k6Block) {
       const dummyPayload = generateSecureRandomBytes(224);
       bundleA.k6Block = encodeRSStream(dummyPayload).encodedData;
+      zeroizeBuffer(dummyPayload);
     } else if (!bundleB.k6Block && bundleA.k6Block) {
       const dummyPayload = generateSecureRandomBytes(224);
       bundleB.k6Block = encodeRSStream(dummyPayload).encodedData;
+      zeroizeBuffer(dummyPayload);
     }
   }
 
@@ -374,10 +395,12 @@ export async function createDualVaultPackage(
       const { data: envB } = decodeRSStream(bundleB.notesBlock);
       const dummyEnv = generateSecureRandomBytes(envB.length);
       bundleA.notesBlock = encodeRSStream(dummyEnv).encodedData;
+      zeroizeBuffer(envB, dummyEnv);
     } else if (!bundleB.notesBlock && bundleA.notesBlock) {
       const { data: envA } = decodeRSStream(bundleA.notesBlock);
       const dummyEnv = generateSecureRandomBytes(envA.length);
       bundleB.notesBlock = encodeRSStream(dummyEnv).encodedData;
+      zeroizeBuffer(envA, dummyEnv);
     }
   }
 
@@ -543,6 +566,7 @@ export async function extractFromDualVaultPackage(
     }
     let unshaped: Uint8Array | null = null;
     let rsRepaired: Uint8Array | null = null;
+    let bundle: EncryptedPayloadBundle | null = null;
     try {
       unshaped = await denormalizeEntropy(vaultBytes);
       const rsRes = await decodeRSStreamAsync(unshaped, (pct) => {
@@ -552,12 +576,11 @@ export async function extractFromDualVaultPackage(
         );
       });
       rsRepaired = rsRes.data;
-      const bundle = deserializeBundle(rsRepaired);
+      bundle = deserializeBundle(rsRepaired);
       const decrypted = await decryptCascade5Layers(bundle, passwords, iterations, (l, d) =>
         onProgress?.(d, progressBase + 5 + l * 8)
       );
       const digest = await calculateSha512Safe(decrypted.data);
-      zeroizeBuffer(unshaped, rsRepaired);
       const blob = new Blob([decrypted.data], { type: 'application/octet-stream' });
       return {
         fileBlob: blob,
@@ -568,10 +591,17 @@ export async function extractFromDualVaultPackage(
         sha512Digest: digest
       };
     } catch {
-      if (unshaped || rsRepaired) {
-        zeroizeBuffer(unshaped, rsRepaired);
-      }
       return null;
+    } finally {
+      if (bundle) {
+        zeroizeBuffer(
+          bundle.payload, bundle.saltL1, bundle.saltL2, bundle.saltL3, bundle.saltL4, bundle.saltL5,
+          bundle.ivL2, bundle.ivL3, bundle.ivL4, bundle.tagL3, bundle.tagL4, bundle.kyberCt, bundle.otpKey,
+          bundle.k6Block, bundle.notesBlock,
+          ...(bundle.chunkedPayload || [])
+        );
+      }
+      zeroizeBuffer(unshaped, rsRepaired);
     }
   }
 

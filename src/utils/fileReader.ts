@@ -624,13 +624,22 @@ export async function streamChunksDirectToDisk(
   // Check if Native File System Access API is supported and accessible
   if (typeof window !== 'undefined' && 'showSaveFilePicker' in window) {
     try {
-      const ext = filename.includes('.') ? filename.split('.').pop() || 'bin' : 'bin';
+      const ext = filename.includes('.') ? filename.split('.').pop()?.toLowerCase() || 'bin' : 'bin';
+      let mimeType = 'application/octet-stream';
+      if (ext === 'mp4') mimeType = 'video/mp4';
+      else if (ext === 'zip') mimeType = 'application/zip';
+      else if (ext === 'pdf') mimeType = 'application/pdf';
+      else if (ext === 'txt') mimeType = 'text/plain';
+      else if (ext === 'png') mimeType = 'image/png';
+      else if (ext === 'jpg' || ext === 'jpeg') mimeType = 'image/jpeg';
+      else if (ext === 'json') mimeType = 'application/json';
+
       fileHandle = await (window as any).showSaveFilePicker({
         suggestedName: filename,
         types: [
           {
             description: 'Protected Output File',
-            accept: { [`application/${ext}`]: [`.${ext}`] }
+            accept: { [mimeType]: [`.${ext}`] }
           }
         ]
       });
@@ -684,14 +693,16 @@ export async function streamChunksDirectToDisk(
   }
 
   const blob = new Blob(chunks, { type: 'application/octet-stream' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 60000);
+  if (typeof document !== 'undefined') {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  }
 
   return { success: true, streamedDirectly: false };
 }

@@ -284,18 +284,18 @@ export function rsDecodeBlock(
 
   const Lambda = rsFindErrorLocator(synd, nsym);
   if (!Lambda || Lambda.length <= 1 || Lambda.length - 1 > Math.floor(nsym / 2)) {
-    const k = originalDataLen ?? (codeword.length - nsym);
+    const k = Math.max(0, originalDataLen ?? (codeword.length - nsym));
     return { data: codeword.slice(0, k), correctedErrors: 0, success: false };
   }
 
   const roots = rsFindErrors(Lambda, codeword.length);
   if (!roots) {
-    const k = originalDataLen ?? (codeword.length - nsym);
+    const k = Math.max(0, originalDataLen ?? (codeword.length - nsym));
     return { data: codeword.slice(0, k), correctedErrors: 0, success: false };
   }
 
   const corrected = rsCorrectErrors(codeword, synd, Lambda, roots);
-  const k = originalDataLen ?? (codeword.length - nsym);
+  const k = Math.max(0, originalDataLen ?? (codeword.length - nsym));
   return {
     data: corrected.slice(0, k),
     correctedErrors: roots.length,
