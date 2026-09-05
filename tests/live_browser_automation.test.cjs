@@ -3,10 +3,10 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 
-const ARTIFACTS_DIR = fs.existsSync('C:\\Users\\Rahul Yadav\\.gemini\\antigravity\\brain\\0cc9df5b-1a8a-4d63-8933-17f1641769df')
-  ? 'C:\\Users\\Rahul Yadav\\.gemini\\antigravity\\brain\\0cc9df5b-1a8a-4d63-8933-17f1641769df'
-  : path.join(__dirname, '..', 'dist');
-const CHROME_PATH = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
+const ARTIFACTS_DIR = path.join(__dirname, '..', 'dist');
+const CHROME_PATH = process.platform === 'win32'
+  ? 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'
+  : '/usr/bin/google-chrome';
 const PORT = 4173; // Use production build preview port
 
 // Helper to send CDP command
@@ -41,7 +41,7 @@ async function runLiveBrowserTest() {
   // 1. Start Vite Preview Server
   console.log(`[1/6] Launching local production web server on http://localhost:${PORT}...`);
   const serverProcess = spawn('npx.cmd', ['vite', 'preview', '--port', String(PORT), '--host', '127.0.0.1'], {
-    cwd: 'C:\\Users\\Rahul Yadav\\antigravity\\ContentGuard-Pro-MAX',
+    cwd: path.join(__dirname, '..'),
     shell: true
   });
 

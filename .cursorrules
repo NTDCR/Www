@@ -6,8 +6,8 @@ You are an institutional cryptographic security engineer working on **ContentGua
 - Execution Environment: Native Windows (cmd.exe / PowerShell). Strictly NO Linux/WSL dependencies.
 
 ## Key Project Paths (Workspace Map)
-- Workspace Root: `C:\Users\Rahul Yadav\antigravity\ContentGuard-Pro-MAX`
-- Distribution Mirror: `C:\Users\Rahul Yadav\Downloads\ContentGuard_Production_Final`
+- Workspace Root: `./`
+- Distribution Mirror: `./dist`
 
 ### Core Cryptographic Pipeline (`src/crypto/`)
 - `src/crypto/cascadeEngine.ts`: 5-Layer Cascade (Kyber-1024 + Serpent-256 + XChaCha20-Poly1305 + AES-256 + ChaCha20 Masking), 1MB chunk streaming, HMAC-SHA256 authenticated verification, constant-time comparisons.

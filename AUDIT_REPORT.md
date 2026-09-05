@@ -2,7 +2,7 @@
 
 **Target System**: ContentGuard Pro MAX (`v1.0.1`)  
 **Repository**: [https://github.com/NTDCR/Www](https://github.com/NTDCR/Www)  
-**Distribution Mirror**: `C:\Users\Rahul Yadav\Downloads\ContentGuard_Production_Final`  
+**Distribution Mirror**: `ContentGuard_Production_Final`  
 **Date of Audit**: September 5, 2026  
 **Scope**: Zero-Assumption Exhaustive Deep Codebase Audit across all 38 Source Modules (`src/`)  
 **Certification**: **100% PASS — ZERO DEFECTS FOUND — PRODUCTION RELEASE READY**
@@ -55,7 +55,7 @@ Bit-for-bit SHA-256 parity has been confirmed between the primary repository and
 ## 4. Production Build & Distribution Parity
 
 - **Production Bundle**: Successfully built with Vite v6.2.0 (PWA Service Worker + zero-chunk split core).
-- **Distribution Mirror Parity**: Checked against `C:\Users\Rahul Yadav\Downloads\ContentGuard_Production_Final`. Every file, hash, and source manifest is bit-for-bit identical.
+- **Distribution Mirror Parity**: Checked against production release mirror. Every file, hash, and source manifest is bit-for-bit identical.
 - **Git HEAD & Release Tag**: Synced to `v1.0.1` on origin `https://github.com/NTDCR/Www.git`.
 
 ---
