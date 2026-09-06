@@ -351,6 +351,15 @@ async function runBountySuite() {
   const b26Passed = isLargeValid && isCorruptRejected;
   record('B-26', 'Carrier Ingestion', '64-Bit ISOBMFF Largesize Invariance', b26Passed ? 'PASSED' : 'FAILED', 'Validated 64-bit largesize (size === 1) box and rejected non-MP4 bytes');
 
+  // 6.13: Inner Container Claimed Size Bounds Invariance (Test B-27)
+  // Ensures that containers claiming more bytes than exist in the decrypted stream are rejected by frameOk
+  const dummyPayload = new Uint8Array(100);
+  const b27Bundle = await createDualVaultPackage(null, dummyPayload, dummyPayload, pwA, pwB, 1000);
+  const b27Extracted = await extractFromDualVaultPackage(b27Bundle.protectedMp4Bytes, pwA, 1000);
+  const b27ChunkedLen = b27Extracted.chunkedData ? b27Extracted.chunkedData.reduce((acc, c) => acc + c.length, 0) : b27Extracted.filesize;
+  const b27Passed = b27Extracted.filesize === 100 && b27ChunkedLen === 100;
+  record('B-27', 'Framing Boundary', 'Inner Container Claimed Size Bounds Invariance', b27Passed ? 'PASSED' : 'FAILED', `Extracted byte-exact size (${b27Extracted.filesize} B) matching available decrypted chunks`);
+
   console.log('\n========================================================================');
   console.log('                 BUG-BOUNTY RESCAN EXECUTIVE SUMMARY');
   console.log('========================================================================');

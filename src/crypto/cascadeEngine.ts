@@ -990,7 +990,14 @@ export async function decryptCascade5Layers(
           originalSize = Number(rawBigSize);
           if (originalSize >= 0) {
             dp = p;
-            frameOk = true;
+            let totalAvailable = 0;
+            for (let i = 0; i < decryptedChunks.length; i++) {
+              const start = (i === 0 ? dp : 0);
+              totalAvailable += Math.max(0, decryptedChunks[i].length - start);
+            }
+            if (originalSize <= totalAvailable) {
+              frameOk = true;
+            }
           }
         }
       } catch {
