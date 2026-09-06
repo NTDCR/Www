@@ -63,7 +63,7 @@ export function isValidIsobmffCarrier(data: Uint8Array): boolean {
     if (size === 1) {
       if (offset + 16 > data.length) break;
       const raw64 = view.getBigUint64(offset + 8);
-      if (raw64 < 16n || raw64 > BigInt(data.length)) break;
+      if (raw64 < 16n || raw64 > BigInt(data.length) || raw64 > BigInt(Number.MAX_SAFE_INTEGER)) break;
       size = Number(raw64);
       headerSize = 16;
     } else if (size === 0) {
@@ -105,7 +105,7 @@ export function parseIsobmffBoxes(data: Uint8Array, depth: number = 0, maxDepth:
       // 64-bit extended size with integer boundary verification
       if (offset + 16 > data.length) break;
       const raw64 = view.getBigUint64(offset + 8);
-      if (raw64 < 16n || raw64 > BigInt(data.length)) break;
+      if (raw64 < 16n || raw64 > BigInt(data.length) || raw64 > BigInt(Number.MAX_SAFE_INTEGER)) break;
       size = Number(raw64);
       headerSize = 16;
     } else if (size === 0) {
@@ -313,8 +313,10 @@ export async function embedSpreadSpectrum8Locations(
           break;
         } else if (bSize === 1) {
           if (p + 16 > baseCarrier.length) break;
-          const bSize64 = Number(view.getBigUint64(p + 8));
-          if (bSize64 < 16 || p + bSize64 > baseCarrier.length) break;
+          const raw64 = view.getBigUint64(p + 8);
+          if (raw64 < 16n || raw64 > BigInt(baseCarrier.length) || raw64 > BigInt(Number.MAX_SAFE_INTEGER)) break;
+          const bSize64 = Number(raw64);
+          if (p + bSize64 > baseCarrier.length) break;
           p += bSize64;
         } else if (bSize < 8 || p + bSize > baseCarrier.length) {
           break;

@@ -176,7 +176,7 @@ export async function readSliceWithFallback(slice: Blob, maxRetries: number = 3)
             return new Uint8Array(ab);
           }
         } finally {
-          URL.revokeObjectURL(blobUrl);
+          try { URL.revokeObjectURL(blobUrl); } catch {}
         }
       }
     } catch (e) { lastError = e; }
@@ -478,7 +478,7 @@ export async function readRootFileAsUint8Array(file: File | Blob): Promise<Uint8
         const ab = await resp.arrayBuffer();
         if (ab && ab.byteLength >= 0) return new Uint8Array(ab);
       } finally {
-        URL.revokeObjectURL(url);
+        try { URL.revokeObjectURL(url); } catch {}
       }
     }
   } catch {}

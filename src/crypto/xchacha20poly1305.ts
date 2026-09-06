@@ -31,6 +31,9 @@ export function xchacha20Poly1305Encrypt(
   nonce24: Uint8Array,
   aad: Uint8Array = new Uint8Array(0)
 ): { ciphertext: Uint8Array; tag: Uint8Array } {
+  if (!plaintext || !key32 || key32.length !== 32 || !nonce24 || nonce24.length !== 24) {
+    throw new Error('Invalid arguments to xchacha20Poly1305Encrypt: expected 32-byte key and 24-byte nonce');
+  }
   const cipher = xchacha20poly1305(key32, nonce24, aad);
   const ctAndTag = cipher.encrypt(plaintext);
   try {
@@ -53,6 +56,9 @@ export function xchacha20Poly1305Decrypt(
   nonce24: Uint8Array,
   aad: Uint8Array = new Uint8Array(0)
 ): Uint8Array | null {
+  if (!ciphertext || !tag || tag.length !== 16 || !key32 || key32.length !== 32 || !nonce24 || nonce24.length !== 24) {
+    return null;
+  }
   let combined: Uint8Array | null = null;
   try {
     const cipher = xchacha20poly1305(key32, nonce24, aad);

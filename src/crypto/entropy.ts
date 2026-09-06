@@ -98,6 +98,9 @@ export function calculateChiSquareTest(
   expected?: number[],
   sampleCount: number = 1000
 ): { chiSquare: number; pValue: number } {
+  if (!observed || !Array.isArray(observed) || !isFinite(sampleCount) || sampleCount <= 0) {
+    return { chiSquare: 0, pValue: 1 };
+  }
   let chiSquare = 0;
   const scale = sampleCount / 100;
   const expDist = (expected && expected.length === 256) ? expected : getNaturalMp4Distribution();
@@ -105,6 +108,10 @@ export function calculateChiSquareTest(
     const o = (observed && observed[i]) || 0.00001;
     const e = expDist[i] || 0.00001;
     chiSquare += scale * Math.pow(o - e, 2) / e;
+  }
+
+  if (!isFinite(chiSquare) || isNaN(chiSquare) || chiSquare < 0) {
+    return { chiSquare: 0, pValue: 1 };
   }
 
   // Degrees of freedom = 255

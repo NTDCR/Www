@@ -441,7 +441,7 @@ export const StatisticalInspector: React.FC<StatisticalInspectorProps> = ({
             <div className="flex items-center gap-2">
               <Layers className="w-4 h-4 text-emerald-400" />
               <h4 className="text-xs font-bold font-mono uppercase text-slate-200">
-                8 Simultaneous Embedding Locations Map (5x Spread-Spectrum Redundancy)
+                8 Simultaneous Embedding Locations Map (8-Way Spread-Spectrum Redundancy)
               </h4>
             </div>
             <span className="text-[11px] font-mono text-slate-400">

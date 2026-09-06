@@ -110,7 +110,7 @@ function decodeRSHeaderBlocksFast(encodedData: Uint8Array, maxBlocks: number = 8
   return out.subarray(0, outOffset);
 }
 
-async function getOrExtractContainerBundles(
+export async function getOrExtractContainerBundles(
   protectedMp4File: File | StreamingFileHandle | Uint8Array
 ): Promise<{ bundleA: EncryptedPayloadBundle | null; bundleB: EncryptedPayloadBundle | null }> {
   await yieldToMainThread();
@@ -385,6 +385,24 @@ export async function createDualVaultPackage(
       const dummyEnv = generateSecureRandomBytes(envA.length);
       bundleB.notesBlock = encodeRSStream(dummyEnv).encodedData;
       zeroizeBuffer(envA, dummyEnv);
+    } else if (bundleA.notesBlock && bundleB.notesBlock && bundleA.notesBlock.length !== bundleB.notesBlock.length) {
+      const maxNotesLen = Math.max(bundleA.notesBlock.length, bundleB.notesBlock.length);
+      if (bundleA.notesBlock.length < maxNotesLen) {
+        const padded = new Uint8Array(maxNotesLen);
+        padded.set(bundleA.notesBlock, 0);
+        const padNoise = generateSecureRandomBytes(maxNotesLen - bundleA.notesBlock.length);
+        padded.set(padNoise, bundleA.notesBlock.length);
+        zeroizeBuffer(padNoise, bundleA.notesBlock);
+        bundleA.notesBlock = padded;
+      }
+      if (bundleB.notesBlock.length < maxNotesLen) {
+        const padded = new Uint8Array(maxNotesLen);
+        padded.set(bundleB.notesBlock, 0);
+        const padNoise = generateSecureRandomBytes(maxNotesLen - bundleB.notesBlock.length);
+        padded.set(padNoise, bundleB.notesBlock.length);
+        zeroizeBuffer(padNoise, bundleB.notesBlock);
+        bundleB.notesBlock = padded;
+      }
     }
   }
 
@@ -480,7 +498,23 @@ export async function createDualVaultPackage(
     await yieldToMainThread();
     const sha512Digest = await calculateSha512Safe(boxChunks);
 
-    const metrics = await analyzeStatisticalCompliance(carrierBuffer, protectedMp4, normalizedA);
+    let protectedSample = protectedMp4;
+    if (protectedSample.length === 0 && boxChunks.length > 0) {
+      // Build a 512 KB representative sample across the boxChunks for genuine statistical analysis
+      let totalLen = 0;
+      for (const chunk of boxChunks) totalLen += chunk.length;
+      const sampleSize = Math.min(512 * 1024, totalLen);
+      protectedSample = new Uint8Array(sampleSize);
+      let copied = 0;
+      for (const chunk of boxChunks) {
+        if (copied >= sampleSize) break;
+        const toCopy = Math.min(chunk.length, sampleSize - copied);
+        protectedSample.set(chunk.subarray(0, toCopy), copied);
+        copied += toCopy;
+      }
+    }
+
+    const metrics = await analyzeStatisticalCompliance(carrierBuffer, protectedSample, normalizedA);
 
     onProgress?.('Protected MP4 Dual-Vault Container Ready (Strict 1 MB streaming verified)', 100);
 

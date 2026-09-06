@@ -347,6 +347,7 @@ export async function decryptAssessmentNotesBlock(
   let envelope: Uint8Array | null = null;
   let hmacHeader: Uint8Array | null = null;
   let hmacData: Uint8Array | null = null;
+  let calculatedTag: Uint8Array | null = null;
 
   try {
     // 1. Decode & repair Reed-Solomon error correction
@@ -392,7 +393,7 @@ export async function decryptAssessmentNotesBlock(
     hmacData.set(hmacHeader, 0);
     hmacData.set(maskedPayload, hmacHeader.length);
 
-    const calculatedTag = hmac(sha256, hmacAuthKey, hmacData);
+    calculatedTag = hmac(sha256, hmacAuthKey, hmacData);
     const matches = constantTimeCompare(calculatedTag, expectedTag32);
 
     // Always unmask + decrypt path for timing symmetry; discard on HMAC/auth failure
@@ -462,7 +463,8 @@ export async function decryptAssessmentNotesBlock(
       keyXCha,
       keySerpent,
       xorMaskKey,
-      hmacAuthKey
+      hmacAuthKey,
+      calculatedTag
     );
   }
 }
