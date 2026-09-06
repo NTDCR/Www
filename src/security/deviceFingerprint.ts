@@ -191,25 +191,29 @@ function openIndexedDB(): Promise<IDBDatabase> {
     if (typeof indexedDB === 'undefined') {
       return reject(new Error('IndexedDB is not supported in this environment'));
     }
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains(STORE_NAME)) {
-        db.createObjectStore(STORE_NAME, { keyPath: 'index' });
-      }
-    };
-    req.onblocked = () => {
-      reject(new Error('IndexedDB open blocked: database locked by another tab or connection'));
-    };
-    req.onsuccess = () => {
-      const db = req.result;
-      // Auto-close connection immediately if another tab or emergency wipe requests database deletion
-      db.onversionchange = () => {
-        try { db.close(); } catch {}
+    try {
+      const req = indexedDB.open(DB_NAME, DB_VERSION);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(STORE_NAME)) {
+          db.createObjectStore(STORE_NAME, { keyPath: 'index' });
+        }
       };
-      resolve(db);
-    };
-    req.onerror = () => reject(req.error || new Error('IndexedDB open failed'));
+      req.onblocked = () => {
+        reject(new Error('IndexedDB open blocked: database locked by another tab or connection'));
+      };
+      req.onsuccess = () => {
+        const db = req.result;
+        // Auto-close connection immediately if another tab or emergency wipe requests database deletion
+        db.onversionchange = () => {
+          try { db.close(); } catch {}
+        };
+        resolve(db);
+      };
+      req.onerror = () => reject(req.error || new Error('IndexedDB open failed'));
+    } catch (err) {
+      reject(err instanceof Error ? err : new Error(String(err)));
+    }
   });
 }
 

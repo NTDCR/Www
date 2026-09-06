@@ -417,6 +417,7 @@ export async function createAnimatedCanvasCarrierBlob(durationSeconds: number = 
         isSettled = true;
         if (wallClockTimer) clearTimeout(wallClockTimer);
         try { if (recorder.state === 'recording') recorder.stop(); } catch {}
+        try { stream.getTracks().forEach(t => t.stop()); } catch {}
         const bytes = generatePlayableH264Mp4(durationSeconds);
         const fallback = new Blob([bytes], { type: 'video/mp4' });
         cachedCarrierBlob = fallback;
@@ -431,6 +432,7 @@ export async function createAnimatedCanvasCarrierBlob(durationSeconds: number = 
         if (isSettled) return;
         isSettled = true;
         if (wallClockTimer) clearTimeout(wallClockTimer);
+        try { stream.getTracks().forEach(t => t.stop()); } catch {}
         if (chunks.length === 0) {
           safeFallback();
           return;
