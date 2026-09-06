@@ -1,10 +1,11 @@
 import { createDualVaultPackage, extractFromDualVaultPackage, zeroizeBundle, inspectContainerKey6Identity, inspectContainerAssessmentNotes, getOrExtractContainerBundles } from '../src/vault/dualVault';
-import { encodeRSStream, decodeRSStream, rsDecodeBlock, gfInv, gfDiv } from '../src/crypto/reedSolomon';
+import { encodeRSStream, decodeRSStream, rsDecodeBlock, gfInv, gfDiv, RS64_MAGIC, RS_MAGIC } from '../src/crypto/reedSolomon';
 import { deserializeBundle, serializeBundle, decryptCascade5Layers, deriveLayerKey, sanitizePasswordString, zeroizeBuffer, encryptChunk5Layers, decryptChunk5Layers, fastPbkdf2HmacSha512, MIN_ENFORCED_PBKDF2_ITERATIONS } from '../src/crypto/cascadeEngine';
 import { generateSecureRandomBytes, secureRandomInt, secureRandomUUID, generateCSPRNGKeystream } from '../src/crypto/safeRandom';
 import { unmaskAndVerifyKey6FromRSBlock, deriveAndMask1024BitId, sanitizeKey6String } from '../src/crypto/key6Engine';
 import { encryptAssessmentNotesBlock, decryptAssessmentNotesBlock, parseAssessmentNotesJson, sanitizeAssessmentNotesInput } from '../src/crypto/notesEngine';
-import { parseIsobmffBoxes, isValidIsobmffCarrier } from '../src/media/isobmff';
+import { parseIsobmffBoxes, isValidIsobmffCarrier, buildBox64, embedSpreadSpectrum8Locations, extractSpreadSpectrumPayload } from '../src/media/isobmff';
+import { createOpfsStreamHandle, purgeAndZeroizeOpfs } from '../src/storage/opfsStreamEngine';
 import { sanitizeFilename, revokeAllActiveStreamUrls, zeroizeStreamingHandle, StreamingFileHandle } from '../src/utils/fileReader';
 import { generatePlausibleDecoyTemplate } from '../src/components/AssessmentNotesEditor';
 import { isAssessmentNotesComplete } from '../src/types';
@@ -1309,6 +1310,114 @@ async function runBountySuite() {
     'GF(2^8) Zero Inversion Invariant, PBKDF2 Clamping & ISOBMFF Bounded Box Allocation',
     b45Passed ? 'PASSED' : 'FAILED',
     `GF Zero Inversion: ${gfInversionValid}, PBKDF2 Iteration Clamping: ${pbkdf2BoundsPassed}, ISOBMFF Atom Cap: ${isobmffBoundedPassed}`
+  );
+
+  // -------------------------------------------------------------------------
+  // TEST B-46: Fort Knox 64-Bit Architecture & Anti-Forensic OPFS Stream Engine
+  // -------------------------------------------------------------------------
+  console.log('\n--- Running Test B-46: 64-Bit OPFS Streaming Engine, ISOBMFF Largesize & RS64 Architecture ---');
+
+  // 1. Universal OPFS Streaming Engine Verification:
+  // Write across multiple 1 MB pages, verify non-contiguous seek write, readback, truncate, and DoD 3-pass wipe
+  const opfsHandle = await createOpfsStreamHandle('b46_test_stream.bin');
+  const testChunk1 = generateSecureRandomBytes(Math.floor(1.5 * 1024 * 1024)); // 1.5 MB spanning 2 pages
+  await opfsHandle.write(testChunk1, 0);
+
+  const initialSize = await opfsHandle.getSize();
+  const readBackChunk1 = await opfsHandle.read(0, testChunk1.length);
+  const chunk1Matches = readBackChunk1.length === testChunk1.length && readBackChunk1.every((b, i) => b === testChunk1[i]);
+
+  // Non-contiguous seek write at 3 MB offset
+  const testChunk2 = generateSecureRandomBytes(512 * 1024); // 512 KB
+  await opfsHandle.write(testChunk2, 3 * 1024 * 1024);
+  const sizeAfterSeek = await opfsHandle.getSize();
+  const readBackChunk2 = await opfsHandle.read(3 * 1024 * 1024, 512 * 1024);
+  const chunk2Matches = readBackChunk2.length === testChunk2.length && readBackChunk2.every((b, i) => b === testChunk2[i]);
+
+  // Truncate back to 1 MB
+  await opfsHandle.truncate(1024 * 1024);
+  const sizeAfterTruncate = await opfsHandle.getSize();
+
+  // DoD 5220.22-M 3-pass zeroization & memory wipe
+  await purgeAndZeroizeOpfs(opfsHandle);
+  const sizeAfterWipe = await opfsHandle.getSize();
+
+  const opfsEnginePassed =
+    initialSize === Math.floor(1.5 * 1024 * 1024) &&
+    chunk1Matches &&
+    sizeAfterSeek === (3 * 1024 * 1024 + 512 * 1024) &&
+    chunk2Matches &&
+    sizeAfterTruncate === 1024 * 1024 &&
+    sizeAfterWipe === 0;
+
+  // 2. ISOBMFF 64-bit Largesize Atom Generation & Parsing (ISO/IEC 14496-12 standard):
+  const dummyAtomPayload = generateSecureRandomBytes(64);
+  // Build standard 64-bit largesize atom (size = 1, 8-byte 64-bit length header)
+  const box64 = buildBox64('free', dummyAtomPayload);
+  const box64View = new DataView(box64.buffer, box64.byteOffset, box64.byteLength);
+  const isLargeHeader = box64View.getUint32(0) === 1;
+  const largeSizeVal = box64View.getBigUint64(8);
+  const parsedBox64List = parseIsobmffBoxes(box64);
+  const parsedLargeBox = parsedBox64List.find(b => b.type === 'free');
+  const isobmff64AtomPassed =
+    isLargeHeader &&
+    largeSizeVal === BigInt(16 + dummyAtomPayload.length) &&
+    !!parsedLargeBox &&
+    parsedLargeBox.data.length === dummyAtomPayload.length &&
+    parsedLargeBox.data.every((b, i) => b === dummyAtomPayload[i]);
+
+  // 3. Dual-Mode 64-bit CG64 Spread Spectrum Multiplexing & Extraction:
+  // Pack Vault A and Vault B in explicit 64-bit mode (CG64 escape header)
+  const vAData = generateSecureRandomBytes(1024);
+  const vBData = generateSecureRandomBytes(1024);
+  const dummyCarrier = await getOrGenerateCarrierBlob(1);
+  const dummyCarrierBytes = new Uint8Array(await dummyCarrier.arrayBuffer());
+
+  const { protectedMp4: protected64Mp4 } = await embedSpreadSpectrum8Locations(
+    dummyCarrierBytes,
+    vAData,
+    vBData,
+    true // force 64-bit CG64 mode
+  );
+
+  const { vaultABytes: extA64, vaultBBytes: extB64 } = await extractSpreadSpectrumPayload(protected64Mp4);
+  const cg64RoundtripPassed =
+    extA64.length === vAData.length &&
+    extA64.every((b, i) => b === vAData[i]) &&
+    extB64.length === vBData.length &&
+    extB64.every((b, i) => b === vBData[i]);
+
+  // 4. RS64 64-Bit Streaming FEC Encoding & Auto-Repair Under Corruptions:
+  const rs64TestData = generateSecureRandomBytes(5000);
+  const rs64Encoded = encodeRSStream(rs64TestData, 223, 32, true); // force 64-bit RS64
+  const rs64View = new DataView(rs64Encoded.encodedData.buffer, rs64Encoded.encodedData.byteOffset, rs64Encoded.encodedData.byteLength);
+  const hasRs64Magic = rs64View.getUint32(0, false) === RS64_MAGIC;
+  const rs64OrigSize = Number(rs64View.getBigUint64(4, false));
+
+  // Introduce 12 symbol corruptions in block 0 and block 1
+  const corruptedRS64 = new Uint8Array(rs64Encoded.encodedData);
+  for (let c = 0; c < 12; c++) {
+    corruptedRS64[24 + c] ^= 0x7e;
+    corruptedRS64[24 + 255 + c] ^= 0x3c;
+  }
+
+  const rs64Decoded = decodeRSStream(corruptedRS64);
+  const rs64RepairPassed =
+    hasRs64Magic &&
+    rs64OrigSize === rs64TestData.length &&
+    rs64Decoded.isRepaired &&
+    rs64Decoded.recoveredErrors === 24 &&
+    rs64Decoded.data.length === rs64TestData.length &&
+    rs64Decoded.data.every((b, i) => b === rs64TestData[i]);
+
+  const b46Passed = opfsEnginePassed && isobmff64AtomPassed && cg64RoundtripPassed && rs64RepairPassed;
+
+  record(
+    'B-46',
+    'Fort Knox 64-Bit Architecture & Anti-Forensic OPFS Stream Engine',
+    'Universal OPFS 1MB Paging, ISOBMFF Largesize Atoms, CG64 Dual-Mode Stego & RS64 FEC',
+    b46Passed ? 'PASSED' : 'FAILED',
+    `OPFS Engine: ${opfsEnginePassed}, ISOBMFF 64 Atom: ${isobmff64AtomPassed}, CG64 Roundtrip: ${cg64RoundtripPassed}, RS64 FEC Repair: ${rs64RepairPassed}`
   );
 
   console.log('\n========================================================================');

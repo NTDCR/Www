@@ -148,8 +148,8 @@ export function parseIsobmffBoxes(data: Uint8Array, depth: number = 0, maxDepth:
 /**
  * Builds standard ISOBMFF Box (with ISO/IEC 14496-12 64-bit largesize support for >4GB boxes)
  */
-export function buildBox(type: string, payload: Uint8Array): Uint8Array {
-  const isLarge = (8 + payload.length) > 0xffffffff;
+export function buildBox(type: string, payload: Uint8Array, force64Bit: boolean = false): Uint8Array {
+  const isLarge = force64Bit || (8 + payload.length) > 0xffffffff;
   const headerSize = isLarge ? 16 : 8;
   const size = headerSize + payload.length;
   const box = new Uint8Array(size);
@@ -172,6 +172,13 @@ export function buildBox(type: string, payload: Uint8Array): Uint8Array {
 
   box.set(payload, headerSize);
   return box;
+}
+
+/**
+ * Convenience helper explicitly building standard 64-bit largesize ISOBMFF atom (size = 1)
+ */
+export function buildBox64(type: string, payload: Uint8Array): Uint8Array {
+  return buildBox(type, payload, true);
 }
 
 // Note on Chunk Offsets:
@@ -202,15 +209,13 @@ export function createSyntheticMp4Carrier(durationSeconds: number = 5): Uint8Arr
 export async function embedSpreadSpectrum8Locations(
   carrierMp4: Uint8Array,
   vaultAData: Uint8Array,
-  vaultBData: Uint8Array
+  vaultBData: Uint8Array,
+  force64Bit: boolean = false
 ): Promise<{ protectedMp4: Uint8Array; locationReports: EmbeddingLocationReport[]; boxChunks: Uint8Array[] }> {
   const vALen = vaultAData.length;
   const vBLen = vaultBData.length;
-  const combinedPayloadLen = 4 + vALen + 4 + vBLen;
-
-  if (combinedPayloadLen > 0xffffffff || vALen > 0xffffffff || vBLen > 0xffffffff) {
-    throw new Error('Payload exceeds maximum 4GB ISOBMFF 32-bit container addressing limit.');
-  }
+  const is64Bit = force64Bit || (vALen > 0x7fffffff) || (vBLen > 0x7fffffff) || ((8 + vALen + vBLen) > 0xffffffff);
+  const combinedPayloadLen = is64Bit ? (24 + vALen + vBLen) : (8 + vALen + vBLen);
 
   await yieldToMainThread();
 
@@ -230,34 +235,78 @@ export async function embedSpreadSpectrum8Locations(
   let p = 0;
   const YIELD_STRIDE = 1048576; // Yield every 1MB
 
-  // 1. Scatter Vault A length (4 bytes)
-  for (let i = 0; i < 4; i++) {
-    chunks[p % 8][Math.floor(p / 8)] = (vALen >>> (i * 8)) & 0xff;
-    p++;
-  }
-
-  // 2. Scatter Vault A Data directly
-  for (let i = 0; i < vALen; i++) {
-    if ((i & (YIELD_STRIDE - 1)) === 0 && i > 0) {
-      await yieldToMainThread();
+  if (is64Bit) {
+    // 64-bit CG64 Framing:
+    // 1. Scatter escape marker 0xFFFFFFFF (4 bytes)
+    for (let i = 0; i < 4; i++) {
+      chunks[p % 8][Math.floor(p / 8)] = 0xff;
+      p++;
     }
-    chunks[p % 8][Math.floor(p / 8)] = vaultAData[i];
-    p++;
-  }
-
-  // 3. Scatter Vault B length (4 bytes)
-  for (let i = 0; i < 4; i++) {
-    chunks[p % 8][Math.floor(p / 8)] = (vBLen >>> (i * 8)) & 0xff;
-    p++;
-  }
-
-  // 4. Scatter Vault B Data directly
-  for (let i = 0; i < vBLen; i++) {
-    if ((i & (YIELD_STRIDE - 1)) === 0 && i > 0) {
-      await yieldToMainThread();
+    // 2. Scatter magic 'CG64' (0x43, 0x47, 0x36, 0x34)
+    const magic = [0x43, 0x47, 0x36, 0x34];
+    for (let i = 0; i < 4; i++) {
+      chunks[p % 8][Math.floor(p / 8)] = magic[i];
+      p++;
     }
-    chunks[p % 8][Math.floor(p / 8)] = vaultBData[i];
-    p++;
+    // 3. Scatter Vault A length (8 bytes uint64 LE)
+    const vABig = BigInt(vALen);
+    for (let i = 0; i < 8; i++) {
+      chunks[p % 8][Math.floor(p / 8)] = Number((vABig >> BigInt(i * 8)) & 0xffn);
+      p++;
+    }
+    // 4. Scatter Vault A Data directly
+    for (let i = 0; i < vALen; i++) {
+      if ((i & (YIELD_STRIDE - 1)) === 0 && i > 0) {
+        await yieldToMainThread();
+      }
+      chunks[p % 8][Math.floor(p / 8)] = vaultAData[i];
+      p++;
+    }
+    // 5. Scatter Vault B length (8 bytes uint64 LE)
+    const vBBig = BigInt(vBLen);
+    for (let i = 0; i < 8; i++) {
+      chunks[p % 8][Math.floor(p / 8)] = Number((vBBig >> BigInt(i * 8)) & 0xffn);
+      p++;
+    }
+    // 6. Scatter Vault B Data directly
+    for (let i = 0; i < vBLen; i++) {
+      if ((i & (YIELD_STRIDE - 1)) === 0 && i > 0) {
+        await yieldToMainThread();
+      }
+      chunks[p % 8][Math.floor(p / 8)] = vaultBData[i];
+      p++;
+    }
+  } else {
+    // Legacy 32-bit Framing:
+    // 1. Scatter Vault A length (4 bytes)
+    for (let i = 0; i < 4; i++) {
+      chunks[p % 8][Math.floor(p / 8)] = (vALen >>> (i * 8)) & 0xff;
+      p++;
+    }
+
+    // 2. Scatter Vault A Data directly
+    for (let i = 0; i < vALen; i++) {
+      if ((i & (YIELD_STRIDE - 1)) === 0 && i > 0) {
+        await yieldToMainThread();
+      }
+      chunks[p % 8][Math.floor(p / 8)] = vaultAData[i];
+      p++;
+    }
+
+    // 3. Scatter Vault B length (4 bytes)
+    for (let i = 0; i < 4; i++) {
+      chunks[p % 8][Math.floor(p / 8)] = (vBLen >>> (i * 8)) & 0xff;
+      p++;
+    }
+
+    // 4. Scatter Vault B Data directly
+    for (let i = 0; i < vBLen; i++) {
+      if ((i & (YIELD_STRIDE - 1)) === 0 && i > 0) {
+        await yieldToMainThread();
+      }
+      chunks[p % 8][Math.floor(p / 8)] = vaultBData[i];
+      p++;
+    }
   }
 
   await yieldToMainThread();
@@ -640,6 +689,39 @@ export async function extractSpreadSpectrumPayload(protectedMp4: Uint8Array): Pr
         vaultBBytes: new Uint8Array(0)
       };
     }
+
+    // Check for 64-bit CG64 container signature:
+    // [0xFF, 0xFF, 0xFF, 0xFF, 'C', 'G', '6', '4', 8-byte vALen, ...]
+    const is64Bit = combined.length >= 24 &&
+      view.getUint32(0, true) === 0xffffffff &&
+      view.getUint8(4) === 0x43 && // 'C'
+      view.getUint8(5) === 0x47 && // 'G'
+      view.getUint8(6) === 0x36 && // '6'
+      view.getUint8(7) === 0x34;   // '4'
+
+    if (is64Bit) {
+      const vALenBig = view.getBigUint64(8, true);
+      if (vALenBig > BigInt(Number.MAX_SAFE_INTEGER)) {
+        return { vaultABytes: new Uint8Array(0), vaultBBytes: new Uint8Array(0) };
+      }
+      const vaultALen = Number(vALenBig);
+      if (vaultALen < 0 || 16 + vaultALen > combined.length - 8) {
+        return { vaultABytes: new Uint8Array(0), vaultBBytes: new Uint8Array(0) };
+      }
+      const vBLenBig = view.getBigUint64(16 + vaultALen, true);
+      if (vBLenBig > BigInt(Number.MAX_SAFE_INTEGER)) {
+        return { vaultABytes: new Uint8Array(0), vaultBBytes: new Uint8Array(0) };
+      }
+      const vaultBLen = Number(vBLenBig);
+      if (vaultBLen < 0 || 24 + vaultALen + vaultBLen !== combined.length) {
+        return { vaultABytes: new Uint8Array(0), vaultBBytes: new Uint8Array(0) };
+      }
+
+      const vaultABytes = new Uint8Array(combined.subarray(16, 16 + vaultALen));
+      const vaultBBytes = new Uint8Array(combined.subarray(24 + vaultALen, 24 + vaultALen + vaultBLen));
+      return { vaultABytes, vaultBBytes };
+    }
+
     const vaultALen = view.getUint32(0, true);
 
     if (vaultALen <= 0 || 4 + vaultALen > combined.length - 4) {

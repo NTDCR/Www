@@ -325,7 +325,8 @@ export function rsDecodeBlock(
 // HIGH-LEVEL STREAM ENCODE / DECODE (PACKAGING WITH MAGIC HEADERS)
 // ---------------------------------------------------------------------------
 
-const RS_MAGIC = 0x52534543; // 'RSEC' (Reed-Solomon Error Correction)
+export const RS_MAGIC = 0x52534543; // 'RSEC' (Reed-Solomon Error Correction, 32-bit legacy)
+export const RS64_MAGIC = 0x52533634; // 'RS64' (Reed-Solomon Error Correction, 64-bit multi-GB)
 
 export interface RSStreamStats {
   totalBlocks: number;
@@ -341,30 +342,39 @@ export interface RSStreamStats {
 export function encodeRSStream(
   inputData: Uint8Array,
   kBlockSize: number = RS_DEFAULT_BLOCK_SIZE,
-  nsym: number = RS_DEFAULT_PARITY_LEN
+  nsym: number = RS_DEFAULT_PARITY_LEN,
+  force64Bit: boolean = false
 ): { encodedData: Uint8Array; stats: RSStreamStats } {
   if (kBlockSize + nsym > 255) {
     throw new Error('RS encode: kBlockSize + nsym exceeds maximum N=255');
   }
   const totalDataBytes = inputData.length;
-  if (totalDataBytes > 0xffffffff) {
-    throw new Error('Reed-Solomon framing error: inputData exceeds 4GB (32-bit unsigned integer ceiling).');
-  }
+  const is64Bit = force64Bit || totalDataBytes > 0xffffffff;
   const totalBlocks = Math.ceil(totalDataBytes / kBlockSize);
   const totalParityBytes = totalBlocks * nsym;
   
-  // Header: 4-byte Magic (RSEC) + 4-byte Original Size + 2-byte K + 2-byte NSYM + 4-byte Total Blocks = 16 bytes
-  const headerLen = 16;
+  // Header:
+  // 32-bit: 4-byte Magic (RSEC) + 4-byte Original Size + 2-byte K + 2-byte NSYM + 4-byte Total Blocks = 16 bytes
+  // 64-bit: 4-byte Magic (RS64) + 8-byte Original Size + 2-byte K + 2-byte NSYM + 8-byte Total Blocks = 24 bytes
+  const headerLen = is64Bit ? 24 : 16;
   const outputLen = headerLen + totalDataBytes + totalParityBytes;
   const output = new Uint8Array(outputLen);
   const view = new DataView(output.buffer, output.byteOffset, output.byteLength);
 
   // Write Framing Header
-  view.setUint32(0, RS_MAGIC, false);
-  view.setUint32(4, totalDataBytes, false);
-  view.setUint16(8, kBlockSize, false);
-  view.setUint16(10, nsym, false);
-  view.setUint32(12, totalBlocks, false);
+  if (is64Bit) {
+    view.setUint32(0, RS64_MAGIC, false);
+    view.setBigUint64(4, BigInt(totalDataBytes), false);
+    view.setUint16(12, kBlockSize, false);
+    view.setUint16(14, nsym, false);
+    view.setBigUint64(16, BigInt(totalBlocks), false);
+  } else {
+    view.setUint32(0, RS_MAGIC, false);
+    view.setUint32(4, totalDataBytes, false);
+    view.setUint16(8, kBlockSize, false);
+    view.setUint16(10, nsym, false);
+    view.setUint32(12, totalBlocks, false);
+  }
 
   const gen = nsym === RS_DEFAULT_PARITY_LEN ? DEFAULT_GEN_POLY : rsGeneratorPoly(nsym);
   const genLen = gen.length;
@@ -466,28 +476,35 @@ export async function encodeRSStreamAsync(
   inputData: Uint8Array,
   kBlockSize: number = RS_DEFAULT_BLOCK_SIZE,
   nsym: number = RS_DEFAULT_PARITY_LEN,
-  onProgress?: (pct: number) => void
+  onProgress?: (pct: number) => void,
+  force64Bit: boolean = false
 ): Promise<{ encodedData: Uint8Array; stats: RSStreamStats }> {
   if (kBlockSize + nsym > 255) {
     throw new Error('RS encode: kBlockSize + nsym exceeds maximum N=255');
   }
   const totalDataBytes = inputData.length;
-  if (totalDataBytes > 0xffffffff) {
-    throw new Error('Reed-Solomon framing error: inputData exceeds 4GB (32-bit unsigned integer ceiling).');
-  }
+  const is64Bit = force64Bit || totalDataBytes > 0xffffffff;
   const totalBlocks = Math.ceil(totalDataBytes / kBlockSize);
   const totalParityBytes = totalBlocks * nsym;
 
-  const headerLen = 16;
+  const headerLen = is64Bit ? 24 : 16;
   const outputLen = headerLen + totalDataBytes + totalParityBytes;
   const output = new Uint8Array(outputLen);
   const view = new DataView(output.buffer, output.byteOffset, output.byteLength);
 
-  view.setUint32(0, RS_MAGIC, false);
-  view.setUint32(4, totalDataBytes, false);
-  view.setUint16(8, kBlockSize, false);
-  view.setUint16(10, nsym, false);
-  view.setUint32(12, totalBlocks, false);
+  if (is64Bit) {
+    view.setUint32(0, RS64_MAGIC, false);
+    view.setBigUint64(4, BigInt(totalDataBytes), false);
+    view.setUint16(12, kBlockSize, false);
+    view.setUint16(14, nsym, false);
+    view.setBigUint64(16, BigInt(totalBlocks), false);
+  } else {
+    view.setUint32(0, RS_MAGIC, false);
+    view.setUint32(4, totalDataBytes, false);
+    view.setUint16(8, kBlockSize, false);
+    view.setUint16(10, nsym, false);
+    view.setUint32(12, totalBlocks, false);
+  }
 
   const gen = nsym === RS_DEFAULT_PARITY_LEN ? DEFAULT_GEN_POLY : rsGeneratorPoly(nsym);
   const genLen = gen.length;
@@ -572,7 +589,51 @@ export function decodeRSStream(
   const view = new DataView(encodedData.buffer, encodedData.byteOffset, encodedData.byteLength);
   const magic = view.getUint32(0, false);
 
-  if (magic !== RS_MAGIC) {
+  let origSize: number;
+  let kBlockSize: number;
+  let nsym: number;
+  let totalBlocks: number;
+  let inOffset: number;
+
+  if (magic === RS64_MAGIC) {
+    if (encodedData.length < 24) {
+      return {
+        data: encodedData,
+        recoveredErrors: 0,
+        uncorrectableBlocks: 0,
+        isRepaired: false,
+      };
+    }
+    const origSizeBig = view.getBigUint64(4, false);
+    if (origSizeBig > BigInt(Number.MAX_SAFE_INTEGER)) {
+      return {
+        data: encodedData,
+        recoveredErrors: 0,
+        uncorrectableBlocks: 1,
+        isRepaired: false,
+      };
+    }
+    origSize = Number(origSizeBig);
+    kBlockSize = view.getUint16(12, false);
+    nsym = view.getUint16(14, false);
+    const totalBlocksBig = view.getBigUint64(16, false);
+    if (totalBlocksBig > BigInt(Number.MAX_SAFE_INTEGER)) {
+      return {
+        data: encodedData,
+        recoveredErrors: 0,
+        uncorrectableBlocks: 1,
+        isRepaired: false,
+      };
+    }
+    totalBlocks = Number(totalBlocksBig);
+    inOffset = 24;
+  } else if (magic === RS_MAGIC) {
+    origSize = view.getUint32(4, false);
+    kBlockSize = view.getUint16(8, false);
+    nsym = view.getUint16(10, false);
+    totalBlocks = view.getUint32(12, false);
+    inOffset = 16;
+  } else {
     return {
       data: encodedData,
       recoveredErrors: 0,
@@ -581,10 +642,6 @@ export function decodeRSStream(
     };
   }
 
-  const origSize = view.getUint32(4, false);
-  const kBlockSize = view.getUint16(8, false);
-  const nsym = view.getUint16(10, false);
-  const totalBlocks = view.getUint32(12, false);
   const minBlocks = kBlockSize > 0 ? Math.ceil(origSize / kBlockSize) : 0;
 
   if (
@@ -616,7 +673,6 @@ export function decodeRSStream(
   let totalErrors = 0;
   let uncorrectableCount = 0;
 
-  let inOffset = 16;
   let outOffset = 0;
 
   for (let b = 0; b < totalBlocks; b++) {
@@ -697,7 +753,51 @@ export async function decodeRSStreamAsync(
   const view = new DataView(encodedData.buffer, encodedData.byteOffset, encodedData.byteLength);
   const magic = view.getUint32(0, false);
 
-  if (magic !== RS_MAGIC) {
+  let origSize: number;
+  let kBlockSize: number;
+  let nsym: number;
+  let totalBlocks: number;
+  let inOffset: number;
+
+  if (magic === RS64_MAGIC) {
+    if (encodedData.length < 24) {
+      return {
+        data: encodedData,
+        recoveredErrors: 0,
+        uncorrectableBlocks: 0,
+        isRepaired: false,
+      };
+    }
+    const origSizeBig = view.getBigUint64(4, false);
+    if (origSizeBig > BigInt(Number.MAX_SAFE_INTEGER)) {
+      return {
+        data: encodedData,
+        recoveredErrors: 0,
+        uncorrectableBlocks: 1,
+        isRepaired: false,
+      };
+    }
+    origSize = Number(origSizeBig);
+    kBlockSize = view.getUint16(12, false);
+    nsym = view.getUint16(14, false);
+    const totalBlocksBig = view.getBigUint64(16, false);
+    if (totalBlocksBig > BigInt(Number.MAX_SAFE_INTEGER)) {
+      return {
+        data: encodedData,
+        recoveredErrors: 0,
+        uncorrectableBlocks: 1,
+        isRepaired: false,
+      };
+    }
+    totalBlocks = Number(totalBlocksBig);
+    inOffset = 24;
+  } else if (magic === RS_MAGIC) {
+    origSize = view.getUint32(4, false);
+    kBlockSize = view.getUint16(8, false);
+    nsym = view.getUint16(10, false);
+    totalBlocks = view.getUint32(12, false);
+    inOffset = 16;
+  } else {
     return {
       data: encodedData,
       recoveredErrors: 0,
@@ -706,10 +806,6 @@ export async function decodeRSStreamAsync(
     };
   }
 
-  const origSize = view.getUint32(4, false);
-  const kBlockSize = view.getUint16(8, false);
-  const nsym = view.getUint16(10, false);
-  const totalBlocks = view.getUint32(12, false);
   const minBlocks = kBlockSize > 0 ? Math.ceil(origSize / kBlockSize) : 0;
 
   if (
@@ -741,7 +837,6 @@ export async function decodeRSStreamAsync(
   let totalErrors = 0;
   let uncorrectableCount = 0;
 
-  let inOffset = 16;
   let outOffset = 0;
 
   for (let b = 0; b < totalBlocks; b++) {
