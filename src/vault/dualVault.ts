@@ -296,8 +296,8 @@ export async function createDualVaultPackage(
 
   // Calculate symmetric quantum cover inner container length across both vaults
   // Eliminates post-RS padding asymmetry (C1) AND differential size-ordering exposure
-  const innerHeaderLenA = 4 + 4 + new TextEncoder().encode(vaultAName).length + 8;
-  const innerHeaderLenB = 4 + 4 + new TextEncoder().encode(vaultBName).length + 8;
+  const innerHeaderLenA = 4 + 4 + new TextEncoder().encode(vaultAName.normalize('NFC')).length + 8;
+  const innerHeaderLenB = 4 + 4 + new TextEncoder().encode(vaultBName.normalize('NFC')).length + 8;
   const totalInnerA = innerHeaderLenA + vaultASize;
   const totalInnerB = innerHeaderLenB + vaultBSize;
   const rawMax = Math.max(totalInnerA, totalInnerB);

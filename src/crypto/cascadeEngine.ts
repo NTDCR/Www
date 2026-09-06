@@ -161,7 +161,8 @@ export async function deriveLayerKey(
   info: string = 'ContentGuard-Pro-MAX-Layer'
 ): Promise<Uint8Array> {
   const enc = new TextEncoder();
-  const passBytes = enc.encode(password);
+  const normalizedPassword = typeof password === 'string' ? password.normalize('NFC') : '';
+  const passBytes = enc.encode(normalizedPassword);
   let pbkdf2Derived: Uint8Array | null = null;
 
   try {
@@ -580,7 +581,8 @@ export async function encryptCascade5Layers(
 
   // Frame inner container header: [Magic (4B), NameLen (4B), NameBytes (N B), Size (8B)]
   const enc = new TextEncoder();
-  const nameBytes = enc.encode(filename);
+  const normalizedFilename = typeof filename === 'string' ? filename.normalize('NFC') : '';
+  const nameBytes = enc.encode(normalizedFilename);
   const innerHeaderLen = 4 + 4 + nameBytes.length + 8;
   const innerHeader = new Uint8Array(innerHeaderLen);
   const innerView = new DataView(innerHeader.buffer, innerHeader.byteOffset, innerHeader.byteLength);

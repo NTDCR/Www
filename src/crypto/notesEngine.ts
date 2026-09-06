@@ -122,12 +122,12 @@ async function deriveNotesKeyMaterial(
   iterations: number = DEFAULT_PBKDF2_ITERATIONS,
   vaultLabel: 'VaultA' | 'VaultB' = 'VaultA'
 ) {
-  const p1 = passwords.layer1_kyber || '';
-  const p2 = passwords.layer2_serpent || '';
-  const p3 = passwords.layer3_xchacha || '';
-  const p4 = passwords.layer4_aes || '';
-  const p5 = passwords.layer5_otp || '';
-  const p6 = passwords.layer6_key6 || '';
+  const p1 = (passwords.layer1_kyber || '').normalize('NFC');
+  const p2 = (passwords.layer2_serpent || '').normalize('NFC');
+  const p3 = (passwords.layer3_xchacha || '').normalize('NFC');
+  const p4 = (passwords.layer4_aes || '').normalize('NFC');
+  const p5 = (passwords.layer5_otp || '').normalize('NFC');
+  const p6 = (passwords.layer6_key6 || '').normalize('NFC');
   // Length-prefixed framing eliminates delimiter collision & cross-input key injection
   const rawPwString = `${p1.length}:${p1}|${p2.length}:${p2}|${p3.length}:${p3}|${p4.length}:${p4}|${p5.length}:${p5}|${p6.length}:${p6}`;
 

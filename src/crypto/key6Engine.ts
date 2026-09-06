@@ -78,7 +78,8 @@ export async function deriveAndMask1024BitId(
   }
 
   const enc = new TextEncoder();
-  const keyBytes = enc.encode(key6);
+  const normalizedKey6 = typeof key6 === 'string' ? key6.normalize('NFC') : '';
+  const keyBytes = enc.encode(normalizedKey6);
   let stretched: Uint8Array | null = null;
   let rawId128: Uint8Array | null = null;
   let xorMask128: Uint8Array | null = null;
@@ -193,7 +194,8 @@ export async function unmaskAndVerifyKey6FromRSBlock(
     const expectedCommitmentTag32 = repairedBlock.subarray(64 + 128, 64 + 128 + 32);
 
     const enc = new TextEncoder();
-    keyBytes = enc.encode(key6);
+    const normalizedKey6 = typeof key6 === 'string' ? key6.normalize('NFC') : '';
+    keyBytes = enc.encode(normalizedKey6);
 
     // 2. Hardware-accelerated PBKDF2 stretching
     stretched = await fastPbkdf2HmacSha512(keyBytes, salt64, iterations, 64);
