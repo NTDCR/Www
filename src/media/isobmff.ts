@@ -47,6 +47,35 @@ export const RED_UUID = new Uint8Array([
 ]);
 
 /**
+ * Verifies whether a binary buffer conforms to valid ISOBMFF / MP4 container structure
+ * Prevents non-MP4 carrier ingestion (e.g. MKV, AVI, raw binary) that causes downstream extraction lockouts.
+ */
+export function isValidIsobmffCarrier(data: Uint8Array): boolean {
+  if (!data || data.length < 16) return false;
+  // Standard MP4: first box is 'ftyp' at offset 4
+  const b0 = String.fromCharCode(data[4], data[5], data[6], data[7]);
+  if (b0 === 'ftyp') return true;
+
+  // Scan first 128 bytes for top-level 'ftyp' or 'moov' atom
+  const maxScan = Math.min(data.length - 8, 128);
+  let offset = 0;
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  while (offset <= maxScan) {
+    const size = view.getUint32(offset);
+    if (size < 8 || offset + size > data.length) break;
+    const type = String.fromCharCode(
+      data[offset + 4],
+      data[offset + 5],
+      data[offset + 6],
+      data[offset + 7]
+    );
+    if (type === 'ftyp' || type === 'moov') return true;
+    offset += size;
+  }
+  return false;
+}
+
+/**
  * Parses an ISOBMFF MP4 binary buffer into box structures
  */
 export function parseIsobmffBoxes(data: Uint8Array, depth: number = 0, maxDepth: number = 16): Mp4Box[] {

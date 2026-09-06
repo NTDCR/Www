@@ -29,6 +29,17 @@ import { generateSecureRandomBytes } from './safeRandom';
 import { constantTimeCompare, zeroizeBuffer, fastPbkdf2HmacSha512, DEFAULT_PBKDF2_ITERATIONS, sanitizePasswordString } from './cascadeEngine';
 import { encodeRSStream, decodeRSStream } from './reedSolomon';
 
+/**
+ * Sanitizes Key 6 passphrase:
+ * - NFC unicode normalization
+ * - Strips zero-width characters
+ * - Trims accidental leading/trailing whitespace & newlines from copy-paste
+ */
+export function sanitizeKey6String(raw: string | undefined | null): string {
+  if (typeof raw !== 'string') return '';
+  return raw.normalize('NFC').replace(/[\u200B-\u200F\u2060-\u2064\uFEFF]/g, '').trim();
+}
+
 export interface Key6IdentityState {
   key6: string;
   uniqueId1024Hex: string;
@@ -78,7 +89,7 @@ export async function deriveAndMask1024BitId(
   }
 
   const enc = new TextEncoder();
-  const normalizedKey6 = sanitizePasswordString(key6);
+  const normalizedKey6 = sanitizeKey6String(key6);
   const keyBytes = enc.encode(normalizedKey6);
   let stretched: Uint8Array | null = null;
   let rawId128: Uint8Array | null = null;
@@ -194,7 +205,7 @@ export async function unmaskAndVerifyKey6FromRSBlock(
     const expectedCommitmentTag32 = repairedBlock.subarray(64 + 128, 64 + 128 + 32);
 
     const enc = new TextEncoder();
-    const normalizedKey6 = sanitizePasswordString(key6);
+    const normalizedKey6 = sanitizeKey6String(key6);
     keyBytes = enc.encode(normalizedKey6);
 
     // 2. Hardware-accelerated PBKDF2 stretching

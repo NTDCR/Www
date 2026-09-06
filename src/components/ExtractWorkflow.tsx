@@ -31,6 +31,7 @@ import { Key6BadgeCard } from './Key6BadgeCard';
 import { AssessmentNotesPreviewModal } from './AssessmentNotesPreviewModal';
 import { StreamingFileHandle, createStreamingFileHandle, loadStreamingFileHandleAsync, streamChunksDirectToDisk, sanitizeFilename } from '../utils/fileReader';
 import { yieldToMainThread, sanitizePasswordString } from '../crypto/cascadeEngine';
+import { sanitizeKey6String } from '../crypto/key6Engine';
 
 interface ExtractWorkflowProps {
   onAddAuditLog: (eventType: 'DECRYPTION' | 'INTEGRITY_CHECK', details: string, digest: string) => void;
@@ -38,10 +39,15 @@ interface ExtractWorkflowProps {
 
 export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog }) => {
   const isMountedRef = useRef(true);
+  const activeBlobUrlsRef = useRef<string[]>([]);
   useEffect(() => {
     isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
+      for (const u of activeBlobUrlsRef.current) {
+        try { URL.revokeObjectURL(u); } catch {}
+      }
+      activeBlobUrlsRef.current = [];
     };
   }, []);
 
@@ -78,7 +84,7 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
   useEffect(() => {
     let active = true;
 
-    const effectiveKey6 = sanitizePasswordString(key6Input) || sanitizePasswordString(passwords.layer6_key6) || '';
+    const effectiveKey6 = sanitizeKey6String(key6Input) || sanitizeKey6String(passwords.layer6_key6) || '';
     const effectivePasswords: CascadePasswords = {
       ...passwords,
       layer6_key6: effectiveKey6
@@ -343,16 +349,24 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
     if (!result) return;
     const safeName = sanitizeFilename(result.filename);
     const url = URL.createObjectURL(result.fileBlob);
+    activeBlobUrlsRef.current.push(url);
     const a = document.createElement('a');
     a.href = url;
     a.download = safeName;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    setTimeout(() => {
+      URL.revokeObjectURL(url);
+      activeBlobUrlsRef.current = activeBlobUrlsRef.current.filter(u => u !== url);
+    }, 10000);
   };
 
   const handleZeroizeExtractionSession = () => {
+    for (const u of activeBlobUrlsRef.current) {
+      try { URL.revokeObjectURL(u); } catch {}
+    }
+    activeBlobUrlsRef.current = [];
     if (result && result.chunkedData) {
       for (const chunk of result.chunkedData) {
         chunk.fill(0);

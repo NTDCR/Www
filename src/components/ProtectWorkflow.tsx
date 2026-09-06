@@ -45,6 +45,7 @@ import { StreamingFileHandle, createStreamingFileHandle, loadStreamingFileHandle
 import { VideoPlayerPreview } from './VideoPlayerPreview';
 import { yieldToMainThread } from '../utils/asyncUtils';
 import { sanitizePasswordString } from '../crypto/cascadeEngine';
+import { isValidIsobmffCarrier } from '../media/isobmff';
 
 interface ProtectWorkflowProps {
   onAddAuditLog: (eventType: 'ENCRYPTION' | 'DUAL_VAULT_CREATION', details: string, digest: string) => void;
@@ -59,10 +60,15 @@ interface ProtectWorkflowProps {
 
 export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog, onMetricsGenerated }) => {
   const isMountedRef = useRef(true);
+  const activeBlobUrlsRef = useRef<string[]>([]);
   useEffect(() => {
     isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
+      for (const u of activeBlobUrlsRef.current) {
+        try { URL.revokeObjectURL(u); } catch {}
+      }
+      activeBlobUrlsRef.current = [];
     };
   }, []);
 
@@ -216,6 +222,15 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
     }
     try {
       setErrorMsg(null);
+      // Validate that carrier is a genuine MP4 / ISOBMFF container before proceeding
+      const headerSlice = await file.slice(0, 64).arrayBuffer();
+      if (!isValidIsobmffCarrier(new Uint8Array(headerSlice))) {
+        setErrorMsg('Invalid Video Carrier: Selected file is not a valid MP4/ISOBMFF container (missing "ftyp" header). Please select a valid MP4/H.264 video or use the built-in synthetic carrier.');
+        setCarrierFile(null);
+        setCarrierPreviewBlob(null);
+        return;
+      }
+
       const handle = await loadStreamingFileHandleAsync(file);
       setCarrierFile(handle);
       setCarrierPreviewBlob(file);
@@ -357,7 +372,7 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
       setErrorMsg(null);
       setResult(null);
       setTotalOperationDurationMs(null);
-      setProgressText('Initializing 8 Web Workers & CSPRNG Entropy Engine...');
+      setProgressText('Initializing Cooperative Async Scheduler & CSPRNG Entropy Engine...');
       setProgressPct(5);
 
       const activeCarrier = useSyntheticCarrier ? null : carrierFile;
@@ -446,6 +461,7 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
   const handleDownloadProtectedMp4 = () => {
     if (!result) return;
     const url = URL.createObjectURL(result.protectedMp4Blob);
+    activeBlobUrlsRef.current.push(url);
     const a = document.createElement('a');
     a.href = url;
     const rawName = carrierFile && !useSyntheticCarrier ? carrierFile.name : 'PROTECTED_CONTAINER.mp4';
@@ -454,10 +470,17 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    setTimeout(() => {
+      URL.revokeObjectURL(url);
+      activeBlobUrlsRef.current = activeBlobUrlsRef.current.filter(u => u !== url);
+    }, 10000);
   };
 
   const handleZeroizeProtectionSession = () => {
+    for (const u of activeBlobUrlsRef.current) {
+      try { URL.revokeObjectURL(u); } catch {}
+    }
+    activeBlobUrlsRef.current = [];
     setResult(null);
     setVaultAPasswords({
       layer1_kyber: '',
@@ -1061,7 +1084,7 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
         <div>
           <div className="text-sm font-bold font-mono text-slate-100 flex items-center gap-2">
             <Cpu className="w-4 h-4 text-emerald-400" />
-            <span>Ready for 8-Worker Parallel Encryption &amp; Steganography</span>
+            <span>Ready for Non-Blocking Cooperative Async Encryption &amp; Steganography</span>
           </div>
           <p className="text-xs text-slate-400 mt-0.5">
             RAM footprint &lt; 30MB • 512-bit salts • Zeroization of keys upon completion

@@ -62,8 +62,22 @@ export function secureRandomInt(min: number, max: number): number {
   }
   if (min === max) return min;
   const range = max - min + 1;
+  if (range > 0x100000000) {
+    // 64-bit BigInt CSPRNG sampling with rejection sampling (Supports up to Number.MAX_SAFE_INTEGER with 0 modulo bias)
+    const rangeBig = BigInt(range);
+    const randView64 = new BigUint64Array(1);
+    const maxAcceptableBig = (0xffffffffffffffffn / rangeBig) * rangeBig - 1n;
+    while (true) {
+      safeGetRandomValues(randView64);
+      const val = randView64[0];
+      if (val <= maxAcceptableBig) {
+        return min + Number(val % rangeBig);
+      }
+    }
+  }
+
   const randView = new Uint32Array(1);
-  if (range >= 0x100000000) {
+  if (range === 0x100000000) {
     safeGetRandomValues(randView);
     return min + (randView[0] >>> 0);
   }
@@ -144,7 +158,7 @@ export async function generateCSPRNGKeystream(
     }
 
     const keystream = new Uint8Array(targetByteLength);
-    return chacha20Process(key32, nonce12, 1, keystream, keystream);
+    return chacha20Process(key32, nonce12, 1, keystream);
   } finally {
     key32.fill(0);
     nonce12.fill(0);

@@ -1,10 +1,10 @@
 import { createDualVaultPackage, extractFromDualVaultPackage } from '../src/vault/dualVault';
 import { encodeRSStream, decodeRSStream, rsDecodeBlock } from '../src/crypto/reedSolomon';
 import { deserializeBundle, serializeBundle, decryptCascade5Layers, deriveLayerKey, sanitizePasswordString } from '../src/crypto/cascadeEngine';
-import { generateSecureRandomBytes } from '../src/crypto/safeRandom';
-import { unmaskAndVerifyKey6FromRSBlock, deriveAndMask1024BitId } from '../src/crypto/key6Engine';
+import { generateSecureRandomBytes, secureRandomInt } from '../src/crypto/safeRandom';
+import { unmaskAndVerifyKey6FromRSBlock, deriveAndMask1024BitId, sanitizeKey6String } from '../src/crypto/key6Engine';
 import { encryptAssessmentNotesBlock, decryptAssessmentNotesBlock } from '../src/crypto/notesEngine';
-import { parseIsobmffBoxes } from '../src/media/isobmff';
+import { parseIsobmffBoxes, isValidIsobmffCarrier } from '../src/media/isobmff';
 import { sanitizeFilename } from '../src/utils/fileReader';
 
 interface BountyTestResult {
@@ -287,6 +287,47 @@ async function runBountySuite() {
   const cleanSlice = new TextDecoder('utf-8').decode(encoded.subarray(0, sliceLen));
   const noCorruptReplacement = !cleanSlice.includes('\uFFFD') && enc.encode(cleanSlice).length <= 40000;
   record('B-21', 'UTF-8 Boundary Safety', 'Multi-Byte Boundary Slicing Invariance', noCorruptReplacement ? 'PASSED' : 'FAILED', `Clean slice length: ${enc.encode(cleanSlice).length} bytes, 0 replacement glyphs (\uFFFD)`);
+
+  // 6.8: Non-MP4 Carrier Ingestion Defense
+  const fakeMkvHeader = new Uint8Array([0x1A, 0x45, 0xDF, 0xA3, 0x01, 0x00, 0x00, 0x00, 0x4D, 0x4B, 0x56]);
+  const fakeBinaryHeader = new Uint8Array([0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B]);
+  const mkvRejected = !isValidIsobmffCarrier(fakeMkvHeader);
+  const binRejected = !isValidIsobmffCarrier(fakeBinaryHeader);
+  let dualVaultThrewOnFakeCarrier = false;
+  try {
+    await createDualVaultPackage(fakeMkvHeader, new Uint8Array([1]), new Uint8Array([2]), pwA, pwB, 1000);
+  } catch (err: any) {
+    dualVaultThrewOnFakeCarrier = err.message.includes('Carrier Validation Error');
+  }
+  const carrierSafetyPassed = mkvRejected && binRejected && dualVaultThrewOnFakeCarrier;
+  record('B-22', 'Carrier Validation', 'Non-MP4 Carrier Ingestion Trap Disarmed', carrierSafetyPassed ? 'PASSED' : 'FAILED', 'Safely rejected MKV & raw binary headers before encryption');
+
+  // 6.9: 64-Bit Wide-Range secureRandomInt Sampling (Zero Modulo Bias)
+  const minBig = 10_000_000_000;
+  const maxBig = 20_000_000_000;
+  let allInRange = true;
+  let hasUpperHalf = false;
+  for (let i = 0; i < 20; i++) {
+    const r = secureRandomInt(minBig, maxBig);
+    if (r < minBig || r > maxBig) {
+      allInRange = false;
+      break;
+    }
+    if (r > 15_000_000_000) {
+      hasUpperHalf = true;
+    }
+  }
+  const bigIntSamplingPassed = allInRange && hasUpperHalf;
+  record('B-23', 'CSPRNG Randomness', '64-Bit Range CSPRNG Sampling (>2^32)', bigIntSamplingPassed ? 'PASSED' : 'FAILED', 'Generated uniform 64-bit random values in [10B, 20B] without truncation');
+
+  // 6.10: Key 6 Copy-Paste Whitespace & Newline Invariance
+  const cleanK6 = 'KEY6-InstitutionalSecretKey99';
+  const dirtyK6 = '  \n\tKEY6-InstitutionalSecretKey99 \r\n ';
+  const testSaltK6 = generateSecureRandomBytes(64);
+  const derivedClean = await deriveAndMask1024BitId(cleanK6, testSaltK6, 1000, 'VaultA');
+  const derivedDirty = await deriveAndMask1024BitId(dirtyK6, testSaltK6, 1000, 'VaultA');
+  const k6WhitespaceImmune = derivedClean.hexString === derivedDirty.hexString && sanitizeKey6String(dirtyK6) === cleanK6;
+  record('B-24', 'Credential Hygiene', 'Key 6 Copy-Paste Whitespace Invariance', k6WhitespaceImmune ? 'PASSED' : 'FAILED', 'Derived bit-for-bit identical 1024-bit ID despite leading/trailing whitespace & newlines');
 
   console.log('\n========================================================================');
   console.log('                 BUG-BOUNTY RESCAN EXECUTIVE SUMMARY');

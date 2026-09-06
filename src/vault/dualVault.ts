@@ -24,7 +24,7 @@ import {
   sanitizePasswordString
 } from '../crypto/cascadeEngine';
 import { normalizeEntropyToTarget, denormalizeEntropy, denormalizeEntropyHeaderFast, analyzeStatisticalCompliance } from '../crypto/entropy';
-import { embedSpreadSpectrum8Locations, extractSpreadSpectrumPayload, createSyntheticMp4Carrier } from '../media/isobmff';
+import { embedSpreadSpectrum8Locations, extractSpreadSpectrumPayload, createSyntheticMp4Carrier, isValidIsobmffCarrier } from '../media/isobmff';
 import { getOrGenerateCarrierBlob } from '../media/mp4Generator';
 import { readFileAsUint8Array, StreamingFileHandle, STRICT_CHUNK_SIZE, readChunkFromHandle, sanitizeFilename } from '../utils/fileReader';
 import { generateSecureRandomBytes } from '../crypto/safeRandom';
@@ -268,6 +268,10 @@ export async function createDualVaultPackage(
     onProgress?.('Generating active playable video carrier stream...', 10);
     const fallbackBlob = await getOrGenerateCarrierBlob(3);
     carrierBuffer = new Uint8Array(await fallbackBlob.arrayBuffer());
+  }
+
+  if (carrierBuffer.length > 0 && !isValidIsobmffCarrier(carrierBuffer)) {
+    throw new Error('Carrier Validation Error: Selected carrier file is not a valid MP4/ISOBMFF container (missing "ftyp" header). Please select a valid MP4 video or use the built-in synthetic carrier.');
   }
 
   // Pre-equalize Assessment Notes length if both vaults have notes
