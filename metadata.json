@@ -1,0 +1,6 @@
+{
+  "name": "WiFi Gateway Admin — Router Manager",
+  "description": "Local Wi-Fi Gateway and Hardware Router Diagnostic Utility",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
