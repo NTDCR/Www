@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { KeyRound, Shield, X, Copy, Check, Printer, RefreshCw, Cpu } from 'lucide-react';
+import { KeyRound, X, Copy, Check, Printer, RefreshCw, Cpu } from 'lucide-react';
 import { DeviceFingerprint, RecoveryCode } from '../types';
 import { loadStoredRecoveryCodes, generateAndStoreRecoveryCodes, markRecoveryCodeUsed } from '../security/deviceFingerprint';
 import { secureCopyToClipboard } from '../security/clipboard';

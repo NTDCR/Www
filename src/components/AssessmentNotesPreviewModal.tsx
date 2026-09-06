@@ -1,15 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
-  FileText,
   ShieldCheck,
   CheckCircle2,
   Copy,
   Check,
   X,
-  Lock,
   Layers,
-  Sparkles,
-  Printer,
   Download
 } from 'lucide-react';
 import { VaultAssessmentNotes } from '../types';

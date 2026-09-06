@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Trash2, AlertTriangle, ShieldAlert, CheckCircle, RefreshCw, X, Shield } from 'lucide-react';
+import { Trash2, AlertTriangle, CheckCircle, X, Shield } from 'lucide-react';
 import { execute35PassSecureWipe, PassStatus } from '../security/sanitization';
 
 interface ZeroizeModalProps {

@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { Clock, Cpu, Zap, Activity, CheckCircle2, RefreshCw, ShieldCheck, Timer } from 'lucide-react';
+import { Clock, Zap, Activity, CheckCircle2, RefreshCw, ShieldCheck, Timer } from 'lucide-react';
 
 export function formatDurationHuman(ms: number): string {
   const totalSeconds = ms / 1000;

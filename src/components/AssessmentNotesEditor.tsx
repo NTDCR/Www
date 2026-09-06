@@ -8,10 +8,9 @@ import {
   HelpCircle,
   ChevronDown,
   ChevronUp,
-  RotateCcw,
-  Lock
+  RotateCcw
 } from 'lucide-react';
-import { VaultAssessmentNotes, isAssessmentNotesComplete, createEmptyAssessmentNotes } from '../types';
+import { VaultAssessmentNotes, createEmptyAssessmentNotes } from '../types';
 import { ASSESSMENT_QUESTIONS, AssessmentQuestionDef, sanitizeAssessmentNotesInput } from '../crypto/notesEngine';
 import { secureRandomInt } from '../crypto/safeRandom';
 

@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Fingerprint, Copy, Check, ShieldCheck, Sparkles, Key, Lock, Eye, EyeOff } from 'lucide-react';
-import { format1024BitIdFormatted } from '../crypto/key6Engine';
+import { Fingerprint, Copy, Check, ShieldCheck, Sparkles, Key, Eye, EyeOff } from 'lucide-react';
 import { secureCopyToClipboard } from '../security/clipboard';
 
 interface Key6BadgeCardProps {
@@ -47,7 +46,6 @@ export const Key6BadgeCard: React.FC<Key6BadgeCardProps> = ({
   };
 
   const isVaultA = vaultType === 'A';
-  const accentColor = isVaultA ? 'emerald' : 'amber';
 
   return (
     <div className={`p-4 rounded-xl border transition-all ${

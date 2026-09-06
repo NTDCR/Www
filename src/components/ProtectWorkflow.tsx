@@ -2,8 +2,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   ShieldCheck,
   UploadCloud,
-  FileText,
-  Key,
   Play,
   Download,
   Video,
@@ -13,16 +11,11 @@ import {
   EyeOff,
   AlertCircle,
   RefreshCw,
-  Sliders,
   Cpu,
   CheckCircle,
-  HelpCircle,
-  Upload,
   HardDrive,
   Film,
-  CheckCircle2,
-  Trash2,
-  ShieldAlert
+  Trash2
 } from 'lucide-react';
 import {
   CascadePasswords,

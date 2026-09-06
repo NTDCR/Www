@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { FileCheck, Shield, CheckCircle2, X, BookOpen, Layers, Award, Terminal, Copy, Check } from 'lucide-react';
+import { FileCheck, Shield, CheckCircle2, X, Layers, Award, Copy, Check } from 'lucide-react';
 import { secureCopyToClipboard } from '../security/clipboard';
 
 interface ComplianceProofsModalProps {

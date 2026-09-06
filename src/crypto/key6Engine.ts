@@ -21,12 +21,11 @@
  *    - Incorrect Key 6 -> Zero disclosure (fails constant-time check, 0 metadata leaked).
  */
 
-import { pbkdf2 } from '@noble/hashes/pbkdf2.js';
 import { hkdf } from '@noble/hashes/hkdf.js';
 import { sha512, sha256 } from '@noble/hashes/sha2.js';
 import { hmac } from '@noble/hashes/hmac.js';
 import { generateSecureRandomBytes } from './safeRandom';
-import { constantTimeCompare, zeroizeBuffer, fastPbkdf2HmacSha512, DEFAULT_PBKDF2_ITERATIONS, sanitizePasswordString } from './cascadeEngine';
+import { constantTimeCompare, zeroizeBuffer, fastPbkdf2HmacSha512, DEFAULT_PBKDF2_ITERATIONS } from './cascadeEngine';
 import { encodeRSStream, decodeRSStream } from './reedSolomon';
 
 /**

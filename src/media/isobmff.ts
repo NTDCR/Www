@@ -5,10 +5,8 @@
  */
 
 import { EmbeddingLocationReport } from '../types';
-import { STRICT_CHUNK_SIZE } from '../utils/fileReader';
 import { yieldToMainThread } from '../utils/asyncUtils';
 import { generatePlayableH264Mp4 } from './mp4Generator';
-import { encodeRSStream, decodeRSStream } from '../crypto/reedSolomon';
 
 export interface Mp4Box {
   type: string;
@@ -504,19 +502,6 @@ export async function extractSpreadSpectrumPayload(protectedMp4: Uint8Array): Pr
 
   function recordCandidate(payload: Uint8Array, expectedIndex: number, offset: number) {
     if (!payload || payload.length === 0 || !Number.isFinite(expectedIndex) || expectedIndex < 0 || expectedIndex > 7 || !Number.isFinite(offset) || offset < 0) return;
-    const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
-
-    // Backward compatibility with legacy 8-byte framing: [index (2B), reserved (2B), len (4B)]
-    if (payload.length >= 8) {
-      const index = view.getUint16(0, true);
-      const res = view.getUint16(2, true);
-      const len = view.getUint32(4, true);
-      if (index === expectedIndex && res === 0 && payload.length === 8 + len) {
-        candidates.push({ slot: expectedIndex, data: payload.subarray(8, 8 + len), offset });
-        return;
-      }
-    }
-
     // Direct stealth raw chunk (zero headers, zero metadata fingerprints)
     candidates.push({ slot: expectedIndex, data: payload, offset });
   }
@@ -552,11 +537,6 @@ export async function extractSpreadSpectrumPayload(protectedMp4: Uint8Array): Pr
         recordCandidate(box.data, 3, box.offset);
       } else if ((box.type === 'skip' || box.type === 'cgpm') && isRoot) {
         recordCandidate(box.data, 4, box.offset);
-      } else if (box.type === 'stco' && isRoot) {
-        // Backward-compatible fallback for legacy containers
-        if (box.data.length >= 8) {
-          recordCandidate(box.data.subarray(8), 5, box.offset);
-        }
       } else if (box.type === 'prvm' && isRoot) {
         recordCandidate(box.data, 6, box.offset);
       } else if (box.type === 'udta' && isRoot) {

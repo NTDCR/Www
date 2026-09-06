@@ -2,20 +2,16 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   Unlock,
   UploadCloud,
-  FileCheck,
   Key,
   Download,
   AlertCircle,
   Eye,
   EyeOff,
   RefreshCw,
-  ShieldAlert,
-  ShieldCheck,
   CheckCircle2,
   HardDrive,
   Film,
   FileText,
-  Sparkles,
   Trash2
 } from 'lucide-react';
 import { CascadePasswords, DualVaultExtractionResult, VaultAssessmentNotes } from '../types';
@@ -29,7 +25,7 @@ import { VirtualKeypad } from './VirtualKeypad';
 import { LiveProgressTimer, formatDurationHuman } from './LiveProgressTimer';
 import { Key6BadgeCard } from './Key6BadgeCard';
 import { AssessmentNotesPreviewModal } from './AssessmentNotesPreviewModal';
-import { StreamingFileHandle, createStreamingFileHandle, loadStreamingFileHandleAsync, streamChunksDirectToDisk, sanitizeFilename, zeroizeStreamingHandle } from '../utils/fileReader';
+import { StreamingFileHandle, loadStreamingFileHandleAsync, streamChunksDirectToDisk, sanitizeFilename, zeroizeStreamingHandle } from '../utils/fileReader';
 import { yieldToMainThread, sanitizePasswordString } from '../crypto/cascadeEngine';
 import { sanitizeKey6String } from '../crypto/key6Engine';
 
@@ -66,8 +62,6 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
 
   const [protectedFile, setProtectedFile] = useState<StreamingFileHandle | null>(null);
   useEffect(() => { protectedFileRef.current = protectedFile; }, [protectedFile]);
-  const [protectedBlob, setProtectedBlob] = useState<Blob | null>(null);
-
   const [passwords, setPasswords] = useState<CascadePasswords>({
     layer1_kyber: '',
     layer2_serpent: '',
@@ -81,7 +75,6 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
   const [key6Input, setKey6Input] = useState<string>('');
   const [key6VerifiedUniqueId, setKey6VerifiedUniqueId] = useState<string>('');
   const [key6MatchedVault, setKey6MatchedVault] = useState<'VaultA' | 'VaultB' | null>(null);
-  const [isVerifyingKey6, setIsVerifyingKey6] = useState<boolean>(false);
 
   // Pre-Decryption Live Assessment Notes State
   const [assessmentNotes, setAssessmentNotes] = useState<VaultAssessmentNotes | null>(null);
@@ -110,7 +103,6 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
     if (!hasKey6) {
       setKey6VerifiedUniqueId('');
       setKey6MatchedVault(null);
-      setIsVerifyingKey6(false);
     }
 
     if (!hasAnyPassword) {
@@ -132,7 +124,6 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
 
       // 1. Key 6 live verification (only if >= 4 chars typed)
       if (hasKey6 && protectedFile && sanitizePasswordString(effectiveKey6).length >= 4) {
-        setIsVerifyingKey6(true);
         try {
           const res = await inspectContainerKey6Identity(protectedFile, effectiveKey6, pbkdf2Iterations);
           if (active) {
@@ -144,8 +135,6 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
             setKey6VerifiedUniqueId('');
             setKey6MatchedVault(null);
           }
-        } finally {
-          if (active) setIsVerifyingKey6(false);
         }
       }
 
@@ -219,7 +208,6 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
     setKey6MatchedVault(null);
     if (!file) {
       setProtectedFile(null);
-      setProtectedBlob(null);
       return;
     }
     try {
@@ -228,12 +216,10 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
       const handle = await loadStreamingFileHandleAsync(file);
       await yieldToMainThread();
       setProtectedFile(handle);
-      setProtectedBlob(file);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Error reading selected file';
       setErrorMsg(`Container File Selection: ${msg}. Please re-select or drag & drop.`);
       setProtectedFile(null);
-      setProtectedBlob(null);
     }
   };
 
@@ -406,7 +392,6 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
       protectedFileRef.current = null;
     }
     setProtectedFile(null);
-    setProtectedBlob(null);
     setPasswords({
       layer1_kyber: '',
       layer2_serpent: '',
@@ -590,7 +575,7 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
 
           <Key6BadgeCard
             title={key6VerifiedUniqueId ? 'Container Identity Key 6 (Authenticated)' : 'Container Identity Key 6'}
-            vaultType="A"
+            vaultType={key6MatchedVault === 'VaultB' ? 'B' : 'A'}
             key6Value={key6Input}
             uniqueId1024Hex={key6VerifiedUniqueId}
             onKey6Change={(val) => {

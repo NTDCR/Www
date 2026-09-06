@@ -5,6 +5,12 @@
  * Non-destructive safety boundaries (Features 55, 56, 57)
  */
 
+import { generateSecureRandomBytes } from '../crypto/safeRandom';
+import { purgeClipboard } from './clipboard';
+import { clearContainerInspectionCache } from '../vault/dualVault';
+import { clearCarrierBlobCache } from '../media/mp4Generator';
+import { revokeAllActiveStreamUrls } from '../utils/fileReader';
+
 export interface PassStatus {
   currentPass: number;
   totalPasses: number;
@@ -52,8 +58,6 @@ const GUTMANN_PATTERNS = [
   '0x00 Final Zeroization & Verify'
 ];
 
-import { generateSecureRandomBytes } from '../crypto/safeRandom';
-
 function getPassOverwritePattern(pass: number, len: number = 1024): string {
   if (pass === 0 || pass === 10 || pass === 33) return String.fromCharCode(0x55).repeat(len);
   if (pass === 1 || pass === 15) return String.fromCharCode(0xAA).repeat(len);
@@ -66,11 +70,6 @@ function getPassOverwritePattern(pass: number, len: number = 1024): string {
   const char = String.fromCharCode(((pass * 37) ^ 0x92) & 0xff);
   return char.repeat(len);
 }
-
-import { purgeClipboard } from './clipboard';
-import { clearContainerInspectionCache } from '../vault/dualVault';
-import { clearCarrierBlobCache } from '../media/mp4Generator';
-import { revokeAllActiveStreamUrls } from '../utils/fileReader';
 
 /**
  * Executes full 35-pass sanitization sequence on client environment

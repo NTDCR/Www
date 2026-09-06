@@ -4,16 +4,7 @@ import {
   Lock,
   Unlock,
   Activity,
-  FileText,
-  WifiOff,
-  Cpu,
-  Layers,
-  Database,
-  CheckCircle2,
-  HardDrive,
-  FileCheck,
-  KeyRound,
-  Download
+  FileText
 } from 'lucide-react';
 import { DeviceFingerprint, AuditLogEntry, StatisticalMetrics, EmbeddingLocationReport } from './types';
 import { generateDeviceFingerprint } from './security/deviceFingerprint';

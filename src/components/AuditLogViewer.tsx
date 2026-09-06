@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { FileText, Download, Copy, Check, ShieldCheck } from 'lucide-react';
+import { FileText, Download, Copy, Check } from 'lucide-react';
 import { AuditLogEntry } from '../types';
 import { secureCopyToClipboard } from '../security/clipboard';
 

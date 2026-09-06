@@ -24,9 +24,9 @@ import {
   sanitizePasswordString
 } from '../crypto/cascadeEngine';
 import { normalizeEntropyToTarget, denormalizeEntropy, denormalizeEntropyHeaderFast, analyzeStatisticalCompliance } from '../crypto/entropy';
-import { embedSpreadSpectrum8Locations, extractSpreadSpectrumPayload, createSyntheticMp4Carrier, isValidIsobmffCarrier } from '../media/isobmff';
-import { getOrGenerateCarrierBlob } from '../media/mp4Generator';
-import { readFileAsUint8Array, StreamingFileHandle, STRICT_CHUNK_SIZE, readChunkFromHandle, sanitizeFilename, zeroizeStreamingHandle } from '../utils/fileReader';
+import { embedSpreadSpectrum8Locations, extractSpreadSpectrumPayload, isValidIsobmffCarrier } from '../media/isobmff';
+import { getOrGenerateCarrierBlob, clearCarrierBlobCache } from '../media/mp4Generator';
+import { readFileAsUint8Array, StreamingFileHandle, sanitizeFilename, zeroizeStreamingHandle } from '../utils/fileReader';
 import { generateSecureRandomBytes } from '../crypto/safeRandom';
 import { yieldToMainThread } from '../utils/asyncUtils';
 import {
@@ -38,9 +38,9 @@ import {
   RS_DEFAULT_BLOCK_SIZE,
   RS_DEFAULT_PARITY_LEN
 } from '../crypto/reedSolomon';
-import { deriveAndMask1024BitId, unmaskAndVerifyKey6FromRSBlock } from '../crypto/key6Engine';
+import { unmaskAndVerifyKey6FromRSBlock } from '../crypto/key6Engine';
 import { decryptAssessmentNotesBlock } from '../crypto/notesEngine';
-import { clearCarrierBlobCache } from '../media/mp4Generator';
+import { sha512 } from '@noble/hashes/sha2.js';
 
 /**
  * Stateless container inspection helper.
@@ -178,8 +178,6 @@ export async function getOrExtractContainerBundles(
     }
   }
 }
-
-import { sha512 } from '@noble/hashes/sha2.js';
 
 export type { DualVaultCreationResult, DualVaultExtractionResult };
 

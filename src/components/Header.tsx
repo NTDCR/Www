@@ -1,15 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
-  ShieldAlert,
   Lock,
   WifiOff,
   Clock,
   Trash2,
   FileCheck,
   Cpu,
-  HelpCircle,
-  KeyRound,
-  HardDrive
+  KeyRound
 } from 'lucide-react';
 import { DeviceFingerprint } from '../types';
 import { PWAInstallButton } from './PWAInstallButton';

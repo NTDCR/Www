@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Shield, Key, Eye, EyeOff, RotateCcw, Check } from 'lucide-react';
+import { Shield, RotateCcw } from 'lucide-react';
 import { secureShuffle } from '../crypto/safeRandom';
 
 interface VirtualKeypadProps {

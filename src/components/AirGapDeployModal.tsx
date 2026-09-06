@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { WifiOff, HardDrive, ShieldCheck, X, Terminal, CheckCircle2, Download } from 'lucide-react';
+import { WifiOff, X } from 'lucide-react';
 
 interface AirGapDeployModalProps {
   onClose: () => void;

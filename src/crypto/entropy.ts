@@ -185,8 +185,6 @@ function computeHeaderChecksum(salt: Uint8Array, len: number): number {
   return (tag[0] | (tag[1] << 8) | (tag[2] << 16) | (tag[3] << 24)) >>> 0;
 }
 
-const SPARSE_SHAPING_INTERVAL = 1; // 1:1 pseudo-random parity lane diffusion (1 bias byte per payload byte to ensure entropy <= 7.40 bits/byte)
-
 export async function normalizeEntropyToTarget(
   ciphertext: Uint8Array,
   _targetEntropy: number = 7.38

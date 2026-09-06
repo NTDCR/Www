@@ -4,14 +4,12 @@ import {
   Pause,
   Volume2,
   VolumeX,
-  Maximize2,
   Video,
   Sparkles,
   RefreshCw,
   CheckCircle2,
   Film,
   Clock,
-  Layers,
   Activity
 } from 'lucide-react';
 import { createAnimatedCanvasCarrierBlob } from '../media/mp4Generator';

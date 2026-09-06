@@ -17,7 +17,6 @@
  *      for preview before final extraction.
  */
 
-import { pbkdf2 } from '@noble/hashes/pbkdf2.js';
 import { hkdf } from '@noble/hashes/hkdf.js';
 import { sha512, sha256 } from '@noble/hashes/sha2.js';
 import { hmac } from '@noble/hashes/hmac.js';
@@ -27,7 +26,7 @@ import { serpent256Ctr } from './serpent';
 import { gcm } from '@noble/ciphers/aes.js';
 import { xchacha20Poly1305Encrypt, xchacha20Poly1305Decrypt } from './xchacha20poly1305';
 import { encodeRSStream, decodeRSStream } from './reedSolomon';
-import { CascadePasswords, VaultAssessmentNotes, createEmptyAssessmentNotes, isAssessmentNotesComplete } from '../types';
+import { CascadePasswords, VaultAssessmentNotes } from '../types';
 
 /** Maximum plaintext JSON size for assessment notes (DoS bound). */
 const NOTES_JSON_MAX_BYTES = 256 * 1024;

@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Cpu, CheckCircle2, Play, RefreshCw, X, AlertTriangle, Zap, Check } from 'lucide-react';
+import { Cpu, CheckCircle2, Play, RefreshCw, X, AlertTriangle } from 'lucide-react';
 import { kyber1024KeyGen, kyber1024Encapsulate, kyber1024Decapsulate } from '../crypto/kyber1024';
 import { serpent256Ctr } from '../crypto/serpent';
 import { xchacha20Poly1305Encrypt, xchacha20Poly1305Decrypt, chacha20Process } from '../crypto/xchacha20poly1305';
-import { deriveLayerKey, encryptCascade5Layers, decryptCascade5Layers, zeroizeBuffer } from '../crypto/cascadeEngine';
-import { calculateShannonEntropy, normalizeEntropyToTarget, denormalizeEntropy, calculateChiSquareTest, getNaturalMp4Distribution, calculateHistogram } from '../crypto/entropy';
+import { deriveLayerKey, zeroizeBuffer } from '../crypto/cascadeEngine';
+import { calculateShannonEntropy, normalizeEntropyToTarget, denormalizeEntropy } from '../crypto/entropy';
 import { embedSpreadSpectrum8Locations, extractSpreadSpectrumPayload, createSyntheticMp4Carrier } from '../media/isobmff';
 import { generateDeviceFingerprint, generateRecoveryCodesInMemory } from '../security/deviceFingerprint';
 import { generateSecureRandomBytes } from '../crypto/safeRandom';

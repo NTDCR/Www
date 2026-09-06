@@ -14,14 +14,14 @@
 
 import { CascadePasswords, VaultAssessmentNotes, isAssessmentNotesComplete } from '../types';
 import { kyber1024KeyGen, kyber1024Encapsulate, kyber1024Decapsulate } from './kyber1024';
-import { serpent256Ctr, serpent256CtrAsync, serpentKeySchedule } from './serpent';
+import { serpent256CtrAsync, serpentKeySchedule } from './serpent';
 import { chacha20Process } from './xchacha20poly1305';
 import { ctr } from '@noble/ciphers/aes.js';
-import { pbkdf2, pbkdf2Async } from '@noble/hashes/pbkdf2.js';
+import { pbkdf2Async } from '@noble/hashes/pbkdf2.js';
 import { hkdf } from '@noble/hashes/hkdf.js';
 import { sha512, sha256 } from '@noble/hashes/sha2.js';
 import { hmac } from '@noble/hashes/hmac.js';
-import { generateSecureRandomBytes, generateCSPRNGKeystream } from './safeRandom';
+import { generateSecureRandomBytes } from './safeRandom';
 import { STRICT_CHUNK_SIZE, StreamingFileHandle, readFileAsUint8Array, readChunkFromHandle, zeroizeStreamingHandle, sanitizeFilename } from '../utils/fileReader';
 import { yieldToMainThread } from '../utils/asyncUtils';
 export { yieldToMainThread };

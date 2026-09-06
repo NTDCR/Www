@@ -4,17 +4,12 @@ import {
   Activity,
   CheckCircle2,
   AlertTriangle,
-  Zap,
   Layers,
-  Sparkles,
-  Search,
   Terminal,
   Shield,
-  FileSearch,
   Cpu,
   Clock,
   KeyRound,
-  Check,
   Award
 } from 'lucide-react';
 import { StatisticalMetrics, EmbeddingLocationReport } from '../types';
