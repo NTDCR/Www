@@ -5,6 +5,7 @@ import { generateSecureRandomBytes } from '../src/crypto/safeRandom';
 import { unmaskAndVerifyKey6FromRSBlock, deriveAndMask1024BitId } from '../src/crypto/key6Engine';
 import { encryptAssessmentNotesBlock, decryptAssessmentNotesBlock } from '../src/crypto/notesEngine';
 import { parseIsobmffBoxes } from '../src/media/isobmff';
+import { sanitizeFilename } from '../src/utils/fileReader';
 
 interface BountyTestResult {
   id: string;
@@ -256,6 +257,24 @@ async function runBountySuite() {
   const stealthPw = 'UltraSecurePlausibleDeniability!99\u200B\uFEFF';
   const bypassBlocked = sanitizePasswordString(normalPw) === sanitizePasswordString(stealthPw);
   record('B-18', 'Unicode Sanitization', 'Zero-Width Bypass Lockout', bypassBlocked ? 'PASSED' : 'FAILED', 'Identical passwords disguised with zero-width spaces are caught and neutralized');
+
+  // 6.5: Trojan Source (BiDi RLO) & Zero-Width Filename Sanitization (CWE-451)
+  const trojanName = 'safe_document_\u202Efdp.exe';
+  const zeroWidthName = 'top_secret\u200B\uFEFF_plan.pdf';
+  const sanitizedTrojan = sanitizeFilename(trojanName);
+  const sanitizedZeroWidth = sanitizeFilename(zeroWidthName);
+  const trojanNeutralized = sanitizedTrojan === 'safe_document_fdp.exe' && sanitizedZeroWidth === 'top_secret_plan.pdf';
+  record('B-19', 'Filename Sanitization', 'Trojan Source & Zero-Width Neutralization', trojanNeutralized ? 'PASSED' : 'FAILED', `Neutralized BiDi override & zero-width noise -> "${sanitizedTrojan}"`);
+
+  // 6.6: Path Traversal, ADS & Reserved Device Name Disarming (CWE-22)
+  const traversalName = '../../../../etc/passwd';
+  const adsName = 'payload.bin:hidden.exe';
+  const conDevice = 'CON.txt';
+  const sanitizedTraversal = sanitizeFilename(traversalName);
+  const sanitizedAds = sanitizeFilename(adsName);
+  const sanitizedCon = sanitizeFilename(conDevice);
+  const osDefended = sanitizedTraversal === 'passwd' && sanitizedAds === 'payload.bin_hidden.exe' && sanitizedCon === '_CON.txt';
+  record('B-20', 'Filesystem Security', 'Path Traversal, ADS & DOS Device Disarming', osDefended ? 'PASSED' : 'FAILED', `Sanitized path -> "${sanitizedTraversal}", ADS -> "${sanitizedAds}", DOS device -> "${sanitizedCon}"`);
 
   console.log('\n========================================================================');
   console.log('                 BUG-BOUNTY RESCAN EXECUTIVE SUMMARY');

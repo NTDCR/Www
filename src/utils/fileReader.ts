@@ -723,8 +723,10 @@ export async function streamChunksDirectToDisk(
 export function sanitizeFilename(rawName: string, fallback: string = 'extracted_payload.bin'): string {
   if (!rawName || typeof rawName !== 'string') return fallback;
 
-  // 1. Strip null bytes, control characters (0x00 - 0x1F, 0x7F), and leading/trailing whitespace
-  let clean = rawName.replace(/[\x00-\x1f\x7f]/g, '').trim();
+  // 1. Strip null bytes, control characters (0x00 - 0x1F, 0x7F), zero-width spaces, and BiDi overrides (Trojan Source / CWE-451)
+  let clean = rawName
+    .replace(/[\x00-\x1f\x7f\u200B-\u200F\u2060-\u2064\uFEFF\u202A-\u202E\u2066-\u2069]/g, '')
+    .trim();
 
   // 2. Remove directory path components (both POSIX / and Windows \)
   clean = clean.replace(/^.*[/\\]/, '');
