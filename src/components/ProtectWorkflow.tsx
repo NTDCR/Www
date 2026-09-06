@@ -44,7 +44,7 @@ import { getOrGenerateCarrierBlob } from '../media/mp4Generator';
 import { StreamingFileHandle, createStreamingFileHandle, loadStreamingFileHandleAsync, streamChunksDirectToDisk, sanitizeFilename } from '../utils/fileReader';
 import { VideoPlayerPreview } from './VideoPlayerPreview';
 import { yieldToMainThread } from '../utils/asyncUtils';
-import { sanitizePasswordString } from '../crypto/cascadeEngine';
+import { sanitizePasswordString, zeroizeBuffer } from '../crypto/cascadeEngine';
 import { isValidIsobmffCarrier } from '../media/isobmff';
 
 interface ProtectWorkflowProps {
@@ -158,6 +158,7 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
           await yieldToMainThread();
           const res = await deriveAndMask1024BitId(vaultAPasswords.layer6_key6, fileSaltA, pbkdf2Iterations, 'VaultA');
           if (active) setUniqueIdA1024(res.hexString);
+          zeroizeBuffer(res.rawId128, res.encryptedId128, res.commitmentTag32, res.rsBlock);
         } catch {
           if (active) setUniqueIdA1024('');
         }
@@ -168,6 +169,7 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
           await yieldToMainThread();
           const res = await deriveAndMask1024BitId(vaultBPasswords.layer6_key6, fileSaltB, pbkdf2Iterations, 'VaultB');
           if (active) setUniqueIdB1024(res.hexString);
+          zeroizeBuffer(res.rawId128, res.encryptedId128, res.commitmentTag32, res.rsBlock);
         } catch {
           if (active) setUniqueIdB1024('');
         }

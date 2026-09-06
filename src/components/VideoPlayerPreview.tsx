@@ -52,6 +52,13 @@ export const VideoPlayerPreview: React.FC<VideoPlayerPreviewProps> = ({
     isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
+      if (videoRef.current) {
+        try {
+          videoRef.current.pause();
+          videoRef.current.removeAttribute('src');
+          videoRef.current.load();
+        } catch {}
+      }
     };
   }, []);
 
@@ -72,6 +79,11 @@ export const VideoPlayerPreview: React.FC<VideoPlayerPreviewProps> = ({
     return () => {
       if (url) {
         URL.revokeObjectURL(url);
+      }
+      if (videoRef.current) {
+        try {
+          videoRef.current.pause();
+        } catch {}
       }
     };
   }, [videoBlob, videoUrl]);

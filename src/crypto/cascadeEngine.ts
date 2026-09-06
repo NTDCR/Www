@@ -780,6 +780,7 @@ export async function encryptCascade5Layers(
       vaultLabel
     );
     k6Block = k6Res.rsBlock;
+    zeroizeBuffer(k6Res.rawId128, k6Res.encryptedId128, k6Res.commitmentTag32);
   }
 
   // 7. Comprehensive Assessment Notes Cascade Encryption (Independent RS-protected XOR Garbage Block)
@@ -896,6 +897,7 @@ export async function decryptCascade5Layers(
   let serpentSubkeys: ReturnType<typeof serpentKeySchedule> | null = null;
   const decryptedChunks: Uint8Array[] = [];
 
+  let isStreamDecrypted = false;
   try {
     key1 = await deriveLayerKey(p1, bundle.saltL1, iterations, 'Layer1-Kyber');
     await yieldToMainThread();
@@ -921,8 +923,8 @@ export async function decryptCascade5Layers(
     const ikm = new Uint8Array(32);
     for (let i = 0; i < 32; i++) ikm[i] = pqcSecret[i] ^ key1[i];
     const derivedPqc = hkdf(sha512, ikm, bundle.saltL1.subarray(0, 32), new TextEncoder().encode('ContentGuard-L1-ChaCha20-PQC'), 44);
-    const pqcStreamKey = derivedPqc.slice(0, 32);
-    const pqcStreamNonce = derivedPqc.slice(32, 44);
+    pqcStreamKey = derivedPqc.slice(0, 32);
+    pqcStreamNonce = derivedPqc.slice(32, 44);
     ikm.fill(0);
     derivedPqc.fill(0);
 
@@ -960,7 +962,11 @@ export async function decryptCascade5Layers(
       offset += chunk.length;
       onProgress?.(4, `Decrypting stream chunk ${idx + 1} / ${chunksToDecrypt.length}...`);
     }
+    isStreamDecrypted = true;
   } finally {
+    if (!isStreamDecrypted) {
+      zeroizeBuffer(decryptedChunks);
+    }
     zeroizeBuffer(key1, key2, key3, key4, key5, pqcSecret, pqcStreamKey, pqcStreamNonce);
     if (serpentSubkeys) {
       for (const rk of serpentSubkeys) rk.fill(0);
