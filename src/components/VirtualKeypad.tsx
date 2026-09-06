@@ -38,7 +38,14 @@ export const VirtualKeypad: React.FC<VirtualKeypadProps> = ({
   }, []);
 
   return (
-    <div id="virtual-keypad-panel" className="bg-slate-900 border border-emerald-500/30 rounded-xl p-4 shadow-2xl max-w-xl mx-auto backdrop-blur-md">
+    <div
+      id="virtual-keypad-panel"
+      data-lpignore="true"
+      data-1p-ignore="true"
+      data-bwignore="true"
+      data-form-type="other"
+      className="bg-slate-900 border border-emerald-500/30 rounded-xl p-4 shadow-2xl max-w-xl mx-auto backdrop-blur-md"
+    >
       <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-3">
         <div className="flex items-center gap-2 text-emerald-400 font-mono text-xs tracking-wide">
           <Shield className="w-4 h-4 text-emerald-400 animate-pulse" />
@@ -73,6 +80,9 @@ export const VirtualKeypad: React.FC<VirtualKeypadProps> = ({
             <button
               key={`${k}-${idx}`}
               type="button"
+              data-lpignore="true"
+              data-1p-ignore="true"
+              data-bwignore="true"
               onClick={() => onInput(displayChar)}
               className="h-9 sm:h-10 bg-slate-800 hover:bg-emerald-500/20 active:bg-emerald-500 text-slate-200 hover:text-emerald-300 font-mono font-bold text-xs sm:text-sm rounded border border-slate-700 hover:border-emerald-500/50 transition-all flex items-center justify-center select-none shadow-sm touch-manipulation"
             >

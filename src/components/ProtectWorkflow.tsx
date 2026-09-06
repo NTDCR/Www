@@ -20,7 +20,9 @@ import {
   Upload,
   HardDrive,
   Film,
-  CheckCircle2
+  CheckCircle2,
+  Trash2,
+  ShieldAlert
 } from 'lucide-react';
 import {
   CascadePasswords,
@@ -436,6 +438,38 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
     setTimeout(() => URL.revokeObjectURL(url), 10000);
   };
 
+  const handleZeroizeProtectionSession = () => {
+    setResult(null);
+    setVaultAPasswords({
+      layer1_kyber: '',
+      layer2_serpent: '',
+      layer3_xchacha: '',
+      layer4_aes: '',
+      layer5_otp: '',
+      layer6_key6: ''
+    });
+    setVaultBPasswords({
+      layer1_kyber: '',
+      layer2_serpent: '',
+      layer3_xchacha: '',
+      layer4_aes: '',
+      layer5_otp: '',
+      layer6_key6: ''
+    });
+    setVaultANotes(createEmptyAssessmentNotes());
+    setVaultBNotes(createEmptyAssessmentNotes());
+    setVaultAFile(null);
+    setVaultBFile(null);
+    setCarrierFile(null);
+    setCarrierPreviewBlob(null);
+    setUniqueIdA1024('');
+    setUniqueIdB1024('');
+    setErrorMsg(null);
+    setProgressPct(0);
+    setProgressText('');
+    setDiskSaveStatus(null);
+  };
+
   return (
     <div id="protect-workflow" className="space-y-6">
       
@@ -646,6 +680,16 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
                 );
               })()}
 
+              {useSyntheticCarrier && (
+                <div className="p-3 bg-sky-950/50 border border-sky-500/40 rounded-lg text-xs font-mono text-sky-300 flex items-start gap-2">
+                  <Sparkles className="w-4 h-4 text-sky-400 shrink-0 mt-0.5" />
+                  <div>
+                    <span className="font-bold block">Adversarial Steganalysis Advisory (OpSec Protocol):</span>
+                    Synthetic carrier generates clean, playable Baseline H.264 video for testing and air-gapped transport. For plausible deniability against advanced nation-state deep-learning neural network steganalysis (SRNet / Xu-Net), always use an authentic smartphone or camera MP4 recording with natural photon sensor noise.
+                  </div>
+                </div>
+              )}
+
               {Boolean(
                 (carrierFile && carrierFile.size >= 1.5 * 1024 * 1024 * 1024) ||
                 (vaultAFile && vaultAFile.size >= 1.5 * 1024 * 1024 * 1024) ||
@@ -702,6 +746,16 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
                 )}
               </div>
             </div>
+
+            {vaultAFile && vaultBFile && vaultBFile.size < 500 && vaultAFile.size > 5000 && (
+              <div className="p-3 mt-3 bg-amber-950/60 border border-amber-500/50 rounded-lg text-xs font-mono text-amber-300 flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-bold block">Decoy Believability Advisory (Coercion Defense):</span>
+                  Decoy Vault B size ({vaultBFile.size} bytes) is suspiciously small compared to Secret Vault A ({(vaultAFile.size / 1024).toFixed(1)} KB). For true plausible deniability under coercive interrogation (Rubber-Hose Cryptanalysis), ensure Vault B contains believable, realistic decoy documents so an adversary is satisfied that the decoy was the intended content.
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="text-[11px] font-mono text-slate-500 mt-4 pt-3 border-t border-slate-800 flex items-center justify-between">
@@ -779,6 +833,8 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
                     spellCheck={false}
                     data-lpignore="true"
                     data-1p-ignore="true"
+                    data-form-type="other"
+                    data-bwignore="true"
                     className="w-full bg-slate-900 border border-slate-700 focus:border-emerald-500 rounded px-2.5 py-1.5 text-slate-200 text-xs"
                   />
                 </div>
@@ -833,6 +889,8 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
                     spellCheck={false}
                     data-lpignore="true"
                     data-1p-ignore="true"
+                    data-form-type="other"
+                    data-bwignore="true"
                     className="w-full bg-slate-900 border border-slate-700 focus:border-amber-500 rounded px-2.5 py-1.5 text-slate-200 text-xs"
                   />
                 </div>
@@ -1075,6 +1133,16 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
               >
                 <Download className="w-4 h-4" />
                 <span>Chunked Download</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleZeroizeProtectionSession}
+                className="flex items-center justify-center gap-2 px-4 py-3.5 bg-rose-950/60 hover:bg-rose-900/80 text-rose-300 border border-rose-800/60 font-mono font-bold text-xs uppercase tracking-wider rounded-lg shadow-xl shadow-rose-950/60 transition-all active:scale-95 whitespace-nowrap"
+                title="Immediately wipes session passwords, files, and state from browser memory"
+              >
+                <Trash2 className="w-4 h-4 text-rose-400" />
+                <span>Zeroize Session Memory</span>
               </button>
             </div>
           </div>

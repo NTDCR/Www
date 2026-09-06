@@ -15,7 +15,8 @@ import {
   HardDrive,
   Film,
   FileText,
-  Sparkles
+  Sparkles,
+  Trash2
 } from 'lucide-react';
 import { CascadePasswords, DualVaultExtractionResult, VaultAssessmentNotes } from '../types';
 import {
@@ -340,6 +341,32 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
     setTimeout(() => URL.revokeObjectURL(url), 10000);
   };
 
+  const handleZeroizeExtractionSession = () => {
+    if (result && result.chunkedData) {
+      for (const chunk of result.chunkedData) {
+        chunk.fill(0);
+      }
+    }
+    setResult(null);
+    setProtectedFile(null);
+    setPasswords({
+      layer1_kyber: '',
+      layer2_serpent: '',
+      layer3_xchacha: '',
+      layer4_aes: '',
+      layer5_otp: '',
+      layer6_key6: ''
+    });
+    setKey6Input('');
+    setKey6VerifiedUniqueId('');
+    setKey6MatchedVault(null);
+    setAssessmentNotes(null);
+    setErrorMsg(null);
+    setProgressPct(0);
+    setProgressText('');
+    setDiskSaveStatus(null);
+  };
+
   return (
     <div id="extract-workflow" className="space-y-6">
       
@@ -482,6 +509,8 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
                   spellCheck={false}
                   data-lpignore="true"
                   data-1p-ignore="true"
+                  data-form-type="other"
+                  data-bwignore="true"
                   className="w-full bg-slate-900 border border-slate-700 focus:border-emerald-500 rounded px-2.5 py-1.5 text-slate-200 text-xs"
                 />
               </div>
@@ -703,6 +732,16 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
               >
                 <Download className="w-4 h-4" />
                 <span>Chunked Download</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleZeroizeExtractionSession}
+                className="flex items-center justify-center gap-2 px-4 py-3.5 bg-rose-950/60 hover:bg-rose-900/80 text-rose-300 border border-rose-800/60 font-mono font-bold text-xs uppercase tracking-wider rounded-lg shadow-xl shadow-rose-950/60 transition-all active:scale-95 whitespace-nowrap"
+                title="Immediately wipes extracted plaintext from RAM, clears passwords, and resets session"
+              >
+                <Trash2 className="w-4 h-4 text-rose-400" />
+                <span>Zeroize Session Memory</span>
               </button>
             </div>
           </div>

@@ -162,7 +162,7 @@ export async function execute35PassSecureWipe(
     }
   } catch {}
 
-  // 6. Final memory and storage purge
+  // 6. Final memory and storage purge + V8 generational garbage collection sweep
   try {
     if (typeof window !== 'undefined') {
       if (typeof localStorage !== 'undefined') localStorage.clear();
@@ -170,5 +170,18 @@ export async function execute35PassSecureWipe(
     }
     await purgeClipboard();
     clearContainerInspectionCache();
+
+    // V8 Heap Memory Pressure Sweep: Allocate, zeroize, and discard to trigger GC compaction
+    const sweepBlocks: Uint8Array[] = [];
+    for (let i = 0; i < 16; i++) {
+      const blk = new Uint8Array(2 * 1024 * 1024); // 2 MB blocks (32 MB total)
+      blk.fill(0x00);
+      sweepBlocks.push(blk);
+    }
+    for (const b of sweepBlocks) {
+      b.fill(0x55);
+      b.fill(0x00);
+    }
+    sweepBlocks.length = 0;
   } catch {}
 }
