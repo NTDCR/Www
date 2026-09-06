@@ -285,7 +285,8 @@ function decompressV(bytes: Uint8Array): Int16Array {
  * Computes exact negative-wrapped polynomial convolution modulo X^256 + 1
  */
 export function polyMulRq(f: Int16Array | Uint16Array, g: Int16Array | Uint16Array): Int16Array {
-  const h = new Int32Array(256);
+  // Float64Array provides 53-bit exact integer precision (up to 9e15), eliminating any 32-bit signed overflow
+  const h = new Float64Array(256);
   for (let i = 0; i < 256; i++) {
     const fi = f[i];
     if (fi === 0) continue;
@@ -299,8 +300,9 @@ export function polyMulRq(f: Int16Array | Uint16Array, g: Int16Array | Uint16Arr
   }
   const res = new Int16Array(256);
   for (let i = 0; i < 256; i++) {
-    res[i] = ((h[i] % KYBER_Q) + KYBER_Q) % KYBER_Q;
+    res[i] = ((Math.round(h[i]) % KYBER_Q) + KYBER_Q) % KYBER_Q;
   }
+  h.fill(0);
   return res;
 }
 
