@@ -20,7 +20,8 @@ import {
   EncryptedPayloadBundle,
   DecryptedPayloadResult,
   DEFAULT_PBKDF2_ITERATIONS,
-  NEUTRAL_AUTH_FAILURE
+  NEUTRAL_AUTH_FAILURE,
+  sanitizePasswordString
 } from '../crypto/cascadeEngine';
 import { normalizeEntropyToTarget, denormalizeEntropy, denormalizeEntropyHeaderFast, analyzeStatisticalCompliance } from '../crypto/entropy';
 import { embedSpreadSpectrum8Locations, extractSpreadSpectrumPayload, createSyntheticMp4Carrier } from '../media/isobmff';
@@ -670,7 +671,7 @@ export async function inspectContainerAssessmentNotes(
   repairedErrors: number;
   error?: string;
 }> {
-  const hasKeys = Object.values(passwords).some(p => p && p.trim().length > 0);
+  const hasKeys = Object.values(passwords).some(p => p && sanitizePasswordString(p).length > 0);
   if (!hasKeys) {
     return { matchedVault: null, notes: null, repairedErrors: 0 };
   }

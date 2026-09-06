@@ -30,7 +30,7 @@ import { LiveProgressTimer, formatDurationHuman } from './LiveProgressTimer';
 import { Key6BadgeCard } from './Key6BadgeCard';
 import { AssessmentNotesPreviewModal } from './AssessmentNotesPreviewModal';
 import { StreamingFileHandle, createStreamingFileHandle, loadStreamingFileHandleAsync, streamChunksDirectToDisk, sanitizeFilename } from '../utils/fileReader';
-import { yieldToMainThread } from '../crypto/cascadeEngine';
+import { yieldToMainThread, sanitizePasswordString } from '../crypto/cascadeEngine';
 
 interface ExtractWorkflowProps {
   onAddAuditLog: (eventType: 'DECRYPTION' | 'INTEGRITY_CHECK', details: string, digest: string) => void;
@@ -78,13 +78,13 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
   useEffect(() => {
     let active = true;
 
-    const effectiveKey6 = key6Input.trim() || passwords.layer6_key6?.trim() || '';
+    const effectiveKey6 = sanitizePasswordString(key6Input) || sanitizePasswordString(passwords.layer6_key6) || '';
     const effectivePasswords: CascadePasswords = {
       ...passwords,
       layer6_key6: effectiveKey6
     };
 
-    const hasAnyPassword = Object.values(effectivePasswords).some(p => typeof p === 'string' && p.trim().length > 0);
+    const hasAnyPassword = Object.values(effectivePasswords).some(p => typeof p === 'string' && sanitizePasswordString(p).length > 0);
     const hasKey6 = Boolean(effectiveKey6.length > 0);
 
     if (!hasKey6) {
@@ -111,7 +111,7 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
       if (!active) return;
 
       // 1. Key 6 live verification (only if >= 4 chars typed)
-      if (hasKey6 && protectedFile && effectiveKey6.trim().length >= 4) {
+      if (hasKey6 && protectedFile && sanitizePasswordString(effectiveKey6).length >= 4) {
         setIsVerifyingKey6(true);
         try {
           const res = await inspectContainerKey6Identity(protectedFile, effectiveKey6, pbkdf2Iterations);
@@ -130,7 +130,7 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
       }
 
       // 2. Assessment Notes live pre-decryption inspection (only if password has >= 4 chars)
-      const hasSubstantialPassword = Object.values(effectivePasswords).some(p => typeof p === 'string' && p.trim().length >= 4);
+      const hasSubstantialPassword = Object.values(effectivePasswords).some(p => typeof p === 'string' && sanitizePasswordString(p).length >= 4);
       if (hasSubstantialPassword && protectedFile) {
         setIsVerifyingNotes(true);
         try {
@@ -237,18 +237,18 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
       return;
     }
 
-    const effectiveKey6 = key6Input.trim() || passwords.layer6_key6?.trim() || '';
+    const effectiveKey6 = sanitizePasswordString(key6Input) || sanitizePasswordString(passwords.layer6_key6) || '';
     const effectivePasswords: CascadePasswords = {
       ...passwords,
       layer6_key6: effectiveKey6
     };
 
     const areAllLayersProvided = Boolean(
-      (effectivePasswords.layer1_kyber || '').trim().length > 0 &&
-      (effectivePasswords.layer2_serpent || '').trim().length > 0 &&
-      (effectivePasswords.layer3_xchacha || '').trim().length > 0 &&
-      (effectivePasswords.layer4_aes || '').trim().length > 0 &&
-      (effectivePasswords.layer5_otp || '').trim().length > 0
+      sanitizePasswordString(effectivePasswords.layer1_kyber).length > 0 &&
+      sanitizePasswordString(effectivePasswords.layer2_serpent).length > 0 &&
+      sanitizePasswordString(effectivePasswords.layer3_xchacha).length > 0 &&
+      sanitizePasswordString(effectivePasswords.layer4_aes).length > 0 &&
+      sanitizePasswordString(effectivePasswords.layer5_otp).length > 0
     );
     if (!areAllLayersProvided) {
       setErrorMsg('Mandatory Requirement: All 5 cryptographic layers (Kyber-1024, Serpent-256, XChaCha20, AES-256, OTP) must be provided to authenticate and extract the vault.');

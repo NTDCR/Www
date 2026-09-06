@@ -1,6 +1,6 @@
 import { createDualVaultPackage, extractFromDualVaultPackage } from '../src/vault/dualVault';
 import { encodeRSStream, decodeRSStream, rsDecodeBlock } from '../src/crypto/reedSolomon';
-import { deserializeBundle, serializeBundle, decryptCascade5Layers } from '../src/crypto/cascadeEngine';
+import { deserializeBundle, serializeBundle, decryptCascade5Layers, deriveLayerKey, sanitizePasswordString } from '../src/crypto/cascadeEngine';
 import { generateSecureRandomBytes } from '../src/crypto/safeRandom';
 import { unmaskAndVerifyKey6FromRSBlock, deriveAndMask1024BitId } from '../src/crypto/key6Engine';
 import { encryptAssessmentNotesBlock, decryptAssessmentNotesBlock } from '../src/crypto/notesEngine';
@@ -237,6 +237,25 @@ async function runBountySuite() {
   // 6.2: Malformed Box Size = 0 (Extends to EOF)
   const boxes = parseIsobmffBoxes(cleanContainer);
   record('B-16', 'ISOBMFF Parser', 'Parsed Box Hierarchy', boxes.length > 0 ? 'PASSED' : 'FAILED', `Parsed ${boxes.length} top-level boxes cleanly`);
+
+  // 6.3: Zero-Width Invisible Character Sanitization & Key Invariance
+  const testSalt = generateSecureRandomBytes(64);
+  const cleanKey = await deriveLayerKey('MySuperSecretKey!2026', testSalt, 1000);
+  const dirtyKey = await deriveLayerKey('My\u200BSuper\u200CSecret\u200DKey!\u20602026\uFEFF', testSalt, 1000);
+  let keysMatch = cleanKey.length === dirtyKey.length;
+  for (let i = 0; i < cleanKey.length; i++) {
+    if (cleanKey[i] !== dirtyKey[i]) {
+      keysMatch = false;
+      break;
+    }
+  }
+  record('B-17', 'Unicode Sanitization', 'Zero-Width Key Invariance', keysMatch ? 'PASSED' : 'FAILED', 'Derived identical 256-bit key despite invisible zero-width noise');
+
+  // 6.4: Zero-Width Bypass Lockout
+  const normalPw = 'UltraSecurePlausibleDeniability!99';
+  const stealthPw = 'UltraSecurePlausibleDeniability!99\u200B\uFEFF';
+  const bypassBlocked = sanitizePasswordString(normalPw) === sanitizePasswordString(stealthPw);
+  record('B-18', 'Unicode Sanitization', 'Zero-Width Bypass Lockout', bypassBlocked ? 'PASSED' : 'FAILED', 'Identical passwords disguised with zero-width spaces are caught and neutralized');
 
   console.log('\n========================================================================');
   console.log('                 BUG-BOUNTY RESCAN EXECUTIVE SUMMARY');

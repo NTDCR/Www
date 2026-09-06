@@ -44,6 +44,7 @@ import { getOrGenerateCarrierBlob } from '../media/mp4Generator';
 import { StreamingFileHandle, createStreamingFileHandle, loadStreamingFileHandleAsync, streamChunksDirectToDisk, sanitizeFilename } from '../utils/fileReader';
 import { VideoPlayerPreview } from './VideoPlayerPreview';
 import { yieldToMainThread } from '../utils/asyncUtils';
+import { sanitizePasswordString } from '../crypto/cascadeEngine';
 
 interface ProtectWorkflowProps {
   onAddAuditLog: (eventType: 'ENCRYPTION' | 'DUAL_VAULT_CREATION', details: string, digest: string) => void;
@@ -131,8 +132,8 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
   useEffect(() => {
     let active = true;
 
-    const hasKeyA = Boolean(vaultAPasswords.layer6_key6 && vaultAPasswords.layer6_key6.trim().length > 0);
-    const hasKeyB = Boolean(vaultBPasswords.layer6_key6 && vaultBPasswords.layer6_key6.trim().length > 0);
+    const hasKeyA = Boolean(vaultAPasswords.layer6_key6 && sanitizePasswordString(vaultAPasswords.layer6_key6).length > 0);
+    const hasKeyB = Boolean(vaultBPasswords.layer6_key6 && sanitizePasswordString(vaultBPasswords.layer6_key6).length > 0);
 
     if (!hasKeyA) setUniqueIdA1024('');
     if (!hasKeyB) setUniqueIdB1024('');
@@ -146,7 +147,7 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
     const timer = setTimeout(async () => {
       if (!active) return;
 
-      if (hasKeyA && vaultAPasswords.layer6_key6.trim().length >= 4) {
+      if (hasKeyA && sanitizePasswordString(vaultAPasswords.layer6_key6).length >= 4) {
         try {
           await yieldToMainThread();
           const res = await deriveAndMask1024BitId(vaultAPasswords.layer6_key6, fileSaltA, pbkdf2Iterations, 'VaultA');
@@ -156,7 +157,7 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
         }
       }
 
-      if (hasKeyB && vaultBPasswords.layer6_key6.trim().length >= 4) {
+      if (hasKeyB && sanitizePasswordString(vaultBPasswords.layer6_key6).length >= 4) {
         try {
           await yieldToMainThread();
           const res = await deriveAndMask1024BitId(vaultBPasswords.layer6_key6, fileSaltB, pbkdf2Iterations, 'VaultB');
@@ -312,12 +313,12 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
     }
 
     const isPasswordsComplete = (pw: CascadePasswords) => {
-      return Boolean(
-        (pw.layer1_kyber || '').trim().length > 0 &&
-        (pw.layer2_serpent || '').trim().length > 0 &&
-        (pw.layer3_xchacha || '').trim().length > 0 &&
-        (pw.layer4_aes || '').trim().length > 0 &&
-        (pw.layer5_otp || '').trim().length > 0
+      return (
+        sanitizePasswordString(pw.layer1_kyber).length > 0 &&
+        sanitizePasswordString(pw.layer2_serpent).length > 0 &&
+        sanitizePasswordString(pw.layer3_xchacha).length > 0 &&
+        sanitizePasswordString(pw.layer4_aes).length > 0 &&
+        sanitizePasswordString(pw.layer5_otp).length > 0
       );
     };
 
@@ -327,11 +328,11 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
     }
 
     const isSamePasswords =
-      (vaultAPasswords.layer1_kyber || '').normalize('NFC') === (vaultBPasswords.layer1_kyber || '').normalize('NFC') &&
-      (vaultAPasswords.layer2_serpent || '').normalize('NFC') === (vaultBPasswords.layer2_serpent || '').normalize('NFC') &&
-      (vaultAPasswords.layer3_xchacha || '').normalize('NFC') === (vaultBPasswords.layer3_xchacha || '').normalize('NFC') &&
-      (vaultAPasswords.layer4_aes || '').normalize('NFC') === (vaultBPasswords.layer4_aes || '').normalize('NFC') &&
-      (vaultAPasswords.layer5_otp || '').normalize('NFC') === (vaultBPasswords.layer5_otp || '').normalize('NFC');
+      sanitizePasswordString(vaultAPasswords.layer1_kyber) === sanitizePasswordString(vaultBPasswords.layer1_kyber) &&
+      sanitizePasswordString(vaultAPasswords.layer2_serpent) === sanitizePasswordString(vaultBPasswords.layer2_serpent) &&
+      sanitizePasswordString(vaultAPasswords.layer3_xchacha) === sanitizePasswordString(vaultBPasswords.layer3_xchacha) &&
+      sanitizePasswordString(vaultAPasswords.layer4_aes) === sanitizePasswordString(vaultBPasswords.layer4_aes) &&
+      sanitizePasswordString(vaultAPasswords.layer5_otp) === sanitizePasswordString(vaultBPasswords.layer5_otp);
 
     if (isSamePasswords) {
       setErrorMsg('Plausible Deniability Violation: Decoy Vault (Vault B) must have different passwords than Secret Vault (Vault A). Using identical passwords destroys plausible deniability and prevents the decoy from being independently accessed.');
