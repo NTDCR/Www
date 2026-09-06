@@ -155,6 +155,8 @@ async function sampleCbd2(seed: Uint8Array, nonce: number): Promise<Int16Array> 
     poly[i] = (b0 + b1) - (b2 + b3);
   }
 
+  inp1.fill(0);
+  inp2.fill(0);
   bytes.fill(0);
   hash1.fill(0);
   hash2.fill(0);
@@ -289,7 +291,6 @@ export function polyMulRq(f: Int16Array | Uint16Array, g: Int16Array | Uint16Arr
   const h = new Float64Array(256);
   for (let i = 0; i < 256; i++) {
     const fi = f[i];
-    if (fi === 0) continue;
     for (let j = 0; j < 256; j++) {
       if (i + j < 256) {
         h[i + j] += fi * g[j];

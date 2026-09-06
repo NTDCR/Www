@@ -595,7 +595,7 @@ export function decodeRSStream(
     return {
       data: encodedData,
       recoveredErrors: 0,
-      uncorrectableBlocks: 0,
+      uncorrectableBlocks: 1,
       isRepaired: false,
     };
   }
@@ -718,7 +718,7 @@ export async function decodeRSStreamAsync(
     return {
       data: encodedData,
       recoveredErrors: 0,
-      uncorrectableBlocks: 0,
+      uncorrectableBlocks: 1,
       isRepaired: false,
     };
   }

@@ -388,6 +388,7 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
   };
 
   const handleZeroizeExtractionSession = () => {
+    clearContainerInspectionCache();
     for (const u of activeBlobUrlsRef.current) {
       try { URL.revokeObjectURL(u); } catch {}
     }

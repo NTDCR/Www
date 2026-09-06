@@ -5,6 +5,8 @@
  */
 
 import { chacha20Process } from './xchacha20poly1305';
+import { hkdf } from '@noble/hashes/hkdf.js';
+import { sha256 } from '@noble/hashes/sha2.js';
 
 const MAX_WEB_CRYPTO_CHUNK = 65536; // 64 KiB Web Crypto limit per call
 
@@ -110,8 +112,16 @@ export function secureShuffle<T>(array: readonly T[]): T[] {
  * Generates a cryptographic UUID v4 string
  */
 export function secureRandomUUID(): string {
-  if (typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID();
+  const cryptoObj = typeof crypto !== 'undefined'
+    ? crypto
+    : (typeof window !== 'undefined' && (window as any).crypto
+      ? (window as any).crypto
+      : (typeof globalThis !== 'undefined' && (globalThis as any).crypto
+        ? (globalThis as any).crypto
+        : null));
+
+  if (cryptoObj && typeof cryptoObj.randomUUID === 'function') {
+    return cryptoObj.randomUUID();
   }
   const bytes = generateSecureRandomBytes(16);
   // Set version 4 (0100) and variant (10xx)
@@ -133,7 +143,7 @@ export function secureRandomHex(byteLength: number): string {
 /**
  * High-performance CSPRNG stream generator for ChaCha20 Keystream Masking & Entropy Shaping
  * Generates cryptographically uniform, non-invertible keystream expansion using 20-round ChaCha CSPRNG stream.
- * Ultra-fast synchronous execution (< 1ms per MB), eliminating event loop queue starvation.
+ * Key and nonce are derived using audited HKDF-SHA256, guaranteeing true cryptographic diffusion.
  */
 export async function generateCSPRNGKeystream(
   key: Uint8Array,
@@ -142,24 +152,21 @@ export async function generateCSPRNGKeystream(
 ): Promise<Uint8Array> {
   if (targetByteLength <= 0) return new Uint8Array(0);
 
-  // Derive 32-byte key and 12-byte nonce
-  const key32 = new Uint8Array(32);
-  const nonce12 = new Uint8Array(12);
+  // Audited HKDF-SHA256 key/nonce derivation (eliminates ad-hoc linear mixing)
+  const keyAndNonce = hkdf(
+    sha256,
+    key,
+    saltOrNonce,
+    new TextEncoder().encode('ContentGuard-Keystream-Expansion'),
+    44
+  );
+  const key32 = keyAndNonce.slice(0, 32);
+  const nonce12 = keyAndNonce.slice(32, 44);
   try {
-    for (let i = 0; i < 32; i++) {
-      const kByte = key && key.length > 0 ? key[i % key.length] : 0;
-      const sByte = saltOrNonce && saltOrNonce.length > 0 ? saltOrNonce[i % saltOrNonce.length] : 0;
-      key32[i] = kByte ^ sByte ^ 0x5a;
-    }
-
-    for (let i = 0; i < 12; i++) {
-      const sByte = saltOrNonce && saltOrNonce.length > 0 ? saltOrNonce[(i + 32) % saltOrNonce.length] : 0;
-      nonce12[i] = sByte ^ (i * 17);
-    }
-
     const keystream = new Uint8Array(targetByteLength);
     return chacha20Process(key32, nonce12, 1, keystream);
   } finally {
+    keyAndNonce.fill(0);
     key32.fill(0);
     nonce12.fill(0);
   }

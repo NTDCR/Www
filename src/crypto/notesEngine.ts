@@ -214,12 +214,14 @@ export async function encryptAssessmentNotesBlock(
   let hmacAuthKey: Uint8Array | null = null;
   let l1Ciphertext: Uint8Array | null = null;
   let l2Ciphertext: Uint8Array | null = null;
+  let l2Tag: Uint8Array | null = null;
   let l2Combined: Uint8Array | null = null;
   let l3Ciphertext: Uint8Array | null = null;
   let xorStream: Uint8Array | null = null;
   let maskedPayload: Uint8Array | null = null;
   let hmacHeader: Uint8Array | null = null;
   let hmacData: Uint8Array | null = null;
+  let commitmentTag32: Uint8Array | null = null;
   let envelope: Uint8Array | null = null;
 
   try {
@@ -247,7 +249,7 @@ export async function encryptAssessmentNotesBlock(
       nonceXCha
     );
     l2Ciphertext = l2Res.ciphertext;
-    const l2Tag = l2Res.tag;
+    l2Tag = l2Res.tag;
 
     // Combine l2Ciphertext + l2Tag (16 bytes)
     l2Combined = new Uint8Array(l2Ciphertext.length + l2Tag.length);
@@ -275,7 +277,7 @@ export async function encryptAssessmentNotesBlock(
     hmacData.set(hmacHeader, 0);
     hmacData.set(maskedPayload, hmacHeader.length);
 
-    const commitmentTag32 = hmac(sha256, hmacAuthKey, hmacData);
+    commitmentTag32 = hmac(sha256, hmacAuthKey, hmacData);
 
     // 8. Assemble Raw Unencoded Envelope:
     // [salt64 (64B) + nonceAes (12B) + nonceXCha (24B) + ivSerpent (16B) + commitmentTag32 (32B) + maskedPayload]
@@ -292,17 +294,23 @@ export async function encryptAssessmentNotesBlock(
     const { encodedData: rsNotesBlock } = encodeRSStream(envelope);
     return rsNotesBlock;
   } finally {
-    // Clean all sensitive plaintext, intermediate buffers and keys
+    // Clean all sensitive plaintext, intermediate buffers, nonces, salts, tags, and keys
     zeroizeBuffer(
       plaintext,
+      salt64,
+      nonceAes,
+      nonceXCha,
+      ivSerpent,
       l1Ciphertext,
       l2Ciphertext,
+      l2Tag,
       l2Combined,
       l3Ciphertext,
       xorStream,
       maskedPayload,
       hmacHeader,
       hmacData,
+      commitmentTag32,
       envelope,
       keyAes,
       keyXCha,

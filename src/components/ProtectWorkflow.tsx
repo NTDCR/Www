@@ -40,7 +40,7 @@ import { LiveProgressTimer, formatDurationHuman } from './LiveProgressTimer';
 import { Key6BadgeCard } from './Key6BadgeCard';
 import { AssessmentNotesEditor } from './AssessmentNotesEditor';
 import { deriveAndMask1024BitId, generateRandomKey6String, generateFreshKey6Salt } from '../crypto/key6Engine';
-import { getOrGenerateCarrierBlob } from '../media/mp4Generator';
+import { getOrGenerateCarrierBlob, clearCarrierBlobCache } from '../media/mp4Generator';
 import { StreamingFileHandle, createStreamingFileHandle, loadStreamingFileHandleAsync, streamChunksDirectToDisk, sanitizeFilename, zeroizeStreamingHandle } from '../utils/fileReader';
 import { VideoPlayerPreview } from './VideoPlayerPreview';
 import { yieldToMainThread } from '../utils/asyncUtils';
@@ -400,12 +400,17 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
       return;
     }
 
+    const sameKey6 =
+      (!vaultAPasswords.layer6_key6 && !vaultBPasswords.layer6_key6) ||
+      (sanitizePasswordString(vaultAPasswords.layer6_key6 || '') === sanitizePasswordString(vaultBPasswords.layer6_key6 || ''));
+
     const isSamePasswords =
       sanitizePasswordString(vaultAPasswords.layer1_kyber) === sanitizePasswordString(vaultBPasswords.layer1_kyber) &&
       sanitizePasswordString(vaultAPasswords.layer2_serpent) === sanitizePasswordString(vaultBPasswords.layer2_serpent) &&
       sanitizePasswordString(vaultAPasswords.layer3_xchacha) === sanitizePasswordString(vaultBPasswords.layer3_xchacha) &&
       sanitizePasswordString(vaultAPasswords.layer4_aes) === sanitizePasswordString(vaultBPasswords.layer4_aes) &&
-      sanitizePasswordString(vaultAPasswords.layer5_otp) === sanitizePasswordString(vaultBPasswords.layer5_otp);
+      sanitizePasswordString(vaultAPasswords.layer5_otp) === sanitizePasswordString(vaultBPasswords.layer5_otp) &&
+      sameKey6;
 
     if (isSamePasswords) {
       setErrorMsg('Plausible Deniability Violation: Decoy Vault (Vault B) must have different passwords than Secret Vault (Vault A). Using identical passwords destroys plausible deniability and prevents the decoy from being independently accessed.');
@@ -557,6 +562,7 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
     }
     setCarrierFile(null);
     setCarrierPreviewBlob(null);
+    clearCarrierBlobCache();
     setVaultAPasswords({
       layer1_kyber: '',
       layer2_serpent: '',

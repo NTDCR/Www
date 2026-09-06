@@ -69,6 +69,7 @@ function getPassOverwritePattern(pass: number, len: number = 1024): string {
 
 import { purgeClipboard } from './clipboard';
 import { clearContainerInspectionCache } from '../vault/dualVault';
+import { clearCarrierBlobCache } from '../media/mp4Generator';
 import { revokeAllActiveStreamUrls } from '../utils/fileReader';
 
 /**
@@ -82,6 +83,7 @@ export async function execute35PassSecureWipe(
   // 0. Immediate clearance of in-memory inspection caches, active blob URLs, and OS clipboard buffer
   try {
     clearContainerInspectionCache();
+    clearCarrierBlobCache();
     revokeAllActiveStreamUrls();
     await purgeClipboard();
   } catch {}
@@ -172,6 +174,7 @@ export async function execute35PassSecureWipe(
     }
     await purgeClipboard();
     clearContainerInspectionCache();
+    clearCarrierBlobCache();
     revokeAllActiveStreamUrls();
 
     // V8 Heap Memory Pressure Sweep: Allocate, zeroize, and discard to trigger GC compaction

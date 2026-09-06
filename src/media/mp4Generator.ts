@@ -359,6 +359,14 @@ export async function getOrGenerateCarrierBlob(durationSeconds: number = 3): Pro
 }
 
 /**
+ * Completely purges and clears the cached synthetic carrier blob from module heap memory
+ */
+export function clearCarrierBlobCache(): void {
+  cachedCarrierBlob = null;
+  cachedDuration = 0;
+}
+
+/**
  * Creates a playable video Blob with dynamic Canvas animation
  */
 export async function createAnimatedCanvasCarrierBlob(durationSeconds: number = 3): Promise<Blob> {

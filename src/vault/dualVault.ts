@@ -40,13 +40,14 @@ import {
 } from '../crypto/reedSolomon';
 import { deriveAndMask1024BitId, unmaskAndVerifyKey6FromRSBlock } from '../crypto/key6Engine';
 import { decryptAssessmentNotesBlock } from '../crypto/notesEngine';
+import { clearCarrierBlobCache } from '../media/mp4Generator';
 
 /**
  * Stateless container inspection helper.
  * Zero global mutable state ensures complete thread-safety across concurrent extractions.
  */
 export function clearContainerInspectionCache() {
-  // Maintained as safe no-op for API compatibility
+  clearCarrierBlobCache();
 }
 
 /**
