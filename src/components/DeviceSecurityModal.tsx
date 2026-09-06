@@ -14,6 +14,7 @@ export const DeviceSecurityModal: React.FC<DeviceSecurityModalProps> = ({ device
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const isMountedRef = useRef<boolean>(true);
+  const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -22,6 +23,9 @@ export const DeviceSecurityModal: React.FC<DeviceSecurityModalProps> = ({ device
     });
     return () => {
       isMountedRef.current = false;
+      if (copyTimeoutRef.current) {
+        clearTimeout(copyTimeoutRef.current);
+      }
     };
   }, []);
 
@@ -45,8 +49,12 @@ export const DeviceSecurityModal: React.FC<DeviceSecurityModalProps> = ({ device
 
   const handleCopyCode = async (code: string, idx: number) => {
     await secureCopyToClipboard(code, 45);
+    if (!isMountedRef.current) return;
     setCopiedIdx(idx);
-    setTimeout(() => setCopiedIdx(null), 2500);
+    if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current);
+    copyTimeoutRef.current = setTimeout(() => {
+      if (isMountedRef.current) setCopiedIdx(null);
+    }, 2500);
   };
 
   const handlePrint = () => {

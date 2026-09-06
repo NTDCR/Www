@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   ShieldAlert,
   Lock,
@@ -33,20 +33,40 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   // 12-Hour Session Inactivity Countdown (43200 seconds)
   const [secondsRemaining, setSecondsRemaining] = useState<number>(12 * 3600);
+  const onOpenZeroizeModalRef = useRef(onOpenZeroizeModal);
+  onOpenZeroizeModalRef.current = onOpenZeroizeModal;
 
   useEffect(() => {
     const timer = setInterval(() => {
       setSecondsRemaining(prev => {
         if (prev <= 1) {
           // Trigger auto zeroize on session timeout
-          onOpenZeroizeModal();
+          onOpenZeroizeModalRef.current();
           return 12 * 3600;
         }
         return prev - 1;
       });
     }, 1000);
-    return () => clearInterval(timer);
-  }, [onOpenZeroizeModal]);
+
+    // Throttled heartbeat: user activity (clicks, keypresses) resets timer once per minute
+    let lastActivityReset = Date.now();
+    const handleActivity = () => {
+      const now = Date.now();
+      if (now - lastActivityReset > 60000) {
+        lastActivityReset = now;
+        setSecondsRemaining(12 * 3600);
+      }
+    };
+
+    window.addEventListener('keydown', handleActivity, { passive: true });
+    window.addEventListener('pointerdown', handleActivity, { passive: true });
+
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('keydown', handleActivity);
+      window.removeEventListener('pointerdown', handleActivity);
+    };
+  }, []);
 
   const formatTime = (totalSecs: number) => {
     const hrs = Math.floor(totalSecs / 3600);

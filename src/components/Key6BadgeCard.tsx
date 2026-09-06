@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Fingerprint, Copy, Check, ShieldCheck, Sparkles, Key, Lock, Eye, EyeOff } from 'lucide-react';
 import { format1024BitIdFormatted } from '../crypto/key6Engine';
 import { secureCopyToClipboard } from '../security/clipboard';
@@ -28,12 +28,22 @@ export const Key6BadgeCard: React.FC<Key6BadgeCardProps> = ({
 }) => {
   const [copied, setCopied] = useState(false);
   const [showKey6, setShowKey6] = useState(false);
+  const copiedTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (copiedTimeoutRef.current) {
+        clearTimeout(copiedTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const handleCopy = async () => {
     if (!uniqueId1024Hex) return;
     await secureCopyToClipboard(uniqueId1024Hex, 45);
     setCopied(true);
-    setTimeout(() => setCopied(false), 3000);
+    if (copiedTimeoutRef.current) clearTimeout(copiedTimeoutRef.current);
+    copiedTimeoutRef.current = setTimeout(() => setCopied(false), 3000);
   };
 
   const isVaultA = vaultType === 'A';
