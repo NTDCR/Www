@@ -69,6 +69,7 @@ function getPassOverwritePattern(pass: number, len: number = 1024): string {
 
 import { purgeClipboard } from './clipboard';
 import { clearContainerInspectionCache } from '../vault/dualVault';
+import { revokeAllActiveStreamUrls } from '../utils/fileReader';
 
 /**
  * Executes full 35-pass sanitization sequence on client environment
@@ -78,9 +79,10 @@ export async function execute35PassSecureWipe(
 ): Promise<void> {
   const total = GUTMANN_PATTERNS.length;
 
-  // 0. Immediate clearance of in-memory inspection caches and OS clipboard buffer
+  // 0. Immediate clearance of in-memory inspection caches, active blob URLs, and OS clipboard buffer
   try {
     clearContainerInspectionCache();
+    revokeAllActiveStreamUrls();
     await purgeClipboard();
   } catch {}
 
@@ -170,6 +172,7 @@ export async function execute35PassSecureWipe(
     }
     await purgeClipboard();
     clearContainerInspectionCache();
+    revokeAllActiveStreamUrls();
 
     // V8 Heap Memory Pressure Sweep: Allocate, zeroize, and discard to trigger GC compaction
     const sweepBlocks: Uint8Array[] = [];

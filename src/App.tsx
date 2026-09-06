@@ -172,6 +172,12 @@ export default function App() {
     setShowZeroizeModal(false);
     setAuditLogs([]);
     setDeviceInfo(null);
+    setInspectorLocations([]);
+    setInspectorMetrics(null);
+    setInspectorCarrierName('Sanitized Carrier State');
+    setInspectorCarrierSize(0);
+    setInspectorPayloadSize(0);
+    setActiveTab('protect');
     setResetKey(prev => prev + 1);
     try {
       window.location.reload();

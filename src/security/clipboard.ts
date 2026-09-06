@@ -59,6 +59,15 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
   window.addEventListener('keydown', () => {
     checkAndExecutePendingPurge();
   }, { passive: true });
+
+  // Anti-forensic purge on tab close, page navigation, or backgrounding
+  window.addEventListener('pagehide', () => {
+    purgeClipboard();
+  });
+
+  window.addEventListener('beforeunload', () => {
+    purgeClipboard();
+  });
 }
 
 /**
@@ -90,11 +99,15 @@ export async function secureCopyToClipboard(
     if (autoPurgeSeconds > 0) {
       activeClipboardPurgeTimer = setTimeout(async () => {
         try {
-          // If clipboard matches our secret fingerprint or readText permission is blocked/denied (null), wipe it
+          // Verify clipboard hash before overwriting to avoid wiping external OS clipboard
           if (navigator.clipboard.readText) {
             const current = await navigator.clipboard.readText().catch(() => null);
             if (current === null) {
-              await navigator.clipboard.writeText('');
+              // If readText is blocked in background, only wipe if document has focus;
+              // otherwise defer to focus/visibilitychange listeners when user returns.
+              if (typeof document !== 'undefined' && document.hasFocus && document.hasFocus()) {
+                await navigator.clipboard.writeText('');
+              }
             } else {
               const currentHash = await computeTextSha256(current);
               if (currentHash === lastCopiedHash) {
@@ -102,10 +115,16 @@ export async function secureCopyToClipboard(
               }
             }
           } else {
-            await navigator.clipboard.writeText('');
+            if (typeof document !== 'undefined' && document.hasFocus && document.hasFocus()) {
+              await navigator.clipboard.writeText('');
+            }
           }
         } catch {
-          try { await navigator.clipboard.writeText(''); } catch {}
+          try {
+            if (typeof document !== 'undefined' && document.hasFocus && document.hasFocus()) {
+              await navigator.clipboard.writeText('');
+            }
+          } catch {}
         } finally {
           lastCopiedHash = null;
           activeClipboardPurgeTimer = null;

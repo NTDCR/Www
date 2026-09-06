@@ -21,6 +21,14 @@ type ReactComponentType = new (props: Props) => {
 
 const BaseComponent = (React.Component || class {}) as unknown as ReactComponentType;
 
+function sanitizeBoundaryErrorMessage(msg?: string): string {
+  if (!msg) return 'Unexpected application boundary error.';
+  if (/key|secret|token|password|salt|nonce|hash|buffer|[0-9a-fA-F]{32,}/i.test(msg)) {
+    return 'Cryptographic operation failed or invalid data structure provided.';
+  }
+  return msg.length > 200 ? msg.slice(0, 200) + '...' : msg;
+}
+
 export class ErrorBoundary extends BaseComponent {
   state: State = {
     hasError: false,
@@ -75,7 +83,7 @@ export class ErrorBoundary extends BaseComponent {
                 <span>Runtime Exception Isolated:</span>
               </div>
               <p className="text-red-400 break-words font-semibold">
-                {this.state.error?.message || 'Unexpected application boundary error.'}
+                {sanitizeBoundaryErrorMessage(this.state.error?.message)}
               </p>
               <p className="text-[11px] text-slate-500 pt-2 border-t border-slate-800/80">
                 To guarantee zero memory leakage and prevent key material contamination, all volatile state has been wiped.

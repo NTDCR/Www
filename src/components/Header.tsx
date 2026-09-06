@@ -54,10 +54,16 @@ export const Header: React.FC<HeaderProps> = ({
 
     const timer = setInterval(updateCountdown, 1000);
 
-    // Throttled heartbeat: user activity (clicks, keypresses) resets countdown once per minute
     let lastActivityReset = Date.now();
     const handleActivity = () => {
       const now = Date.now();
+      if (now >= targetEpochRef.current) {
+        // Session already expired while tab was sleeping/backgrounded; trigger zeroize immediately
+        targetEpochRef.current = now + SESSION_DURATION_MS;
+        setSecondsRemaining(12 * 3600);
+        onOpenZeroizeModalRef.current();
+        return;
+      }
       // Reset if at least 60 seconds passed or if clock shifted backwards
       if (now - lastActivityReset > 60000 || now < lastActivityReset) {
         lastActivityReset = now;
@@ -66,13 +72,21 @@ export const Header: React.FC<HeaderProps> = ({
       }
     };
 
+    const handleVisibilityChange = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        updateCountdown();
+      }
+    };
+
     window.addEventListener('keydown', handleActivity, { passive: true });
     window.addEventListener('pointerdown', handleActivity, { passive: true });
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
       clearInterval(timer);
       window.removeEventListener('keydown', handleActivity);
       window.removeEventListener('pointerdown', handleActivity);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, []);
 
@@ -84,6 +98,7 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   const resetHeartbeat = () => {
+    targetEpochRef.current = Date.now() + SESSION_DURATION_MS;
     setSecondsRemaining(12 * 3600);
   };
 

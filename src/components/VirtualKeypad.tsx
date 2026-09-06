@@ -54,7 +54,10 @@ export const VirtualKeypad: React.FC<VirtualKeypadProps> = ({
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={shuffleKeys}
+            onClick={(e) => {
+              e.stopPropagation();
+              shuffleKeys();
+            }}
             className="flex items-center gap-1 text-[11px] font-mono text-slate-400 hover:text-emerald-400 bg-slate-800 hover:bg-slate-700/80 px-2 py-1 rounded transition-colors"
             title="Randomize key coordinates"
           >
@@ -64,7 +67,10 @@ export const VirtualKeypad: React.FC<VirtualKeypadProps> = ({
           {onClose && (
             <button
               type="button"
-              onClick={onClose}
+              onClick={(e) => {
+                e.stopPropagation();
+                onClose();
+              }}
               className="text-slate-400 hover:text-slate-200 text-xs px-2 py-1 bg-slate-800 rounded"
             >
               Close
@@ -83,7 +89,10 @@ export const VirtualKeypad: React.FC<VirtualKeypadProps> = ({
               data-lpignore="true"
               data-1p-ignore="true"
               data-bwignore="true"
-              onClick={() => onInput(displayChar)}
+              onClick={(e) => {
+                e.stopPropagation();
+                onInput(displayChar);
+              }}
               className="h-9 sm:h-10 bg-slate-800 hover:bg-emerald-500/20 active:bg-emerald-500 text-slate-200 hover:text-emerald-300 font-mono font-bold text-xs sm:text-sm rounded border border-slate-700 hover:border-emerald-500/50 transition-all flex items-center justify-center select-none shadow-sm touch-manipulation"
             >
               {displayChar}
@@ -95,7 +104,10 @@ export const VirtualKeypad: React.FC<VirtualKeypadProps> = ({
       <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-800/80">
         <button
           type="button"
-          onClick={() => setIsShift(!isShift)}
+          onClick={(e) => {
+            e.stopPropagation();
+            setIsShift(!isShift);
+          }}
           className={`px-4 py-2 font-mono text-xs rounded border transition-colors ${
             isShift ? 'bg-emerald-600 text-slate-950 font-bold border-emerald-400' : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
           }`}
@@ -106,14 +118,20 @@ export const VirtualKeypad: React.FC<VirtualKeypadProps> = ({
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={onClear}
+            onClick={(e) => {
+              e.stopPropagation();
+              onClear();
+            }}
             className="px-3 py-2 bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 text-xs font-mono rounded border border-rose-800/50 transition-colors"
           >
             Clear All
           </button>
           <button
             type="button"
-            onClick={onBackspace}
+            onClick={(e) => {
+              e.stopPropagation();
+              onBackspace();
+            }}
             className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-amber-300 text-xs font-mono rounded border border-slate-700 transition-colors font-semibold"
           >
             ⌫ Backspace

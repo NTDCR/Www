@@ -617,6 +617,23 @@ export async function readFileAsUint8Array(input: File | Blob | Uint8Array | Str
   return result;
 }
 
+const activeStreamBlobUrls = new Set<string>();
+
+/**
+ * Instantly revokes and purges all active streaming fallback Blob URLs
+ * from the browser heap (anti-forensics zeroization).
+ */
+export function revokeAllActiveStreamUrls(): void {
+  for (const url of activeStreamBlobUrls) {
+    try {
+      if (typeof URL !== 'undefined' && URL.revokeObjectURL) {
+        URL.revokeObjectURL(url);
+      }
+    } catch {}
+  }
+  activeStreamBlobUrls.clear();
+}
+
 /**
  * Native File System Access API: Streams chunks directly to disk with zero RAM overhead
  */
@@ -701,16 +718,23 @@ export async function streamChunksDirectToDisk(
     }
   }
 
+
   const blob = new Blob(chunks, { type: 'application/octet-stream' });
   if (typeof document !== 'undefined') {
     const url = URL.createObjectURL(blob);
+    activeStreamBlobUrls.add(url);
     const a = document.createElement('a');
     a.href = url;
     a.download = filename;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    setTimeout(() => {
+      if (activeStreamBlobUrls.has(url)) {
+        try { URL.revokeObjectURL(url); } catch {}
+        activeStreamBlobUrls.delete(url);
+      }
+    }, 180000);
   }
 
   return { success: true, streamedDirectly: false };
