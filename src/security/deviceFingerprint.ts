@@ -213,7 +213,11 @@ function openIndexedDB(): Promise<IDBDatabase> {
   });
 }
 
-export async function generateAndStoreRecoveryCodes(): Promise<RecoveryCode[]> {
+/**
+ * Generates 10 CSPRNG One-Time Recovery Codes purely in memory
+ * without modifying persistent IndexedDB storage (used for tests and benchmarks).
+ */
+export function generateRecoveryCodesInMemory(): RecoveryCode[] {
   const codes: RecoveryCode[] = [];
   for (let i = 0; i < 10; i++) {
     const rawBytes = generateSecureRandomBytes(6);
@@ -228,6 +232,11 @@ export async function generateAndStoreRecoveryCodes(): Promise<RecoveryCode[]> {
       used: false
     });
   }
+  return codes;
+}
+
+export async function generateAndStoreRecoveryCodes(): Promise<RecoveryCode[]> {
+  const codes = generateRecoveryCodesInMemory();
 
   try {
     const db = await openIndexedDB();

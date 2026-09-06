@@ -21,21 +21,34 @@ export const AuditLogViewer: React.FC<AuditLogViewerProps> = ({ logs }) => {
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
   };
+
+/**
+ * Sanitizes CSV cell values to neutralize CSV Formula / DDE Command Injection (CWE-1236).
+ * If a cell string starts with =, +, -, @, \t, \r, or %, it is prefixed with a single quote (')
+ * to force spreadsheet parsers (Excel, Calc, Sheets) to treat it strictly as literal text.
+ */
+function sanitizeCsvCell(cell: string | undefined | null): string {
+  const str = String(cell ?? '');
+  const trimmed = str.trimStart();
+  const startsWithFormulaChar = /^[\t\r]/.test(str) || /^[\=\+\-\@%\|\;]/.test(trimmed);
+  const safeStr = startsWithFormulaChar ? `'${str}` : str;
+  return `"${safeStr.replace(/"/g, '""')}"`;
+}
 
   const exportAsCsv = () => {
     if (logs.length === 0) return;
     const headers = ['ID', 'Timestamp', 'Event Type', 'Compliance Standard', 'Target Vault', 'SHA-512 Digest', 'Status', 'Details'];
     const rows = logs.map(l => [
-      `"${l.id.replace(/"/g, '""')}"`,
-      `"${l.timestamp.replace(/"/g, '""')}"`,
-      `"${l.eventType.replace(/"/g, '""')}"`,
-      `"${l.complianceRef.replace(/"/g, '""')}"`,
-      `"${l.vaultTarget.replace(/"/g, '""')}"`,
-      `"${(l.sha512Digest || '').replace(/"/g, '""')}"`,
-      `"${l.status.replace(/"/g, '""')}"`,
-      `"${(l.details || '').replace(/"/g, '""')}"`
+      sanitizeCsvCell(l.id),
+      sanitizeCsvCell(l.timestamp),
+      sanitizeCsvCell(l.eventType),
+      sanitizeCsvCell(l.complianceRef),
+      sanitizeCsvCell(l.vaultTarget),
+      sanitizeCsvCell(l.sha512Digest),
+      sanitizeCsvCell(l.status),
+      sanitizeCsvCell(l.details)
     ].join(','));
     const csvContent = [headers.join(','), ...rows].join('\r\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8' });
@@ -46,7 +59,7 @@ export const AuditLogViewer: React.FC<AuditLogViewerProps> = ({ logs }) => {
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
   };
 
   const handleCopy = async () => {

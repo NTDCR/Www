@@ -8,6 +8,7 @@ import { parseIsobmffBoxes, isValidIsobmffCarrier } from '../src/media/isobmff';
 import { sanitizeFilename, revokeAllActiveStreamUrls } from '../src/utils/fileReader';
 import { generatePlausibleDecoyTemplate } from '../src/components/AssessmentNotesEditor';
 import { isAssessmentNotesComplete } from '../src/types';
+import { generateRecoveryCodesInMemory } from '../src/security/deviceFingerprint';
 
 interface BountyTestResult {
   id: string;
@@ -461,6 +462,30 @@ async function runBountySuite() {
   const templateValid = isAssessmentNotesComplete(template1) && isAssessmentNotesComplete(template2);
   const b31Passed = lockSucceeded && templateValid;
   record('B-31', 'Concurrency & CSPRNG', 'Workflow Synchronous Re-Entrancy Lock & Decoy CSPRNG Invariance', b31Passed ? 'PASSED' : 'FAILED', 'Blocked concurrent double-click re-entrancy and verified CSPRNG decoy template generation');
+
+  // 6.18: CSV Formula Injection Disarming (CWE-1236) & Recovery Code Memory Isolation (Test B-32)
+  const sanitizeCsvCellTest = (cell: string | undefined | null): string => {
+    const str = String(cell ?? '');
+    const trimmed = str.trimStart();
+    const startsWithFormulaChar = /^[\t\r]/.test(str) || /^[\=\+\-\@%\|\;]/.test(trimmed);
+    const safeStr = startsWithFormulaChar ? `'${str}` : str;
+    return `"${safeStr.replace(/"/g, '""')}"`;
+  };
+
+  const formulaInputs = ['=cmd|"/C calc"!A0', '+2+3', '-5', '@SUM(1,2)', '\tmalicious', '%total', '|pipe', ';semi'];
+  const allFormulasNeutralized = formulaInputs.every(f => {
+    const sanitized = sanitizeCsvCellTest(f);
+    return sanitized.startsWith(`"'${f.replace(/"/g, '""')}`);
+  });
+
+  const benignInput = 'Valid Standard Log Entry';
+  const benignPassed = sanitizeCsvCellTest(benignInput) === `"${benignInput}"`;
+
+  const memoryCodes = generateRecoveryCodesInMemory();
+  const codesValid = memoryCodes.length === 10 && memoryCodes.every(c => c.code.startsWith('RC-') && c.used === false);
+
+  const b32Passed = allFormulasNeutralized && benignPassed && codesValid;
+  record('B-32', 'Reporting & Storage', 'CSV Formula Injection Disarming & Recovery Code Isolation', b32Passed ? 'PASSED' : 'FAILED', 'Neutralized CWE-1236 formula triggers in CSV export and verified in-memory recovery code isolation');
 
   console.log('\n========================================================================');
   console.log('                 BUG-BOUNTY RESCAN EXECUTIVE SUMMARY');

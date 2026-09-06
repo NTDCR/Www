@@ -3,10 +3,10 @@ import { Cpu, CheckCircle2, Play, RefreshCw, X, AlertTriangle, Zap, Check } from
 import { kyber1024KeyGen, kyber1024Encapsulate, kyber1024Decapsulate } from '../crypto/kyber1024';
 import { serpent256Ctr } from '../crypto/serpent';
 import { xchacha20Poly1305Encrypt, xchacha20Poly1305Decrypt, chacha20Process } from '../crypto/xchacha20poly1305';
-import { deriveLayerKey, encryptCascade5Layers, decryptCascade5Layers } from '../crypto/cascadeEngine';
+import { deriveLayerKey, encryptCascade5Layers, decryptCascade5Layers, zeroizeBuffer } from '../crypto/cascadeEngine';
 import { calculateShannonEntropy, normalizeEntropyToTarget, denormalizeEntropy, calculateChiSquareTest, getNaturalMp4Distribution, calculateHistogram } from '../crypto/entropy';
 import { embedSpreadSpectrum8Locations, extractSpreadSpectrumPayload, createSyntheticMp4Carrier } from '../media/isobmff';
-import { generateDeviceFingerprint, generateAndStoreRecoveryCodes } from '../security/deviceFingerprint';
+import { generateDeviceFingerprint, generateRecoveryCodesInMemory } from '../security/deviceFingerprint';
 import { generateSecureRandomBytes } from '../crypto/safeRandom';
 import { createDualVaultPackage } from '../vault/dualVault';
 import { CascadePasswords } from '../types';
@@ -26,6 +26,7 @@ interface TestItem {
 
 export const BenchmarkSuite: React.FC<BenchmarkSuiteProps> = ({ onClose }) => {
   const [isRunning, setIsRunning] = useState<boolean>(false);
+  const isRunningRef = useRef<boolean>(false);
   const isMountedRef = useRef<boolean>(true);
 
   useEffect(() => {
@@ -118,121 +119,159 @@ export const BenchmarkSuite: React.FC<BenchmarkSuiteProps> = ({ onClose }) => {
   ]);
 
   const runAllTests = async () => {
-    if (isRunning) return;
+    if (isRunning || isRunningRef.current) return;
+    isRunningRef.current = true;
     setIsRunning(true);
 
-    for (let i = 0; i < tests.length; i++) {
-      if (!isMountedRef.current) return;
-      const test = tests[i];
-      setTests(prev => prev.map((t, idx) => idx === i ? { ...t, status: 'running' } : t));
+    try {
+      for (let i = 0; i < tests.length; i++) {
+        if (!isMountedRef.current) return;
+        const test = tests[i];
+        setTests(prev => prev.map((t, idx) => idx === i ? { ...t, status: 'running' } : t));
 
-      const startTime = performance.now();
-      let passed = true;
+        const startTime = performance.now();
+        let passed = true;
 
-      try {
-        if (test.id === 't1') {
-          const kp = await kyber1024KeyGen();
-          const { ciphertext, sharedSecret } = await kyber1024Encapsulate(kp.publicKey);
-          const recovered = await kyber1024Decapsulate(ciphertext, kp.secretKey);
-          let match = true;
-          for (let j = 0; j < 32; j++) {
-            if (sharedSecret[j] !== recovered[j]) match = false;
+        try {
+          if (test.id === 't1') {
+            const kp = await kyber1024KeyGen();
+            let sharedSecret: Uint8Array | null = null;
+            let recovered: Uint8Array | null = null;
+            try {
+              const res = await kyber1024Encapsulate(kp.publicKey);
+              sharedSecret = res.sharedSecret;
+              recovered = await kyber1024Decapsulate(res.ciphertext, kp.secretKey);
+              let match = true;
+              for (let j = 0; j < 32; j++) {
+                if (sharedSecret[j] !== recovered[j]) match = false;
+              }
+              if (!match) throw new Error('Kyber decapsulation key mismatch');
+            } finally {
+              zeroizeBuffer(kp.secretKey, kp.publicKey, sharedSecret, recovered);
+            }
+          } else if (test.id === 't2') {
+            const key = generateSecureRandomBytes(32);
+            const iv = generateSecureRandomBytes(16);
+            let pt: Uint8Array | null = null;
+            let ct: Uint8Array | null = null;
+            try {
+              const data = new TextEncoder().encode('Test Serpent 256 CTR Block Cipher Payload');
+              ct = serpent256Ctr(data, key, iv);
+              pt = serpent256Ctr(ct, key, iv);
+              if (new TextDecoder().decode(pt) !== 'Test Serpent 256 CTR Block Cipher Payload') throw new Error('Serpent decryption mismatch');
+            } finally {
+              zeroizeBuffer(key, iv, ct, pt);
+            }
+          } else if (test.id === 't3') {
+            const key = generateSecureRandomBytes(32);
+            const nonce = generateSecureRandomBytes(24);
+            let decrypted: Uint8Array | null = null;
+            try {
+              const data = new TextEncoder().encode('Test XChaCha20 Poly1305 Payload');
+              const { ciphertext, tag } = xchacha20Poly1305Encrypt(data, key, nonce);
+              decrypted = xchacha20Poly1305Decrypt(ciphertext, tag, key, nonce);
+              if (!decrypted || new TextDecoder().decode(decrypted) !== 'Test XChaCha20 Poly1305 Payload') throw new Error('XChaCha auth failed');
+            } finally {
+              zeroizeBuffer(key, nonce, decrypted);
+            }
+          } else if (test.id === 't4') {
+            const salt = generateSecureRandomBytes(64);
+            let key: Uint8Array | null = null;
+            try {
+              key = await deriveLayerKey('TestPassword99!', salt, 1000, 'TestLayer');
+              if (key.length !== 32) throw new Error('Key derivation invalid length');
+            } finally {
+              zeroizeBuffer(salt, key);
+            }
+          } else if (test.id === 't5') {
+            const key = generateSecureRandomBytes(32);
+            const nonce = generateSecureRandomBytes(12);
+            const data = generateSecureRandomBytes(1024);
+            let ct: Uint8Array | null = null;
+            let pt: Uint8Array | null = null;
+            try {
+              ct = chacha20Process(key, nonce, 0, data);
+              pt = chacha20Process(key, nonce, 0, ct);
+              let match = true;
+              for (let k = 0; k < 1024; k++) {
+                if (pt[k] !== data[k]) match = false;
+              }
+              if (!match) throw new Error('ChaCha20 keystream masking roundtrip failed');
+            } finally {
+              zeroizeBuffer(key, nonce, data, ct, pt);
+            }
+          } else if (test.id === 't6') {
+            const ct = generateSecureRandomBytes(2048);
+            const normalized = await normalizeEntropyToTarget(ct, 7.38);
+            const unshaped = await denormalizeEntropy(normalized);
+            if (unshaped.length !== ct.length) throw new Error('Unshaping length mismatch');
+            for (let k = 0; k < ct.length; k++) {
+              if (unshaped[k] !== ct[k]) throw new Error('Unshaped payload fidelity mismatch');
+            }
+            const carrier = createSyntheticMp4Carrier(2);
+            const { protectedMp4 } = await embedSpreadSpectrum8Locations(carrier, normalized, normalized);
+            const entropy = calculateShannonEntropy(protectedMp4);
+            if (entropy > 7.40) throw new Error(`Container Entropy ${entropy} exceeds 7.40 limit`);
+          } else if (test.id === 't7') {
+            const carrier = createSyntheticMp4Carrier(2);
+            const vA = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
+            const vB = new Uint8Array([20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35]);
+            const { protectedMp4 } = await embedSpreadSpectrum8Locations(carrier, vA, vB);
+            const extracted = await extractSpreadSpectrumPayload(protectedMp4);
+            if (extracted.vaultABytes.length !== vA.length || extracted.vaultBBytes.length !== vB.length) {
+              throw new Error(`Extraction length mismatch: vA ${extracted.vaultABytes.length}/${vA.length}, vB ${extracted.vaultBBytes.length}/${vB.length}`);
+            }
+            for (let k = 0; k < vA.length; k++) {
+              if (extracted.vaultABytes[k] !== vA[k]) throw new Error('Vault A payload mismatch');
+            }
+            for (let k = 0; k < vB.length; k++) {
+              if (extracted.vaultBBytes[k] !== vB[k]) throw new Error('Vault B payload mismatch');
+            }
+          } else if (test.id === 't8') {
+            const vA = generateSecureRandomBytes(64);
+            const vB = generateSecureRandomBytes(128);
+            try {
+              const pwA: CascadePasswords = { layer1_kyber: 'k1A', layer2_serpent: 'k2A', layer3_xchacha: 'k3A', layer4_aes: 'k4A', layer5_otp: 'k5A' };
+              const pwB: CascadePasswords = { layer1_kyber: 'kB1', layer2_serpent: 'kB2', layer3_xchacha: 'kB3', layer4_aes: 'kB4', layer5_otp: 'kB5' };
+              const pkg = await createDualVaultPackage(null, vA, vB, pwA, pwB, 1000);
+              if (pkg.vaultASize !== vA.length || pkg.vaultBSize !== vB.length) {
+                throw new Error('Dual vault size calculation error');
+              }
+              if (!pkg.protectedMp4Blob || pkg.protectedMp4Blob.size === 0) {
+                throw new Error('Dual vault container blob generation failed');
+              }
+            } finally {
+              zeroizeBuffer(vA, vB);
+            }
+          } else if (test.id === 't9') {
+            const fp = await generateDeviceFingerprint();
+            if (!fp.visitorId.startsWith('CGP-')) throw new Error('Fingerprint format invalid');
+          } else if (test.id === 't10') {
+            // Pure in-memory verification: does NOT overwrite user's real IndexedDB recovery codes
+            const codes = generateRecoveryCodesInMemory();
+            if (codes.length !== 10) throw new Error('Recovery codes count invalid');
           }
-          if (!match) throw new Error('Kyber decapsulation key mismatch');
-        } else if (test.id === 't2') {
-          const key = generateSecureRandomBytes(32);
-          const iv = generateSecureRandomBytes(16);
-          const data = new TextEncoder().encode('Test Serpent 256 CTR Block Cipher Payload');
-          const ct = serpent256Ctr(data, key, iv);
-          const pt = serpent256Ctr(ct, key, iv);
-          if (new TextDecoder().decode(pt) !== 'Test Serpent 256 CTR Block Cipher Payload') throw new Error('Serpent decryption mismatch');
-        } else if (test.id === 't3') {
-          const key = generateSecureRandomBytes(32);
-          const nonce = generateSecureRandomBytes(24);
-          const data = new TextEncoder().encode('Test XChaCha20 Poly1305 Payload');
-          const { ciphertext, tag } = xchacha20Poly1305Encrypt(data, key, nonce);
-          const decrypted = xchacha20Poly1305Decrypt(ciphertext, tag, key, nonce);
-          if (!decrypted || new TextDecoder().decode(decrypted) !== 'Test XChaCha20 Poly1305 Payload') throw new Error('XChaCha auth failed');
-        } else if (test.id === 't4') {
-          const salt = generateSecureRandomBytes(64);
-          const key = await deriveLayerKey('TestPassword99!', salt, 1000, 'TestLayer');
-          if (key.length !== 32) throw new Error('Key derivation invalid length');
-        } else if (test.id === 't5') {
-          const key = generateSecureRandomBytes(32);
-          const nonce = generateSecureRandomBytes(12);
-          const data = generateSecureRandomBytes(1024);
-          const ct = chacha20Process(key, nonce, 0, data);
-          const pt = chacha20Process(key, nonce, 0, ct);
-          let match = true;
-          for (let k = 0; k < 1024; k++) {
-            if (pt[k] !== data[k]) match = false;
-          }
-          if (!match) throw new Error('ChaCha20 keystream masking roundtrip failed');
-        } else if (test.id === 't6') {
-          const ct = generateSecureRandomBytes(2048);
-          const normalized = await normalizeEntropyToTarget(ct, 7.38);
-          const unshaped = await denormalizeEntropy(normalized);
-          if (unshaped.length !== ct.length) throw new Error('Unshaping length mismatch');
-          for (let k = 0; k < ct.length; k++) {
-            if (unshaped[k] !== ct[k]) throw new Error('Unshaped payload fidelity mismatch');
-          }
-          const carrier = createSyntheticMp4Carrier(2);
-          const { protectedMp4 } = await embedSpreadSpectrum8Locations(carrier, normalized, normalized);
-          const entropy = calculateShannonEntropy(protectedMp4);
-          if (entropy > 7.40) throw new Error(`Container Entropy ${entropy} exceeds 7.40 limit`);
-        } else if (test.id === 't7') {
-          const carrier = createSyntheticMp4Carrier(2);
-          const vA = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
-          const vB = new Uint8Array([20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35]);
-          const { protectedMp4 } = await embedSpreadSpectrum8Locations(carrier, vA, vB);
-          const extracted = await extractSpreadSpectrumPayload(protectedMp4);
-          if (extracted.vaultABytes.length !== vA.length || extracted.vaultBBytes.length !== vB.length) {
-            throw new Error(`Extraction length mismatch: vA ${extracted.vaultABytes.length}/${vA.length}, vB ${extracted.vaultBBytes.length}/${vB.length}`);
-          }
-          for (let k = 0; k < vA.length; k++) {
-            if (extracted.vaultABytes[k] !== vA[k]) throw new Error('Vault A payload mismatch');
-          }
-          for (let k = 0; k < vB.length; k++) {
-            if (extracted.vaultBBytes[k] !== vB[k]) throw new Error('Vault B payload mismatch');
-          }
-        } else if (test.id === 't8') {
-          const vA = generateSecureRandomBytes(64);
-          const vB = generateSecureRandomBytes(128);
-          const pwA: CascadePasswords = { layer1_kyber: 'k1A', layer2_serpent: 'k2A', layer3_xchacha: 'k3A', layer4_aes: 'k4A', layer5_otp: 'k5A' };
-          const pwB: CascadePasswords = { layer1_kyber: 'kB1', layer2_serpent: 'kB2', layer3_xchacha: 'kB3', layer4_aes: 'kB4', layer5_otp: 'kB5' };
-          const pkg = await createDualVaultPackage(null, vA, vB, pwA, pwB, 1000);
-          if (pkg.vaultASize !== vA.length || pkg.vaultBSize !== vB.length) {
-            throw new Error('Dual vault size calculation error');
-          }
-          if (!pkg.protectedMp4Blob || pkg.protectedMp4Blob.size === 0) {
-            throw new Error('Dual vault container blob generation failed');
-          }
-        } else if (test.id === 't9') {
-          const fp = await generateDeviceFingerprint();
-          if (!fp.visitorId.startsWith('CGP-')) throw new Error('Fingerprint format invalid');
-        } else if (test.id === 't10') {
-          const codes = await generateAndStoreRecoveryCodes();
-          if (codes.length !== 10) throw new Error('Recovery codes count invalid');
+        } catch (err) {
+          passed = false;
         }
-      } catch (err) {
-        passed = false;
-      }
 
-      const elapsed = Math.round(performance.now() - startTime);
+        const elapsed = Math.round(performance.now() - startTime);
+        if (isMountedRef.current) {
+          setTests(prev => prev.map((t, idx) => idx === i ? {
+            ...t,
+            status: passed ? 'passed' : 'failed',
+            durationMs: elapsed
+          } : t));
+        }
+
+        // Small async tick
+        await new Promise(r => setTimeout(r, 60));
+      }
+    } finally {
+      isRunningRef.current = false;
       if (isMountedRef.current) {
-        setTests(prev => prev.map((t, idx) => idx === i ? {
-          ...t,
-          status: passed ? 'passed' : 'failed',
-          durationMs: elapsed
-        } : t));
+        setIsRunning(false);
       }
-
-      // Small async tick
-      await new Promise(r => setTimeout(r, 60));
-    }
-
-    if (isMountedRef.current) {
-      setIsRunning(false);
     }
   };
 
