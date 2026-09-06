@@ -46,7 +46,7 @@ export class ErrorBoundary extends BaseComponent {
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
     this.setState({ errorInfo });
-    console.error('ContentGuard Pro MAX — Boundary Failure Intercepted:', error, errorInfo);
+    console.error('ContentGuard Pro MAX — Boundary Failure Intercepted:', sanitizeBoundaryErrorMessage(error?.message));
   }
 
   handleReset = (): void => {

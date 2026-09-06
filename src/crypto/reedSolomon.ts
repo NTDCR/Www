@@ -41,15 +41,14 @@ export function gfMul(a: number, b: number): number {
 
 /** GF(2^8) Division */
 export function gfDiv(a: number, b: number): number {
-  if (a === 0) return 0;
-  if (b === 0) throw new Error("GF(2^8) Division by zero");
-  return GF_EXP[(GF_LOG[a] - GF_LOG[b] + 255) % 255];
+  if (a === 0 || b === 0) return 0;
+  return GF_EXP[(GF_LOG[a & 0xff] - GF_LOG[b & 0xff] + 255) % 255];
 }
 
 /** GF(2^8) Inversion */
 export function gfInv(a: number): number {
-  if (a === 0) throw new Error("GF(2^8) Inversion of zero");
-  return GF_EXP[255 - GF_LOG[a]];
+  if (a === 0) return 0; // Return 0 to prevent unhandled exceptions and branch divergence in algebraic FEC
+  return GF_EXP[255 - GF_LOG[a & 0xff]];
 }
 
 /** GF(2^8) Polynomial Multiplication */

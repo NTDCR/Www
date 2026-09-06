@@ -432,6 +432,12 @@ export async function decryptAssessmentNotesBlock(
         aesOk = false;
         parsedNotes = null;
       }
+    } else {
+      // Dummy execution branch to equalize CPU timing
+      try {
+        const dummyCipher = gcm(keyAes, nonceAes);
+        dummyCipher.decrypt(new Uint8Array(32));
+      } catch {}
     }
 
     if (!(matches && serpentOk && xchachaOk && aesOk && parsedNotes)) {

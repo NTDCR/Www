@@ -86,12 +86,17 @@ export function isValidIsobmffCarrier(data: Uint8Array): boolean {
 /**
  * Parses an ISOBMFF MP4 binary buffer into box structures
  */
+const MAX_PARSED_BOXES = 10000;
+
 export function parseIsobmffBoxes(data: Uint8Array, depth: number = 0, maxDepth: number = 16): Mp4Box[] {
   const boxes: Mp4Box[] = [];
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
   let offset = 0;
 
   while (offset <= data.length - 8) {
+    if (boxes.length >= MAX_PARSED_BOXES) {
+      break; // Defend against atom flooding heap exhaustion DoS
+    }
     let size = view.getUint32(offset);
     const type = String.fromCharCode(
       data[offset + 4],

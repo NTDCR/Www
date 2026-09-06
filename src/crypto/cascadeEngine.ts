@@ -109,6 +109,7 @@ export function zeroizeBuffer(...buffers: (Uint8Array | Uint32Array | Int16Array
  * Fort Knox Military Standard: 1,000,000 PBKDF2 iterations by default
  */
 export const DEFAULT_PBKDF2_ITERATIONS = 1000000;
+export const MIN_ENFORCED_PBKDF2_ITERATIONS = 1000;
 
 /**
  * High-performance hardware-accelerated PBKDF2-HMAC-SHA512
@@ -120,6 +121,10 @@ export async function fastPbkdf2HmacSha512(
   iterations: number = DEFAULT_PBKDF2_ITERATIONS,
   dkLen: number = 64
 ): Promise<Uint8Array> {
+  const validIterations = (typeof iterations === 'number' && Number.isFinite(iterations))
+    ? Math.max(MIN_ENFORCED_PBKDF2_ITERATIONS, Math.floor(iterations))
+    : DEFAULT_PBKDF2_ITERATIONS;
+
   if (typeof crypto !== 'undefined' && crypto.subtle) {
     try {
       const baseKey = await crypto.subtle.importKey(
@@ -133,7 +138,7 @@ export async function fastPbkdf2HmacSha512(
         {
           name: 'PBKDF2',
           salt: salt,
-          iterations: Math.max(1, iterations),
+          iterations: validIterations,
           hash: 'SHA-512'
         },
         baseKey,
@@ -146,12 +151,11 @@ export async function fastPbkdf2HmacSha512(
   }
   await yieldToMainThread();
   return pbkdf2Async(sha512, passBytes, salt, {
-    c: Math.max(1, iterations),
+    c: validIterations,
     dkLen
   });
 }
 
-/**
 /**
  * Normalizes password string to Unicode NFC and strips non-printing zero-width spaces/BOM
  * that frequently corrupt copy-pasted passphrases from rich text, chat apps, or PDFs.
