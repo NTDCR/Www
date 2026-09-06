@@ -201,7 +201,14 @@ function openIndexedDB(): Promise<IDBDatabase> {
     req.onblocked = () => {
       reject(new Error('IndexedDB open blocked: database locked by another tab or connection'));
     };
-    req.onsuccess = () => resolve(req.result);
+    req.onsuccess = () => {
+      const db = req.result;
+      // Auto-close connection immediately if another tab or emergency wipe requests database deletion
+      db.onversionchange = () => {
+        try { db.close(); } catch {}
+      };
+      resolve(db);
+    };
     req.onerror = () => reject(req.error || new Error('IndexedDB open failed'));
   });
 }
@@ -224,12 +231,22 @@ export async function generateAndStoreRecoveryCodes(): Promise<RecoveryCode[]> {
 
   try {
     const db = await openIndexedDB();
-    const tx = db.transaction(STORE_NAME, 'readwrite');
-    const store = tx.objectStore(STORE_NAME);
-    store.clear();
-    for (const item of codes) {
-      store.put(item);
-    }
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      const store = tx.objectStore(STORE_NAME);
+      store.clear();
+      for (const item of codes) {
+        store.put(item);
+      }
+      tx.oncomplete = () => {
+        try { db.close(); } catch {}
+        resolve();
+      };
+      tx.onerror = () => {
+        try { db.close(); } catch {}
+        reject(tx.error);
+      };
+    });
   } catch (err) {
     console.warn('IndexedDB recovery code write fallback to memory:', err);
   }
@@ -245,6 +262,7 @@ export async function loadStoredRecoveryCodes(): Promise<RecoveryCode[]> {
       const store = tx.objectStore(STORE_NAME);
       const req = store.getAll();
       req.onsuccess = () => {
+        try { db.close(); } catch {}
         if (req.result && req.result.length > 0) {
           resolve(req.result);
         } else {
@@ -253,6 +271,7 @@ export async function loadStoredRecoveryCodes(): Promise<RecoveryCode[]> {
         }
       };
       req.onerror = () => {
+        try { db.close(); } catch {}
         generateAndStoreRecoveryCodes().then(resolve);
       };
     });
@@ -277,8 +296,14 @@ export async function markRecoveryCodeUsed(index: number, usedState?: boolean): 
         }
       };
       req.onerror = () => reject(req.error);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
+      tx.oncomplete = () => {
+        try { db.close(); } catch {}
+        resolve();
+      };
+      tx.onerror = () => {
+        try { db.close(); } catch {}
+        reject(tx.error);
+      };
     });
   } catch (err) {
     console.warn('Could not mark recovery code as used in DB:', err);
