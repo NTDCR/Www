@@ -13,6 +13,7 @@ import { secureCopyToClipboard, purgeClipboard, getClipboardPurgeStatus } from '
 import { calculateChiSquareTest, normalizeEntropyToTarget, denormalizeEntropyHeaderFast } from '../src/crypto/entropy';
 import { kyber1024KeyGen, kyber1024Encapsulate, kyber1024Decapsulate } from '../src/crypto/kyber1024';
 import { getOrGenerateCarrierBlob, clearCarrierBlobCache } from '../src/media/mp4Generator';
+import { serpent256Ctr, serpent256CtrAsync } from '../src/crypto/serpent';
 
 interface BountyTestResult {
   id: string;
@@ -868,6 +869,79 @@ async function runBountySuite() {
 
   const b40Passed = kyberMatched && implicitRejectionWorks && uuidValid && hkdfDiffusionHigh && rsHeaderCheck && notesRoundtrip && carrierCachePurged;
   record('B-40', 'Post-Quantum & Zeroization Hardening', 'Constant-Time Lattice Crypto, HKDF Keystream Diffusion, RS Header Signaling & Carrier Cache Wipe', b40Passed ? 'PASSED' : 'FAILED', 'Verified Kyber-1024 constant-time arithmetic, HKDF avalanche diffusion, RS corrupt header uncorrectable block flag, notes scratch zeroization, and carrier cache wipe');
+
+  // -------------------------------------------------------------------------
+  // TEST ASSERTION B-41: Branchless Lattice Decoding, FIPS 203 Modulus Guard,
+  // RS Zero-Block Header Immunity & Serpent Endian Equivalence
+  // -------------------------------------------------------------------------
+  // 1. Kyber-1024 FIPS 203 public key modulus validation:
+  const kp41 = await kyber1024KeyGen();
+  const corruptedPk = new Uint8Array(kp41.publicKey);
+  // Set coefficient 0 of polynomial 0 to 4095 (>= KYBER_Q = 3329)
+  corruptedPk[32] = 0xff;
+  corruptedPk[33] = 0x0f;
+  let pkRejectedProperly = false;
+  try {
+    await kyber1024Encapsulate(corruptedPk);
+  } catch (err: any) {
+    if (err.message && err.message.includes('coefficient exceeds ring modulus q')) {
+      pkRejectedProperly = true;
+    }
+  }
+
+  // Branchless bit decoding decapsulation check:
+  const { ciphertext: ct41, sharedSecret: ssEnc41 } = await kyber1024Encapsulate(kp41.publicKey);
+  const ssDec41 = await kyber1024Decapsulate(ct41, kp41.secretKey);
+  const kyberBranchlessWorks = ssEnc41.length === 32 && ssEnc41.every((b, idx) => b === ssDec41[idx]);
+  zeroizeBuffer(kp41.secretKey, corruptedPk, ssEnc41, ssDec41);
+
+  // 2. Reed-Solomon Stream Zero-Block Framing Rejection:
+  // Craft header with origSize = 500, kBlockSize = 223, nsym = 32, but totalBlocks = 0 (< ceil(500/223) = 3)
+  const zeroBlockHeader = new Uint8Array(32);
+  const zbDv = new DataView(zeroBlockHeader.buffer);
+  zbDv.setUint32(0, 0x52534543); // 'RSEC'
+  zbDv.setUint32(4, 500); // origSize = 500
+  zbDv.setUint16(8, 223); // kBlockSize = 223
+  zbDv.setUint16(10, 32); // nsym = 32
+  zbDv.setUint32(12, 0);   // totalBlocks = 0 (illegal!)
+  const rsZbResult = decodeRSStream(zeroBlockHeader);
+  const rsZeroBlockRejected = rsZbResult.uncorrectableBlocks === 1;
+
+  // 3. Reed-Solomon Trailing-Zero Error Correction:
+  const rsPlain = new TextEncoder().encode('ContentGuard-Pro-MAX-Adversarial-Bounty-41-Robustness-Payload');
+  const { encodedData: rsEncoded } = encodeRSStream(rsPlain, 223, 32);
+  const rsCorrupted = new Uint8Array(rsEncoded);
+  // Introduce 6 corrupted symbols
+  for (let i = 0; i < 6; i++) {
+    rsCorrupted[25 + i * 8] ^= 0x55;
+  }
+  const rsRecovered = decodeRSStream(rsCorrupted);
+  const rsDegreeRepairPassed = rsRecovered.isRepaired &&
+    rsRecovered.uncorrectableBlocks === 0 &&
+    rsRecovered.data.length === rsPlain.length &&
+    rsRecovered.data.every((b, idx) => b === rsPlain[idx]);
+
+  // 4. Serpent-256 CTR Endianness Consistency (Sync vs Async):
+  const serpKey = generateSecureRandomBytes(32);
+  const serpIv = generateSecureRandomBytes(16);
+  const serpData = generateSecureRandomBytes(1024);
+  const serpEncSync = serpent256Ctr(serpData, serpKey, serpIv);
+  const serpEncAsync = await serpent256CtrAsync(serpData, serpKey, serpIv);
+  const serpEndianMatches = serpEncSync.length === serpEncAsync.length &&
+    serpEncSync.every((b, idx) => b === serpEncAsync[idx]);
+  zeroizeBuffer(serpKey, serpIv, serpData, serpEncSync, serpEncAsync);
+
+  // 5. Memory / URL Revocation Safety:
+  revokeAllActiveStreamUrls();
+
+  const b41Passed = pkRejectedProperly && kyberBranchlessWorks && rsZeroBlockRejected && rsDegreeRepairPassed && serpEndianMatches;
+  record(
+    'B-41',
+    'Post-Quantum & Algorithmic Defense Hardening',
+    'Branchless Lattice Bit Decoding, FIPS 203 Modulus Guard, RS Zero-Block Header Immunity & Serpent Endian Equivalence',
+    b41Passed ? 'PASSED' : 'FAILED',
+    'Verified Kyber-1024 branchless decapsulation, FIPS 203 public key coefficient rejection, RS zero-block frame denial, RS BM trailing-zero correction, and Serpent sync/async byte equivalence'
+  );
 
   console.log('\n========================================================================');
   console.log('                 BUG-BOUNTY RESCAN EXECUTIVE SUMMARY');

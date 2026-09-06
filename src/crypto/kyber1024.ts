@@ -184,8 +184,13 @@ function unpack12(bytes: Uint8Array): Int16Array {
     const b0 = bytes[3 * i + 0];
     const b1 = bytes[3 * i + 1];
     const b2 = bytes[3 * i + 2];
-    poly[2 * i] = b0 | ((b1 & 0x0f) << 8);
-    poly[2 * i + 1] = (b1 >>> 4) | (b2 << 4);
+    const c0 = b0 | ((b1 & 0x0f) << 8);
+    const c1 = (b1 >>> 4) | (b2 << 4);
+    if (c0 >= KYBER_Q || c1 >= KYBER_Q) {
+      throw new Error('Invalid Kyber-1024 public key: coefficient exceeds ring modulus q (3329)');
+    }
+    poly[2 * i] = c0;
+    poly[2 * i + 1] = c1;
   }
   return poly;
 }
@@ -547,10 +552,13 @@ export async function kyber1024Decapsulate(
   let cPrime: Uint8Array | null = null;
   let kOkBuf: Uint8Array | null = null;
   let kRejBuf: Uint8Array | null = null;
+  let sTu: Int16Array | null = null;
+  let kOk: Uint8Array | null = null;
+  let kRej: Uint8Array | null = null;
 
   try {
     // Decrypt: v - s^T * u
-    const sTu = new Int16Array(KYBER_N);
+    sTu = new Int16Array(KYBER_N);
     for (let i = 0; i < KYBER_K; i++) {
       const prod = polyMulRq(s[i], u[i]);
       for (let n = 0; n < KYBER_N; n++) sTu[n] = (sTu[n] + prod[n]) % KYBER_Q;
@@ -562,10 +570,11 @@ export async function kyber1024Decapsulate(
     for (let n = 0; n < KYBER_N; n++) {
       let diff = (v[n] - sTu[n]) % KYBER_Q;
       diff = (diff + KYBER_Q) % KYBER_Q;
-      let bit = (diff >= quarterQ && diff <= threeQuarterQ) ? 1 : 0;
-      if (bit === 1) {
-        recoveredM[Math.floor(n / 8)] |= (1 << (n % 8));
-      }
+      // Branchless constant-time decision: 1 if quarterQ <= diff <= threeQuarterQ, else 0
+      const geQuarter = (1 - (((diff - quarterQ) >> 31) & 1));
+      const leThreeQuarter = (1 - (((threeQuarterQ - diff) >> 31) & 1));
+      const bit = geQuarter & leThreeQuarter;
+      recoveredM[n >> 3] |= (bit << (n & 7));
     }
 
     // FO re-encryption check: (K_bar, r) = G(m' || H(pk))
@@ -584,17 +593,17 @@ export async function kyber1024Decapsulate(
     kOkBuf = new Uint8Array(64);
     kOkBuf.set(kBar, 0);
     kOkBuf.set(cHash, 32);
-    const kOk = await hashSha256(kOkBuf);
+    kOk = await hashSha256(kOkBuf);
 
     kRejBuf = new Uint8Array(64);
     kRejBuf.set(z, 0);
     kRejBuf.set(cHash, 32);
-    const kRej = await hashSha256(kRejBuf);
+    kRej = await hashSha256(kRejBuf);
 
     const sharedSecret = ctSelect(match, kOk, kRej);
     zeroize(kOk, kRej, sTu);
     return sharedSecret;
   } finally {
-    zeroize(s, u, v, recoveredM, mAndPk, kr, kBar, rCoins, cPrime, kOkBuf, kRejBuf, pkHash, z);
+    zeroize(s, u, v, recoveredM, mAndPk, kr, kBar, rCoins, cPrime, kOkBuf, kRejBuf, pkHash, z, sTu, kOk, kRej);
   }
 }

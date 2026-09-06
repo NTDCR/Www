@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { FileText, Download, Copy, Check, ShieldCheck } from 'lucide-react';
 import { AuditLogEntry } from '../types';
 import { secureCopyToClipboard } from '../security/clipboard';
@@ -9,19 +9,33 @@ interface AuditLogViewerProps {
 
 export const AuditLogViewer: React.FC<AuditLogViewerProps> = ({ logs }) => {
   const [copied, setCopied] = useState<boolean>(false);
+  const activeBlobUrlsRef = useRef<string[]>([]);
+
+  useEffect(() => {
+    return () => {
+      for (const u of activeBlobUrlsRef.current) {
+        try { URL.revokeObjectURL(u); } catch {}
+      }
+      activeBlobUrlsRef.current = [];
+    };
+  }, []);
 
   const exportAsJson = () => {
     if (logs.length === 0) return;
     const jsonStr = JSON.stringify(logs, null, 2);
     const blob = new Blob([jsonStr], { type: 'application/json;charset=utf-8' });
     const url = URL.createObjectURL(blob);
+    activeBlobUrlsRef.current.push(url);
     const a = document.createElement('a');
     a.href = url;
     a.download = `ContentGuard_Audit_Trail_${new Date().toISOString().slice(0, 10)}.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    setTimeout(() => {
+      try { URL.revokeObjectURL(url); } catch {}
+      activeBlobUrlsRef.current = activeBlobUrlsRef.current.filter(u => u !== url);
+    }, 10000);
   };
 
 /**
@@ -53,13 +67,17 @@ function sanitizeCsvCell(cell: string | undefined | null): string {
     const csvContent = [headers.join(','), ...rows].join('\r\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
+    activeBlobUrlsRef.current.push(url);
     const a = document.createElement('a');
     a.href = url;
     a.download = `ContentGuard_Audit_Trail_${new Date().toISOString().slice(0, 10)}.csv`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    setTimeout(() => {
+      try { URL.revokeObjectURL(url); } catch {}
+      activeBlobUrlsRef.current = activeBlobUrlsRef.current.filter(u => u !== url);
+    }, 10000);
   };
 
   const handleCopy = async () => {

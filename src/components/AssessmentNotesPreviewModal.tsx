@@ -35,6 +35,15 @@ export const AssessmentNotesPreviewModal: React.FC<AssessmentNotesPreviewModalPr
   const [copiedAll, setCopiedAll] = useState<boolean>(false);
   const isMountedRef = useRef<boolean>(true);
   const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const activeBlobUrlsRef = useRef<string[]>([]);
+
+  const handleClose = () => {
+    for (const u of activeBlobUrlsRef.current) {
+      try { URL.revokeObjectURL(u); } catch {}
+    }
+    activeBlobUrlsRef.current = [];
+    onClose();
+  };
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -43,6 +52,10 @@ export const AssessmentNotesPreviewModal: React.FC<AssessmentNotesPreviewModalPr
       if (copyTimeoutRef.current) {
         clearTimeout(copyTimeoutRef.current);
       }
+      for (const u of activeBlobUrlsRef.current) {
+        try { URL.revokeObjectURL(u); } catch {}
+      }
+      activeBlobUrlsRef.current = [];
     };
   }, []);
 
@@ -96,20 +109,24 @@ export const AssessmentNotesPreviewModal: React.FC<AssessmentNotesPreviewModalPr
 
     const blob = new Blob([fullReport], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
+    activeBlobUrlsRef.current.push(url);
     const a = document.createElement('a');
     a.href = url;
     a.download = `Assessment_Notes_Report_${new Date().toISOString().slice(0, 10)}.txt`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    setTimeout(() => {
+      try { URL.revokeObjectURL(url); } catch {}
+      activeBlobUrlsRef.current = activeBlobUrlsRef.current.filter(u => u !== url);
+    }, 10000);
   };
 
   return (
     <div
       id="assessment-preview-modal-backdrop"
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200"
-      onClick={onClose}
+      onClick={handleClose}
     >
       <div
         id="assessment-preview-modal"
@@ -160,7 +177,7 @@ export const AssessmentNotesPreviewModal: React.FC<AssessmentNotesPreviewModalPr
 
             <button
               type="button"
-              onClick={onClose}
+              onClick={handleClose}
               id="btn-close-assessment-modal"
               className="w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition-colors"
             >
@@ -247,7 +264,7 @@ export const AssessmentNotesPreviewModal: React.FC<AssessmentNotesPreviewModalPr
           </span>
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleClose}
             className="px-4 py-1.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-semibold shadow-md transition-colors"
           >
             Close Preview

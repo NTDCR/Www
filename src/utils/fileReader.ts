@@ -739,7 +739,7 @@ export async function streamChunksDirectToDisk(
         try { URL.revokeObjectURL(url); } catch {}
         activeStreamBlobUrls.delete(url);
       }
-    }, 180000);
+    }, 15000);
   }
 
   return { success: true, streamedDirectly: false };

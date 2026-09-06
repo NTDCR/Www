@@ -202,7 +202,9 @@ function rsFindErrorLocator(synd: Uint8Array, nsym: number): Uint8Array | null {
     }
   }
 
-  return new Uint8Array(Lambda);
+  let end = Lambda.length;
+  while (end > 1 && Lambda[end - 1] === 0) end--;
+  return new Uint8Array(Lambda.slice(0, end));
 }
 
 /**
@@ -584,12 +586,14 @@ export function decodeRSStream(
   const kBlockSize = view.getUint16(8, false);
   const nsym = view.getUint16(10, false);
   const totalBlocks = view.getUint32(12, false);
+  const minBlocks = kBlockSize > 0 ? Math.ceil(origSize / kBlockSize) : 0;
 
   if (
     origSize > encodedData.length ||
     kBlockSize <= 0 ||
     nsym <= 0 ||
     kBlockSize + nsym > 255 ||
+    (origSize > 0 && totalBlocks < minBlocks) ||
     totalBlocks > Math.ceil(encodedData.length / Math.min(10, kBlockSize || 1)) + 10
   ) {
     return {
@@ -707,12 +711,14 @@ export async function decodeRSStreamAsync(
   const kBlockSize = view.getUint16(8, false);
   const nsym = view.getUint16(10, false);
   const totalBlocks = view.getUint32(12, false);
+  const minBlocks = kBlockSize > 0 ? Math.ceil(origSize / kBlockSize) : 0;
 
   if (
     origSize > encodedData.length ||
     kBlockSize <= 0 ||
     nsym <= 0 ||
     kBlockSize + nsym > 255 ||
+    (origSize > 0 && totalBlocks < minBlocks) ||
     totalBlocks > Math.ceil(encodedData.length / Math.min(10, kBlockSize || 1)) + 10
   ) {
     return {

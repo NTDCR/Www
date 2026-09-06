@@ -247,11 +247,19 @@ export function serpent256Ctr(
     for (let b = 0; b < fullBlocks; b++) {
       serpentEncryptBlock(cWord0, cWord1, cLow, cHigh, subkeys, blockWords);
 
-      const wordIdx = b * 4;
-      out32[wordIdx + 0] = data32[wordIdx + 0] ^ blockWords[0];
-      out32[wordIdx + 1] = data32[wordIdx + 1] ^ blockWords[1];
-      out32[wordIdx + 2] = data32[wordIdx + 2] ^ blockWords[2];
-      out32[wordIdx + 3] = data32[wordIdx + 3] ^ blockWords[3];
+      if (IS_LITTLE_ENDIAN) {
+        const wordIdx = b * 4;
+        out32[wordIdx + 0] = data32[wordIdx + 0] ^ blockWords[0];
+        out32[wordIdx + 1] = data32[wordIdx + 1] ^ blockWords[1];
+        out32[wordIdx + 2] = data32[wordIdx + 2] ^ blockWords[2];
+        out32[wordIdx + 3] = data32[wordIdx + 3] ^ blockWords[3];
+      } else {
+        const byteOffset = b * 16;
+        const ksBytes = new Uint8Array(blockWords.buffer, blockWords.byteOffset, 16);
+        for (let i = 0; i < 16; i++) {
+          out[byteOffset + i] = data[byteOffset + i] ^ ksBytes[i];
+        }
+      }
 
       // Increment full 128-bit counter
       cLow = (cLow + 1) >>> 0;
@@ -344,11 +352,19 @@ export async function serpent256CtrAsync(
 
       serpentEncryptBlock(cWord0, cWord1, cLow, cHigh, subkeys, blockWords);
 
-      const wordIdx = b * 4;
-      out32[wordIdx + 0] = data32[wordIdx + 0] ^ blockWords[0];
-      out32[wordIdx + 1] = data32[wordIdx + 1] ^ blockWords[1];
-      out32[wordIdx + 2] = data32[wordIdx + 2] ^ blockWords[2];
-      out32[wordIdx + 3] = data32[wordIdx + 3] ^ blockWords[3];
+      if (IS_LITTLE_ENDIAN) {
+        const wordIdx = b * 4;
+        out32[wordIdx + 0] = data32[wordIdx + 0] ^ blockWords[0];
+        out32[wordIdx + 1] = data32[wordIdx + 1] ^ blockWords[1];
+        out32[wordIdx + 2] = data32[wordIdx + 2] ^ blockWords[2];
+        out32[wordIdx + 3] = data32[wordIdx + 3] ^ blockWords[3];
+      } else {
+        const byteOffset = b * 16;
+        const ksBytes = new Uint8Array(blockWords.buffer, blockWords.byteOffset, 16);
+        for (let i = 0; i < 16; i++) {
+          out[byteOffset + i] = data[byteOffset + i] ^ ksBytes[i];
+        }
+      }
 
       // Increment full 128-bit counter
       cLow = (cLow + 1) >>> 0;
