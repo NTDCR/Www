@@ -112,7 +112,10 @@ export function parseIsobmffBoxes(data: Uint8Array, depth: number = 0, maxDepth:
       size = Number(raw64);
       headerSize = 16;
     } else if (size === 0) {
-      // Box extends to end of file
+      // Box extends to end of file (standard allows this ONLY at root container level)
+      if (depth > 0) {
+        break; // Reject nested atom claiming to extend to EOF
+      }
       size = data.length - offset;
     }
 
@@ -203,6 +206,10 @@ export async function embedSpreadSpectrum8Locations(
   const vBLen = vaultBData.length;
   const combinedPayloadLen = 4 + vALen + 4 + vBLen;
 
+  if (combinedPayloadLen > 0xffffffff || vALen > 0xffffffff || vBLen > 0xffffffff) {
+    throw new Error('Payload exceeds maximum 4GB ISOBMFF 32-bit container addressing limit.');
+  }
+
   await yieldToMainThread();
 
   // Calculate 8-way striped chunk lengths
@@ -223,7 +230,7 @@ export async function embedSpreadSpectrum8Locations(
 
   // 1. Scatter Vault A length (4 bytes)
   for (let i = 0; i < 4; i++) {
-    chunks[p & 7][p >>> 3] = (vALen >>> (i * 8)) & 0xff;
+    chunks[p % 8][Math.floor(p / 8)] = (vALen >>> (i * 8)) & 0xff;
     p++;
   }
 
@@ -232,13 +239,13 @@ export async function embedSpreadSpectrum8Locations(
     if ((i & (YIELD_STRIDE - 1)) === 0 && i > 0) {
       await yieldToMainThread();
     }
-    chunks[p & 7][p >>> 3] = vaultAData[i];
+    chunks[p % 8][Math.floor(p / 8)] = vaultAData[i];
     p++;
   }
 
   // 3. Scatter Vault B length (4 bytes)
   for (let i = 0; i < 4; i++) {
-    chunks[p & 7][p >>> 3] = (vBLen >>> (i * 8)) & 0xff;
+    chunks[p % 8][Math.floor(p / 8)] = (vBLen >>> (i * 8)) & 0xff;
     p++;
   }
 
@@ -247,7 +254,7 @@ export async function embedSpreadSpectrum8Locations(
     if ((i & (YIELD_STRIDE - 1)) === 0 && i > 0) {
       await yieldToMainThread();
     }
-    chunks[p & 7][p >>> 3] = vaultBData[i];
+    chunks[p % 8][Math.floor(p / 8)] = vaultBData[i];
     p++;
   }
 
@@ -330,18 +337,22 @@ export async function embedSpreadSpectrum8Locations(
   for (const box of boxChunks) totalFinalSize += box.length;
 
   let protectedMp4: Uint8Array;
-  try {
-    protectedMp4 = new Uint8Array(totalFinalSize);
-    let offset = 0;
-    for (const box of boxChunks) {
-      protectedMp4.set(box, offset);
-      offset += box.length;
+  if (totalFinalSize <= 64 * 1024 * 1024) {
+    try {
+      protectedMp4 = new Uint8Array(totalFinalSize);
+      let offset = 0;
+      for (const box of boxChunks) {
+        protectedMp4.set(box, offset);
+        offset += box.length;
+      }
+    } catch {
+      // Memory pressure fallback: retain streaming boxChunks
+      protectedMp4 = new Uint8Array(0);
     }
-  } catch {
-    throw new Error(
-      `Container assembly failed: insufficient contiguous memory to allocate ${(totalFinalSize / (1024 * 1024)).toFixed(1)} MB buffer. ` +
-      `Please reduce carrier or payload size for in-memory processing.`
-    );
+  } else {
+    // For large gigabyte containers (> 64 MB), leave protectedMp4 lightweight
+    // to eliminate browser heap OOM. Callers consume boxChunks and protectedMp4Blob.
+    protectedMp4 = new Uint8Array(0);
   }
 
   const locationReports: EmbeddingLocationReport[] = [
@@ -433,7 +444,7 @@ export async function extractSpreadSpectrumPayload(protectedMp4: Uint8Array): Pr
   const candidates: { slot: number; data: Uint8Array; offset: number }[] = [];
 
   function recordCandidate(payload: Uint8Array, expectedIndex: number, offset: number) {
-    if (payload.length === 0) return;
+    if (!payload || payload.length === 0 || !Number.isFinite(expectedIndex) || expectedIndex < 0 || expectedIndex > 7 || !Number.isFinite(offset) || offset < 0) return;
     const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
 
     // Backward compatibility with legacy 8-byte framing: [index (2B), reserved (2B), len (4B)]

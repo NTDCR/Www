@@ -113,7 +113,7 @@ async function expandMatrixCoeffs(rho: Uint8Array): Promise<Int16Array[][]> {
 
         for (let off = 0; off <= hash.byteLength - 2 && filled < KYBER_N; off += 2) {
           const val = hashView.getUint16(off, true);
-          if (val < 61440) { // 61440 = 3329 * 18
+          if (val < 63251) { // 63251 = 3329 * 19 (Zero modulo bias in Z_q)
             coeffs[filled++] = val % KYBER_Q;
           }
         }
@@ -515,7 +515,7 @@ export async function kyber1024Decapsulate(
   ciphertext: Uint8Array,
   secretKey: Uint8Array
 ): Promise<Uint8Array> {
-  if (!ciphertext || ciphertext.length < 1568 || !secretKey || secretKey.length < 3168) {
+  if (!ciphertext || ciphertext.length !== 1568 || !secretKey || secretKey.length !== 3168) {
     return implicitRejectPseudoSecret(ciphertext, secretKey);
   }
 

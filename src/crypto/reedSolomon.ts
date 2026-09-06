@@ -182,6 +182,7 @@ function rsFindErrorLocator(synd: Uint8Array, nsym: number): Uint8Array | null {
     if (delta === 0) {
       m++;
     } else {
+      if (b === 0) return null; // Defensive guard against degenerate divisor
       const factor = gfDiv(delta, b);
       const shiftedB = new Array(m).fill(0).concat(B.map(c => gfMul(c, factor)));
       const maxLen = Math.max(Lambda.length, shiftedB.length);
@@ -282,42 +283,41 @@ export function rsDecodeBlock(
   nsym: number = RS_DEFAULT_PARITY_LEN,
   originalDataLen?: number
 ): { data: Uint8Array; correctedErrors: number; success: boolean } {
-  if (codeword.length > 255 || codeword.length < nsym) {
-    const k = Math.max(0, originalDataLen ?? (codeword.length - nsym));
-    return { data: codeword.slice(0, k), correctedErrors: 0, success: false };
-  }
-
-  const synd = rsCalcSyndromes(codeword, nsym);
-  if (rsCheckSyndromes(synd)) {
-    const k = Math.max(0, originalDataLen ?? (codeword.length - nsym));
-    return { data: codeword.slice(0, k), correctedErrors: 0, success: true };
-  }
-
-  const Lambda = rsFindErrorLocator(synd, nsym);
-  if (!Lambda || Lambda.length <= 1 || Lambda.length - 1 > Math.floor(nsym / 2)) {
-    const k = Math.max(0, originalDataLen ?? (codeword.length - nsym));
-    return { data: codeword.slice(0, k), correctedErrors: 0, success: false };
-  }
-
-  const roots = rsFindErrors(Lambda, codeword.length);
-  if (!roots) {
-    const k = Math.max(0, originalDataLen ?? (codeword.length - nsym));
-    return { data: codeword.slice(0, k), correctedErrors: 0, success: false };
-  }
-
-  const corrected = rsCorrectErrors(codeword, synd, Lambda, roots);
-  const postSynd = rsCalcSyndromes(corrected, nsym);
-  if (!rsCheckSyndromes(postSynd)) {
-    const k = Math.max(0, originalDataLen ?? (codeword.length - nsym));
-    return { data: codeword.slice(0, k), correctedErrors: 0, success: false };
-  }
-
   const k = Math.max(0, originalDataLen ?? (codeword.length - nsym));
-  return {
-    data: corrected.slice(0, k),
-    correctedErrors: roots.length,
-    success: true,
-  };
+  try {
+    if (codeword.length > 255 || codeword.length < nsym) {
+      return { data: codeword.slice(0, k), correctedErrors: 0, success: false };
+    }
+
+    const synd = rsCalcSyndromes(codeword, nsym);
+    if (rsCheckSyndromes(synd)) {
+      return { data: codeword.slice(0, k), correctedErrors: 0, success: true };
+    }
+
+    const Lambda = rsFindErrorLocator(synd, nsym);
+    if (!Lambda || Lambda.length <= 1 || Lambda.length - 1 > Math.floor(nsym / 2)) {
+      return { data: codeword.slice(0, k), correctedErrors: 0, success: false };
+    }
+
+    const roots = rsFindErrors(Lambda, codeword.length);
+    if (!roots) {
+      return { data: codeword.slice(0, k), correctedErrors: 0, success: false };
+    }
+
+    const corrected = rsCorrectErrors(codeword, synd, Lambda, roots);
+    const postSynd = rsCalcSyndromes(corrected, nsym);
+    if (!rsCheckSyndromes(postSynd)) {
+      return { data: codeword.slice(0, k), correctedErrors: 0, success: false };
+    }
+
+    return {
+      data: corrected.slice(0, k),
+      correctedErrors: roots.length,
+      success: true,
+    };
+  } catch {
+    return { data: codeword.slice(0, k), correctedErrors: 0, success: false };
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -643,11 +643,16 @@ export function decodeRSStream(
     if (!hasErrors) {
       output.set(blockSlice.subarray(0, curDataLen), outOffset);
     } else {
-      const decoded = rsDecodeBlock(blockSlice, nsym, curDataLen);
-      if (decoded.success) {
-        output.set(decoded.data, outOffset);
-        totalErrors += decoded.correctedErrors;
-      } else {
+      try {
+        const decoded = rsDecodeBlock(blockSlice, nsym, curDataLen);
+        if (decoded.success) {
+          output.set(decoded.data, outOffset);
+          totalErrors += decoded.correctedErrors;
+        } else {
+          output.set(blockSlice.subarray(0, curDataLen), outOffset);
+          uncorrectableCount++;
+        }
+      } catch {
         output.set(blockSlice.subarray(0, curDataLen), outOffset);
         uncorrectableCount++;
       }
@@ -765,11 +770,16 @@ export async function decodeRSStreamAsync(
     if (!hasErrors) {
       output.set(blockSlice.subarray(0, curDataLen), outOffset);
     } else {
-      const decoded = rsDecodeBlock(blockSlice, nsym, curDataLen);
-      if (decoded.success) {
-        output.set(decoded.data, outOffset);
-        totalErrors += decoded.correctedErrors;
-      } else {
+      try {
+        const decoded = rsDecodeBlock(blockSlice, nsym, curDataLen);
+        if (decoded.success) {
+          output.set(decoded.data, outOffset);
+          totalErrors += decoded.correctedErrors;
+        } else {
+          output.set(blockSlice.subarray(0, curDataLen), outOffset);
+          uncorrectableCount++;
+        }
+      } catch {
         output.set(blockSlice.subarray(0, curDataLen), outOffset);
         uncorrectableCount++;
       }

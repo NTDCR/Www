@@ -349,8 +349,9 @@ export async function* streamFileIn1MbChunks(
 
   // Continuous Native ReadableStream (Chrome/Edge/Safari/Firefox) - eliminates repeated OS slice calls!
   if (typeof (source as any).stream === 'function') {
+    let reader: any = null;
     try {
-      const reader = (source as any).stream().getReader();
+      reader = (source as any).stream().getReader();
       let streamOffset = 0;
       let buffer: Uint8Array = new Uint8Array(0);
 
@@ -390,6 +391,10 @@ export async function* streamFileIn1MbChunks(
       return;
     } catch (streamErr) {
       console.warn('Native ReadableStream interrupted, falling back to slice reader:', streamErr);
+    } finally {
+      if (reader) {
+        try { reader.releaseLock(); } catch {}
+      }
     }
   }
 
@@ -747,9 +752,10 @@ export async function streamChunksDirectToDisk(
 export function sanitizeFilename(rawName: string, fallback: string = 'extracted_payload.bin'): string {
   if (!rawName || typeof rawName !== 'string') return fallback;
 
-  // 1. Strip null bytes, control characters (0x00 - 0x1F, 0x7F), zero-width spaces, and BiDi overrides (Trojan Source / CWE-451)
+  // 1. Normalize to Unicode NFC and strip control characters, C1 controls (0x80-0x9F), zero-width spaces, line separators, and BiDi overrides (Trojan Source / CWE-451 / CWE-116)
   let clean = rawName
-    .replace(/[\x00-\x1f\x7f\u200B-\u200F\u2060-\u2064\uFEFF\u202A-\u202E\u2066-\u2069]/g, '')
+    .normalize('NFC')
+    .replace(/[\x00-\x1f\x7f\x80-\x9f\u061C\u200B-\u200F\u2028\u2029\u2060-\u2064\uFEFF\u202A-\u202E\u2066-\u2069]/g, '')
     .trim();
 
   // 2. Remove directory path components (both POSIX / and Windows \)
@@ -758,11 +764,11 @@ export function sanitizeFilename(rawName: string, fallback: string = 'extracted_
   // 3. Remove dangerous filesystem characters: < > : " / \ | ? *
   clean = clean.replace(/[<>:"/\\|?*]/g, '_');
 
-  // 4. Strip leading dots (hidden files/parent traversal) and trailing dots/spaces (invalid in NTFS)
-  clean = clean.replace(/^\.+/, '').replace(/[\s.]+$/, '');
+  // 4. Strip leading dots (hidden files/parent traversal), trailing dots/spaces, and whitespace before extensions
+  clean = clean.replace(/^\.+/, '').replace(/[\s.]+$/, '').replace(/\s+(\.[^.]*)$/, '$1');
 
   // 5. Guard against reserved DOS/Windows device names (CON, PRN, AUX, NUL, COM0-9, LPT0-9, CONIN$, CONOUT$, CLOCK$)
-  const reservedRegex = /^(CON|PRN|AUX|NUL|COM[0-9]|LPT[0-9]|CONIN\$|CONOUT\$|CLOCK\$)(\..*)?$/i;
+  const reservedRegex = /^(CON|PRN|AUX|NUL|COM[0-9]|LPT[0-9]|CONIN\$|CONOUT\$|CLOCK\$)(\s*)(\..*)?$/i;
   if (reservedRegex.test(clean)) {
     clean = `_${clean}`;
   }
@@ -790,6 +796,11 @@ export function sanitizeFilename(rawName: string, fallback: string = 'extracted_
     clean = dec.decode(utf8Bytes.subarray(0, sliceLen)) + ext;
     // Re-strip any trailing spaces/dots introduced by byte truncation
     clean = clean.replace(/[\s.]+$/, '');
+
+    // Re-verify reserved names after truncation
+    if (reservedRegex.test(clean)) {
+      clean = `_${clean}`;
+    }
   }
 
   return clean.length > 0 ? clean : fallback;
