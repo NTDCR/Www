@@ -24,6 +24,14 @@ export const ZeroizeModal: React.FC<ZeroizeModalProps> = ({ onClose, onZeroizeCo
     };
   }, []);
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !isRunning && !isDone) onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose, isRunning, isDone]);
+
   const handleStartWipe = async () => {
     if (isRunning) return;
     setIsRunning(true);
@@ -42,8 +50,14 @@ export const ZeroizeModal: React.FC<ZeroizeModalProps> = ({ onClose, onZeroizeCo
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-rose-950/40 backdrop-blur-md overflow-y-auto">
-      <div className="bg-slate-900 border-2 border-rose-600/60 rounded-2xl max-w-xl w-full p-6 shadow-2xl space-y-6">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-rose-950/40 backdrop-blur-md overflow-y-auto"
+      onClick={() => { if (!isRunning && !isDone) onClose(); }}
+    >
+      <div
+        className="bg-slate-900 border-2 border-rose-600/60 rounded-2xl max-w-xl w-full p-6 shadow-2xl space-y-6"
+        onClick={e => e.stopPropagation()}
+      >
         
         {/* Header */}
         <div className="flex items-center justify-between pb-4 border-b border-rose-900/50">
