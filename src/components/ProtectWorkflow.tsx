@@ -187,6 +187,7 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
 
   // Processing & Results State
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
+  const isProcessingRef = useRef<boolean>(false);
   const [progressText, setProgressText] = useState<string>('');
   const [progressPct, setProgressPct] = useState<number>(0);
   const [result, setResult] = useState<DualVaultCreationResult | null>(null);
@@ -313,7 +314,7 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
   };
 
   const handleStartProtection = async () => {
-    if (isProcessing) return;
+    if (isProcessing || isProcessingRef.current) return;
     if (!vaultAFile || !vaultBFile) {
       setErrorMsg('Mandatory Dual-Vault Requirement: Both Vault A (Real) and Vault B (Decoy) files are required.');
       return;
@@ -367,6 +368,7 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
     }
 
     const overallOpStartTime = performance.now();
+    isProcessingRef.current = true;
     try {
       setIsProcessing(true);
       setErrorMsg(null);
@@ -416,6 +418,7 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
       const msg = err instanceof Error ? err.message : 'Protection workflow failed';
       setErrorMsg(msg);
     } finally {
+      isProcessingRef.current = false;
       if (isMountedRef.current) {
         setIsProcessing(false);
       }

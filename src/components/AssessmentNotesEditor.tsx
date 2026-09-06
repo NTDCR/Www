@@ -13,20 +13,21 @@ import {
 } from 'lucide-react';
 import { VaultAssessmentNotes, isAssessmentNotesComplete, createEmptyAssessmentNotes } from '../types';
 import { ASSESSMENT_QUESTIONS, AssessmentQuestionDef } from '../crypto/notesEngine';
+import { secureRandomInt } from '../crypto/safeRandom';
 
 export function generatePlausibleDecoyTemplate(): VaultAssessmentNotes {
   const scenarios = [
     {
-      company: ['Apex Meridian Systems Ltd.', 'Vantage Cloud Technologies', 'Zenith Infrastructure Partners'][Math.floor(Math.random() * 3)],
+      company: ['Apex Meridian Systems Ltd.', 'Vantage Cloud Technologies', 'Zenith Infrastructure Partners'][secureRandomInt(0, 2)],
       group: 'Enterprise Cloud Operations & Compliance Oversight',
-      data: `Quarterly system health audit records, automated container cluster metrics (${Math.floor(Math.random() * 80 + 20)} nodes), and routine SSL/TLS certificate rotation verification logs.`,
-      method: `Automated telemetry collector script executed via internal operational pipeline from datacenter cluster DC-${Math.floor(Math.random() * 8 + 1)} during scheduled maintenance window.`,
+      data: `Quarterly system health audit records, automated container cluster metrics (${secureRandomInt(20, 99)} nodes), and routine SSL/TLS certificate rotation verification logs.`,
+      method: `Automated telemetry collector script executed via internal operational pipeline from datacenter cluster DC-${secureRandomInt(1, 8)} during scheduled maintenance window.`,
       action: 'Retain in internal compliance archive under 90-day data retention policy; disclose only to certified security auditors upon formal regulatory inquiry.',
       details: 'Contains sanitized CPU/memory threshold reports, HTTP request latencies, network throughput statistics, and patch verification checksums. Zero PII or proprietary code included.',
       precautions: 'Stored on restricted operational storage volume with role-based access control and audited access logging.'
     },
     {
-      company: ['Horizon Financial Advisors Group', 'Sterling Asset Management Inc.', 'Vanguard Capital Compliance'][Math.floor(Math.random() * 3)],
+      company: ['Horizon Financial Advisors Group', 'Sterling Asset Management Inc.', 'Vanguard Capital Compliance'][secureRandomInt(0, 2)],
       group: 'Corporate Accounting & Internal Revenue Reconciliation',
       data: `Routine fiscal reconciliation worksheets, depreciated asset amortization tables (FY-${new Date().getFullYear()}), and routine corporate tax compliance workpapers.`,
       method: 'Exported from secure enterprise ERP ledger system by senior accounting analyst during standard quarterly financial close review.',
@@ -35,18 +36,18 @@ export function generatePlausibleDecoyTemplate(): VaultAssessmentNotes {
       precautions: 'Confidential corporate financial record; restricted to authorized finance department personnel with multi-factor authentication.'
     },
     {
-      company: ['TransPacific Cargo Networks', 'Meridian Freight & Logistics Ltd.', 'Atlantic Global Forwarding'][Math.floor(Math.random() * 3)],
+      company: ['TransPacific Cargo Networks', 'Meridian Freight & Logistics Ltd.', 'Atlantic Global Forwarding'][secureRandomInt(0, 2)],
       group: 'Supply Chain Operations & International Freight Compliance',
-      data: `Commercial freight manifests, intermodal container routing logs (Shipment ID #${Math.floor(Math.random() * 900000 + 100000)}), and customs declaration clearance records.`,
+      data: `Commercial freight manifests, intermodal container routing logs (Shipment ID #${secureRandomInt(100000, 999999)}), and customs declaration clearance records.`,
       method: 'Extracted from international port logistics management terminal during routine container dispatch and bill-of-lading verification.',
       action: 'Archive according to international maritime and freight compliance standards; present to port authority inspectors when requested.',
       details: 'Standardized bill of lading documents, freight weight certificates, carrier route coordinates, and scheduled delivery timestamp records.',
       precautions: 'Standard commercial logistics record; protected by transportation management system operational credentials.'
     },
     {
-      company: ['BioVance Diagnostics Technologies', 'Apex MedTech Solutions', 'Helix Laboratory Systems'][Math.floor(Math.random() * 3)],
+      company: ['BioVance Diagnostics Technologies', 'Apex MedTech Solutions', 'Helix Laboratory Systems'][secureRandomInt(0, 2)],
       group: 'Medical Device Calibration & Laboratory Quality Assurance',
-      data: `Laboratory analyzer baseline calibration curves (Instrument #${Math.floor(Math.random() * 9000 + 1000)}), sensor drift verification telemetry, and scheduled maintenance checklists.`,
+      data: `Laboratory analyzer baseline calibration curves (Instrument #${secureRandomInt(1000, 9999)}), sensor drift verification telemetry, and scheduled maintenance checklists.`,
       method: 'Downloaded via diagnostic calibration interface during routine bi-weekly laboratory equipment performance validation.',
       action: 'Preserve in quality assurance system archives per ISO 13485 regulatory compliance; provide to QA inspection teams during audit cycles.',
       details: 'Diagnostic reference voltages, reagent temperature stability curves, optical sensor baseline readouts, and technician validation sign-offs.',
@@ -54,7 +55,7 @@ export function generatePlausibleDecoyTemplate(): VaultAssessmentNotes {
     }
   ];
 
-  const s = scenarios[Math.floor(Math.random() * scenarios.length)];
+  const s = scenarios[secureRandomInt(0, scenarios.length - 1)];
   return {
     q1_relatedEntities: `${s.company}, ${s.group}`,
     q2_dataContents: s.data,

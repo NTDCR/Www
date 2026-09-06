@@ -171,6 +171,7 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
   }, [protectedFile, key6Input, passwords, pbkdf2Iterations]);
 
   const [isExtracting, setIsExtracting] = useState<boolean>(false);
+  const isExtractingRef = useRef<boolean>(false);
   const [progressText, setProgressText] = useState<string>('');
   const [progressPct, setProgressPct] = useState<number>(0);
   const [result, setResult] = useState<DualVaultExtractionResult | null>(null);
@@ -237,7 +238,7 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
   };
 
   const handleStartExtraction = async () => {
-    if (isExtracting) return;
+    if (isExtracting || isExtractingRef.current) return;
     if (!protectedFile) {
       setErrorMsg('Please upload a protected MP4 container first.');
       return;
@@ -262,6 +263,7 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
     }
 
     const overallOpStartTime = performance.now();
+    isExtractingRef.current = true;
     try {
       if (result?.chunkedData) {
         for (const chunk of result.chunkedData) {
@@ -305,6 +307,7 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
       const msg = err instanceof Error ? err.message : 'Extraction failed';
       setErrorMsg(msg);
     } finally {
+      isExtractingRef.current = false;
       if (isMountedRef.current) {
         setIsExtracting(false);
       }
