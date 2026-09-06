@@ -283,26 +283,15 @@ export async function readChunkFromHandle(
     const slice = source.slice(offset, end);
     return await readSliceWithFallback(slice);
   } catch (err: any) {
+    // Retry slice read once after yielding to clear transient OS file locks
+    await yieldToMainThread();
     try {
-      const ab = await source.arrayBuffer();
-      const u8 = new Uint8Array(ab);
-      if (typeof handle === 'object' && handle !== null) {
-        (handle as any).bytes = u8;
-      }
-      return u8.subarray(offset, end);
+      const retrySlice = source.slice(offset, end);
+      return await readSliceWithFallback(retrySlice);
     } catch {
-      try {
-        const resp = await new Response(source).arrayBuffer();
-        const u8 = new Uint8Array(resp);
-        if (typeof handle === 'object' && handle !== null) {
-          (handle as any).bytes = u8;
-        }
-        return u8.subarray(offset, end);
-      } catch {
-        throw new Error(
-          `The requested file slice [${offset}..${end}] could not be read (${err?.message || 'OS file lock/timeout'}). Please re-select or drag & drop the file.`
-        );
-      }
+      throw new Error(
+        `The requested file chunk [${offset}..${end}] could not be read (${err?.message || 'OS file lock/timeout'}). Please re-select the file.`
+      );
     }
   }
 }
@@ -746,21 +735,29 @@ export function sanitizeFilename(rawName: string, fallback: string = 'extracted_
   // 4. Strip leading dots (hidden files/parent traversal) and trailing dots/spaces (invalid in NTFS)
   clean = clean.replace(/^\.+/, '').replace(/[\s.]+$/, '');
 
-  // 5. Guard against reserved DOS/Windows device names (CON, PRN, AUX, NUL, COM1-9, LPT1-9)
-  const reservedRegex = /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\..*)?$/i;
+  // 5. Guard against reserved DOS/Windows device names (CON, PRN, AUX, NUL, COM0-9, LPT0-9, CONIN$, CONOUT$, CLOCK$)
+  const reservedRegex = /^(CON|PRN|AUX|NUL|COM[0-9]|LPT[0-9]|CONIN\$|CONOUT\$|CLOCK\$)(\..*)?$/i;
   if (reservedRegex.test(clean)) {
     clean = `_${clean}`;
   }
 
-  // 6. Max length limit (255 bytes for standard filesystems)
-  if (clean.length > 255) {
+  // 6. Max UTF-8 byte length limit (255 bytes for NTFS, ext4, APFS)
+  const enc = new TextEncoder();
+  const dec = new TextDecoder('utf-8', { fatal: false });
+  const utf8Bytes = enc.encode(clean);
+
+  if (utf8Bytes.length > 255) {
     const extIdx = clean.lastIndexOf('.');
-    if (extIdx > 0 && clean.length - extIdx <= 10) {
-      const ext = clean.slice(extIdx);
-      clean = clean.slice(0, 255 - ext.length) + ext;
-    } else {
-      clean = clean.slice(0, 255);
+    let ext = '';
+    if (extIdx > 0 && clean.length - extIdx <= 15) {
+      ext = clean.slice(extIdx);
     }
+    const extBytes = enc.encode(ext);
+    const maxBaseBytes = Math.max(1, 255 - extBytes.length);
+
+    clean = dec.decode(utf8Bytes.subarray(0, maxBaseBytes)) + ext;
+    // Re-strip any trailing spaces/dots introduced by byte truncation
+    clean = clean.replace(/[\s.]+$/, '');
   }
 
   return clean.length > 0 ? clean : fallback;

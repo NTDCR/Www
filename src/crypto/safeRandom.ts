@@ -143,8 +143,8 @@ export async function generateCSPRNGKeystream(
       nonce12[i] = sByte ^ (i * 17);
     }
 
-    const empty = new Uint8Array(targetByteLength);
-    return chacha20Process(key32, nonce12, 1, empty);
+    const keystream = new Uint8Array(targetByteLength);
+    return chacha20Process(key32, nonce12, 1, keystream, keystream);
   } finally {
     key32.fill(0);
     nonce12.fill(0);

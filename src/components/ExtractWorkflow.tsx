@@ -170,6 +170,7 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
   const [totalOperationDurationMs, setTotalOperationDurationMs] = useState<number | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [diskSaveStatus, setDiskSaveStatus] = useState<string | null>(null);
+  const [isSavingDisk, setIsSavingDisk] = useState<boolean>(false);
 
   const handleProtectedFileSelection = async (file: File | null) => {
     clearContainerInspectionCache();
@@ -246,6 +247,7 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
         effectivePasswords,
         pbkdf2Iterations,
         (desc, pct) => {
+          if (!isMountedRef.current) return;
           setProgressText(desc);
           setProgressPct(pct);
         }
@@ -276,7 +278,8 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
   };
 
   const handleSaveDirectToDisk = async () => {
-    if (!result) return;
+    if (!result || isSavingDisk) return;
+    setIsSavingDisk(true);
     const safeName = sanitizeFilename(result.filename);
     try {
       if (isMountedRef.current) setDiskSaveStatus('Streaming 1 MB chunks directly to disk...');
@@ -303,6 +306,8 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
       setTimeout(() => {
         if (isMountedRef.current) setDiskSaveStatus(null);
       }, 6000);
+    } finally {
+      if (isMountedRef.current) setIsSavingDisk(false);
     }
   };
 
@@ -664,11 +669,14 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
                 id="save-extracted-disk-btn"
                 type="button"
                 onClick={handleSaveDirectToDisk}
-                className="flex items-center justify-center gap-2 px-5 py-3.5 bg-sky-600 hover:bg-sky-500 text-white font-mono font-bold text-xs uppercase tracking-wider rounded-lg shadow-xl shadow-sky-950/60 transition-all active:scale-95 whitespace-nowrap"
+                disabled={isSavingDisk}
+                className={`flex items-center justify-center gap-2 px-5 py-3.5 ${
+                  isSavingDisk ? 'bg-sky-800 cursor-not-allowed opacity-75' : 'bg-sky-600 hover:bg-sky-500'
+                } text-white font-mono font-bold text-xs uppercase tracking-wider rounded-lg shadow-xl shadow-sky-950/60 transition-all active:scale-95 whitespace-nowrap`}
                 title="Streams chunks directly to local storage without buffering entire file in RAM"
               >
                 <HardDrive className="w-4 h-4" />
-                <span>Save Directly to Disk (0 MB RAM)</span>
+                <span>{isSavingDisk ? 'Streaming to Disk...' : 'Save Directly to Disk (0 MB RAM)'}</span>
               </button>
 
               <button

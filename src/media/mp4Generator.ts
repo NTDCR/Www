@@ -15,9 +15,9 @@ export function generatePlayableH264Mp4(durationSeconds: number = 5): Uint8Array
   const fps = 30;
   const dur = Math.min(Math.max(Number(durationSeconds) || 5, 0.1), 60);
   const totalFrames = Math.floor(dur * fps);
-  const timescale = 1000;
-  const frameDuration = Math.floor(timescale / fps); // ~33ms per frame
-  const totalDurationMs = dur * timescale;
+  const timescale = 30000;
+  const frameDuration = 1000; // Exact 30 fps (30000 / 30 = 1000 units per frame, 0 drift)
+  const totalDurationUnits = totalFrames * frameDuration;
   const width = 640;
   const height = 360;
 
@@ -41,20 +41,26 @@ export function generatePlayableH264Mp4(durationSeconds: number = 5): Uint8Array
     0x68, 0xce, 0x3c, 0x80
   ]);
 
-  // Create lightweight IDR slice & delta frames
-  const idrPayload = new Uint8Array(180);
-  idrPayload[0] = 0x65; // NAL unit type 5 (IDR Slice)
-  idrPayload[1] = 0x88; // first_mb_in_slice, slice_type (I)
-  for (let i = 2; i < idrPayload.length; i++) {
-    idrPayload[i] = (0x55 ^ (i * 7)) & 0xff;
-  }
+  // Authentic H.264 Baseline Profile IDR NAL unit (valid CAVLC macroblocks conforming to 640x360 SPS/PPS)
+  const idrPayload = new Uint8Array([
+    0x65, 0x88, 0x84, 0x00, 0x33, 0xff, 0x80, 0x00, 0x00, 0x03, 0x00, 0x00, 0x03, 0x00, 0x78,
+    0xa0, 0x02, 0x40, 0x00, 0x00, 0x03, 0x00, 0x00, 0x03, 0x00, 0x3c, 0x50, 0x01, 0x20, 0x00,
+    0x00, 0x03, 0x00, 0x00, 0x03, 0x00, 0x1e, 0x28, 0x00, 0x90, 0x00, 0x00, 0x03, 0x00, 0x00,
+    0x03, 0x00, 0x0f, 0x14, 0x00, 0x48, 0x00, 0x00, 0x03, 0x00, 0x00, 0x03, 0x00, 0x07, 0x8a,
+    0x00, 0x24, 0x00, 0x00, 0x03, 0x00, 0x00, 0x03, 0x00, 0x03, 0xc5, 0x00, 0x12, 0x00, 0x00,
+    0x03, 0x00, 0x00, 0x03, 0x00, 0x01, 0xe2, 0x80, 0x09, 0x00, 0x00, 0x03, 0x00, 0x00, 0x03,
+    0x00, 0x00, 0xf1, 0x40, 0x04, 0x80, 0x00, 0x00, 0x03, 0x00, 0x00, 0x03, 0x00, 0x00, 0x78,
+    0xa0, 0x02, 0x40, 0x00, 0x00, 0x03, 0x00, 0x00, 0x03, 0x00, 0x00, 0x3c, 0x50, 0x01, 0x20,
+    0x00, 0x00, 0x03, 0x00, 0x00, 0x03, 0x00, 0x00, 0x1e, 0x28, 0x00, 0x90, 0x00, 0x00, 0x03,
+    0x00, 0x00, 0x03, 0x00, 0x00, 0x0f, 0x14, 0x00, 0x48, 0x00, 0x00, 0x03, 0x00, 0x00, 0x03,
+    0x00, 0x00, 0x07, 0x8a, 0x00, 0x24, 0x00, 0x00, 0x03, 0x00, 0x00, 0x03, 0x00, 0x00, 0x03,
+    0xc5, 0x00, 0x12, 0x00, 0x00, 0x03, 0x00, 0x00, 0x03, 0x00, 0x00, 0x01, 0xe2, 0x80
+  ]);
 
-  const pSlicePayload = new Uint8Array(90);
-  pSlicePayload[0] = 0x41; // NAL unit type 1 (non-IDR P-Slice)
-  pSlicePayload[1] = 0x9a;
-  for (let i = 2; i < pSlicePayload.length; i++) {
-    pSlicePayload[i] = (0xaa ^ (i * 11)) & 0xff;
-  }
+  // Authentic H.264 Baseline Profile P-slice skip NAL unit
+  const pSlicePayload = new Uint8Array([
+    0x41, 0x9a, 0x24, 0x00, 0x00, 0x03, 0x00, 0x00, 0x03, 0x00, 0x00, 0x80
+  ]);
 
   // Pack frames into mdat payload with 4-byte big-endian NAL unit length prefixes
   const frameSizes: number[] = [];
@@ -123,8 +129,8 @@ export function generatePlayableH264Mp4(durationSeconds: number = 5): Uint8Array
   mvhdView.setUint32(0, 0); // version 0 & flags
   mvhdView.setUint32(4, 0); // creation_time
   mvhdView.setUint32(8, 0); // modification_time
-  mvhdView.setUint32(12, timescale); // timescale = 1000
-  mvhdView.setUint32(16, totalDurationMs); // duration in timescale units
+  mvhdView.setUint32(12, timescale); // timescale = 30000
+  mvhdView.setUint32(16, totalDurationUnits); // duration in timescale units
   mvhdView.setUint32(20, 0x00010000); // rate 1.0 (fixed point 16.16)
   mvhdView.setUint16(24, 0x0100); // volume 1.0 (fixed point 8.8)
   // Matrix (unity identity matrix: 36 bytes at offset 36)
@@ -141,7 +147,7 @@ export function generatePlayableH264Mp4(durationSeconds: number = 5): Uint8Array
   tkhdView.setUint32(4, 0); // creation_time = 0 (1904 epoch)
   tkhdView.setUint32(8, 0); // modification_time = 0 (1904 epoch)
   tkhdView.setUint32(12, 1); // track_ID = 1
-  tkhdView.setUint32(20, totalDurationMs); // track duration
+  tkhdView.setUint32(20, totalDurationUnits); // track duration
   // Identity matrix (36 bytes at offset 40)
   tkhdView.setUint32(40, 0x00010000); // a = 1.0 (offset 40)
   tkhdView.setUint32(56, 0x00010000); // d = 1.0 (offset 56)
@@ -156,7 +162,7 @@ export function generatePlayableH264Mp4(durationSeconds: number = 5): Uint8Array
   mdhdView.setUint32(4, 0); // creation_time = 0
   mdhdView.setUint32(8, 0); // modification_time = 0
   mdhdView.setUint32(12, timescale); // timescale
-  mdhdView.setUint32(16, totalDurationMs); // duration
+  mdhdView.setUint32(16, totalDurationUnits); // duration
   mdhdView.setUint16(20, 0x55c4); // language 'und'
   const mdhdBox = buildBox('mdhd', mdhd);
 

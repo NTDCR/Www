@@ -13,12 +13,13 @@ export function chacha20Process(
   key: Uint8Array,
   nonce12or24: Uint8Array,
   initialCounter: number = 0,
-  input: Uint8Array
+  input: Uint8Array,
+  output?: Uint8Array
 ): Uint8Array {
   if (nonce12or24.length === 24) {
-    return xchacha20(key, nonce12or24, input, undefined, initialCounter);
+    return xchacha20(key, nonce12or24, input, output, initialCounter);
   }
-  return chacha20(key, nonce12or24, input, undefined, initialCounter);
+  return chacha20(key, nonce12or24, input, output, initialCounter);
 }
 
 /**
