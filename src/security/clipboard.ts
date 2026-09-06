@@ -28,6 +28,16 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
       checkAndExecutePendingPurge();
     }
   });
+
+  // iOS Safari / Mobile WebKit requires a user gesture for clipboard writes.
+  // Listening to user pointer/key interaction ensures expired clipboards are purged with an active gesture.
+  window.addEventListener('pointerdown', () => {
+    checkAndExecutePendingPurge();
+  }, { passive: true });
+
+  window.addEventListener('keydown', () => {
+    checkAndExecutePendingPurge();
+  }, { passive: true });
 }
 
 /**
