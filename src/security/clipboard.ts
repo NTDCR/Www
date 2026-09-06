@@ -8,8 +8,29 @@
  */
 
 let activeClipboardPurgeTimer: ReturnType<typeof setTimeout> | null = null;
-let lastCopiedPayload: string | null = null;
+let lastCopiedHash: string | null = null;
 let pendingPurgeDeadline = 0;
+
+/**
+ * Computes deterministic SHA-256 hex digest for anti-forensic matching
+ * without retaining sensitive cleartext strings in process heap memory.
+ */
+async function computeTextSha256(str: string): Promise<string> {
+  try {
+    if (typeof crypto !== 'undefined' && crypto.subtle) {
+      const enc = new TextEncoder();
+      const buf = await crypto.subtle.digest('SHA-256', enc.encode(str));
+      return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+  } catch {}
+  // FNV-1a fallback for non-WebCrypto environments
+  let h = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(16);
+}
 
 // Setup resilient window focus / visibility listeners to ensure clipboard is wiped even if tab was backgrounded
 if (typeof window !== 'undefined' && typeof document !== 'undefined') {
@@ -62,18 +83,23 @@ export async function secureCopyToClipboard(
       activeClipboardPurgeTimer = null;
     }
 
-    lastCopiedPayload = text;
+    lastCopiedHash = await computeTextSha256(text);
     pendingPurgeDeadline = autoPurgeSeconds > 0 ? Date.now() + autoPurgeSeconds * 1000 : 0;
     await navigator.clipboard.writeText(text);
 
     if (autoPurgeSeconds > 0) {
       activeClipboardPurgeTimer = setTimeout(async () => {
         try {
-          // If clipboard matches our secret or readText permission is blocked/denied (null), wipe it
+          // If clipboard matches our secret fingerprint or readText permission is blocked/denied (null), wipe it
           if (navigator.clipboard.readText) {
             const current = await navigator.clipboard.readText().catch(() => null);
-            if (current === null || current === lastCopiedPayload) {
+            if (current === null) {
               await navigator.clipboard.writeText('');
+            } else {
+              const currentHash = await computeTextSha256(current);
+              if (currentHash === lastCopiedHash) {
+                await navigator.clipboard.writeText('');
+              }
             }
           } else {
             await navigator.clipboard.writeText('');
@@ -81,7 +107,7 @@ export async function secureCopyToClipboard(
         } catch {
           try { await navigator.clipboard.writeText(''); } catch {}
         } finally {
-          lastCopiedPayload = null;
+          lastCopiedHash = null;
           activeClipboardPurgeTimer = null;
           pendingPurgeDeadline = 0;
         }
@@ -102,7 +128,7 @@ export async function purgeClipboard(): Promise<void> {
     clearTimeout(activeClipboardPurgeTimer);
     activeClipboardPurgeTimer = null;
   }
-  lastCopiedPayload = null;
+  lastCopiedHash = null;
   pendingPurgeDeadline = 0;
 
   if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
