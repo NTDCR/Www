@@ -329,6 +329,13 @@ async function runBountySuite() {
   const k6WhitespaceImmune = derivedClean.hexString === derivedDirty.hexString && sanitizeKey6String(dirtyK6) === cleanK6;
   record('B-24', 'Credential Hygiene', 'Key 6 Copy-Paste Whitespace Invariance', k6WhitespaceImmune ? 'PASSED' : 'FAILED', 'Derived bit-for-bit identical 1024-bit ID despite leading/trailing whitespace & newlines');
 
+  // 6.11: Multi-Byte UTF-8 Filename Truncation Invariance (Zero \uFFFD)
+  const longUnicodeName = 'A'.repeat(250) + '🔒🔑.pdf'; // 250 + 4 + 4 + 4 = 262 bytes
+  const sanitizedLongName = sanitizeFilename(longUnicodeName);
+  const encLong = new TextEncoder();
+  const safeFilenamePassed = !sanitizedLongName.includes('\uFFFD') && encLong.encode(sanitizedLongName).length <= 255 && sanitizedLongName.endsWith('.pdf');
+  record('B-25', 'Filename Safety', 'Multi-Byte UTF-8 Filename Truncation Invariance', safeFilenamePassed ? 'PASSED' : 'FAILED', `Clean filename (${encLong.encode(sanitizedLongName).length} bytes), ends with .pdf, zero \uFFFD`);
+
   console.log('\n========================================================================');
   console.log('                 BUG-BOUNTY RESCAN EXECUTIVE SUMMARY');
   console.log('========================================================================');

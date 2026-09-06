@@ -757,7 +757,13 @@ export function sanitizeFilename(rawName: string, fallback: string = 'extracted_
     const extBytes = enc.encode(ext);
     const maxBaseBytes = Math.max(1, 255 - extBytes.length);
 
-    clean = dec.decode(utf8Bytes.subarray(0, maxBaseBytes)) + ext;
+    // Step backwards past UTF-8 continuation bytes to ensure atomic code-point slicing (Zero \uFFFD corruption)
+    let sliceLen = maxBaseBytes;
+    while (sliceLen > 0 && (utf8Bytes[sliceLen] & 0xc0) === 0x80) {
+      sliceLen--;
+    }
+
+    clean = dec.decode(utf8Bytes.subarray(0, sliceLen)) + ext;
     // Re-strip any trailing spaces/dots introduced by byte truncation
     clean = clean.replace(/[\s.]+$/, '');
   }
