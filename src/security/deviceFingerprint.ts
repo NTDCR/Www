@@ -111,7 +111,11 @@ export async function getAudioFingerprint(): Promise<string> {
     compressor.connect(ctx.destination);
     oscillator.start(0);
 
-    const renderedBuffer = await ctx.startRendering();
+    // Bound audio rendering to 1500ms to guarantee zero UI stall even if privacy extensions stub startRendering()
+    const renderedBuffer = await Promise.race([
+      ctx.startRendering(),
+      new Promise<AudioBuffer>((_, reject) => setTimeout(() => reject(new Error('Audio render timeout')), 1500))
+    ]);
     const channelData = renderedBuffer.getChannelData(0);
     let sum = 0;
     const step = Math.max(1, Math.floor(channelData.length / 500));
