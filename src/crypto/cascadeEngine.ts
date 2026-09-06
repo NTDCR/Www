@@ -158,7 +158,7 @@ export async function fastPbkdf2HmacSha512(
  */
 export function sanitizePasswordString(raw: string | undefined | null): string {
   if (typeof raw !== 'string') return '';
-  return raw.normalize('NFC').replace(/[\u200B-\u200F\u2060-\u2064\uFEFF]/g, '');
+  return raw.normalize('NFC').replace(/[\x00\u061C\u200B-\u200F\u2060-\u2064\uFEFF\u202A-\u202E\u2066-\u2069]/g, '');
 }
 
 /**

@@ -5,7 +5,7 @@ import { generateSecureRandomBytes, secureRandomInt, secureRandomUUID, generateC
 import { unmaskAndVerifyKey6FromRSBlock, deriveAndMask1024BitId, sanitizeKey6String } from '../src/crypto/key6Engine';
 import { encryptAssessmentNotesBlock, decryptAssessmentNotesBlock, parseAssessmentNotesJson, sanitizeAssessmentNotesInput } from '../src/crypto/notesEngine';
 import { parseIsobmffBoxes, isValidIsobmffCarrier } from '../src/media/isobmff';
-import { sanitizeFilename, revokeAllActiveStreamUrls, zeroizeStreamingHandle } from '../src/utils/fileReader';
+import { sanitizeFilename, revokeAllActiveStreamUrls, zeroizeStreamingHandle, StreamingFileHandle } from '../src/utils/fileReader';
 import { generatePlausibleDecoyTemplate } from '../src/components/AssessmentNotesEditor';
 import { isAssessmentNotesComplete } from '../src/types';
 import { generateRecoveryCodesInMemory, generateAndStoreRecoveryCodes } from '../src/security/deviceFingerprint';
@@ -1062,6 +1062,98 @@ async function runBountySuite() {
     'Asymmetric Notes Length Equalization, ISOBMFF 64-Bit MAX_SAFE_INTEGER Guard, XChaCha20 Input Validation & Chi-Square Fault Tolerance',
     b42Passed ? 'PASSED' : 'FAILED',
     `Equalized Notes: ${notesLengthEqual} (Len: ${asymBundleA?.notesBlock?.length || 0}B), RS Notes Recovery: 100%, 64-bit Overflow Guard: ${isobmffBoundsSafe}, XChaCha20/Chi-Square Resiliency: ${xchaRoundtripPassed && chiSquareResilient}`
+  );
+
+  // =========================================================================
+  // TEST ASSERTION B-43: In-Memory Preloaded Handle Non-Destruction,
+  //                      Debounced Keystroke Safety, Failed Extraction Retry &
+  //                      Trojan Source / BiDi Password Sanitization
+  // =========================================================================
+  console.log('\n--- PHASE 8: Interactive Runtime Memory Safety & Input Hardening ---');
+
+  // 1. Preloaded Handle In-Memory Inspection Non-Destruction Check:
+  // Create a realistic StreamingFileHandle carrying the dual-vault package bytes in memory
+  const preloadedContainerBytes = new Uint8Array(asymPkg.protectedMp4Bytes);
+  const mockFileHandle: StreamingFileHandle = {
+    name: 'test_dualvault_preloaded.mp4',
+    size: preloadedContainerBytes.length,
+    type: 'video/mp4',
+    source: new Blob([preloadedContainerBytes], { type: 'video/mp4' }) as any,
+    bytes: preloadedContainerBytes
+  };
+
+  // Multiple debounced keystroke inspection invocations (simulating user typing in UI)
+  await inspectContainerKey6Identity(mockFileHandle, 'FoxtrotKey6!2026', 1000);
+  await inspectContainerAssessmentNotes(mockFileHandle, pwA, 1000);
+  await inspectContainerAssessmentNotes(mockFileHandle, pwB, 1000);
+
+  // Verify mockFileHandle.bytes was NOT zeroized by background inspection calls
+  const handleBytesIntact = mockFileHandle.bytes !== undefined &&
+    mockFileHandle.bytes.length === asymPkg.protectedMp4Bytes.length &&
+    mockFileHandle.bytes.some(b => b !== 0) &&
+    mockFileHandle.bytes.every((b, idx) => b === asymPkg.protectedMp4Bytes[idx]);
+
+  // 2. Subsequent Extraction from the Inspected Handle:
+  const extractedFromHandle = await extractFromDualVaultPackage(mockFileHandle, pwA, 1000);
+  const handleExtractionPassed = extractedFromHandle.vaultRevealed === 'Authenticated Payload' &&
+    extractedFromHandle.filesize === 42 &&
+    extractedFromHandle.matchedVault === 'VaultA';
+
+  // 3. Failed Extraction Retry Non-Destruction Check:
+  // When user enters a wrong password, handle must NOT be destroyed so retry succeeds
+  const retryContainerBytes = new Uint8Array(asymPkg.protectedMp4Bytes);
+  const retryHandle: StreamingFileHandle = {
+    name: 'test_retry_handle.mp4',
+    size: retryContainerBytes.length,
+    type: 'video/mp4',
+    source: new Blob([retryContainerBytes], { type: 'video/mp4' }) as any,
+    bytes: retryContainerBytes
+  };
+
+  const wrongPw = { ...pwA, layer1_kyber: 'WrongPassword!999' };
+  let failedExtractionCaught = false;
+  try {
+    await extractFromDualVaultPackage(retryHandle, wrongPw, 1000);
+  } catch {
+    failedExtractionCaught = true;
+  }
+
+  // Verify retryHandle.bytes is still intact after failure
+  const retryHandleIntact = retryHandle.bytes !== undefined &&
+    retryHandle.bytes.length > 0 &&
+    retryHandle.bytes.every((b, idx) => b === asymPkg.protectedMp4Bytes[idx]);
+
+  // Immediate retry with correct password succeeds without re-uploading
+  const retrySuccess = await extractFromDualVaultPackage(retryHandle, pwA, 1000);
+  const retryPassed = failedExtractionCaught && retryHandleIntact && retrySuccess.matchedVault === 'VaultA';
+
+  // 4. Unicode Trojan Source, BiDi Override & Null Byte Sanitization in Passwords:
+  const basePw = 'SecureSecretPassphrase2026!';
+  const trojanPwNull = `SecureSecret\x00Passphrase2026!`;
+  const trojanPwBiDiRTL = `SecureSecret\u202EPassphrase2026!`;
+  const trojanPwBiDiLTI = `SecureSecret\u2066Passphrase2026!`;
+  const trojanPwALM = `SecureSecret\u061CPassphrase2026!`;
+
+  const cleanSanitized = sanitizePasswordString(basePw);
+  const nullSanitized = sanitizePasswordString(trojanPwNull);
+  const rtlSanitized = sanitizePasswordString(trojanPwBiDiRTL);
+  const ltiSanitized = sanitizePasswordString(trojanPwBiDiLTI);
+  const almSanitized = sanitizePasswordString(trojanPwALM);
+
+  const trojanSanitizationPassed = cleanSanitized === basePw &&
+    nullSanitized === basePw &&
+    rtlSanitized === basePw &&
+    ltiSanitized === basePw &&
+    almSanitized === basePw;
+
+  const b43Passed = handleBytesIntact && handleExtractionPassed && retryPassed && trojanSanitizationPassed;
+
+  record(
+    'B-43',
+    'Interactive Runtime Memory Safety & Input Hardening',
+    'Preloaded Handle In-Memory Protection, Extraction Retry Resilience & Trojan Source BiDi Sanitization',
+    b43Passed ? 'PASSED' : 'FAILED',
+    `Handle Bytes Intact: ${handleBytesIntact}, Extraction Passed: ${handleExtractionPassed}, Retry Resilience: ${retryPassed}, BiDi/Trojan Sanitization: ${trojanSanitizationPassed}`
   );
 
   console.log('\n========================================================================');

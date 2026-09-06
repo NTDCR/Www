@@ -114,6 +114,7 @@ export async function getOrExtractContainerBundles(
   protectedMp4File: File | StreamingFileHandle | Uint8Array
 ): Promise<{ bundleA: EncryptedPayloadBundle | null; bundleB: EncryptedPayloadBundle | null }> {
   await yieldToMainThread();
+  const isAlreadyInMemory = (typeof protectedMp4File === 'object' && protectedMp4File !== null && 'bytes' in protectedMp4File && (protectedMp4File as any).bytes instanceof Uint8Array);
   const protectedBytes = protectedMp4File instanceof Uint8Array
     ? protectedMp4File
     : await readFileAsUint8Array(protectedMp4File);
@@ -142,7 +143,7 @@ export async function getOrExtractContainerBundles(
         try {
           await yieldToMainThread();
           unshapedA = await denormalizeEntropy(vaultABytes);
-          const { data } = decodeRSStream(unshapedA);
+          const { data } = await decodeRSStreamAsync(unshapedA);
           rsRepairedA = data;
           bundleA = deserializeBundle(rsRepairedA);
         } catch {}
@@ -158,7 +159,7 @@ export async function getOrExtractContainerBundles(
         try {
           await yieldToMainThread();
           unshapedB = await denormalizeEntropy(vaultBBytes);
-          const { data } = decodeRSStream(unshapedB);
+          const { data } = await decodeRSStreamAsync(unshapedB);
           rsRepairedB = data;
           bundleB = deserializeBundle(rsRepairedB);
         } catch {}
@@ -172,7 +173,7 @@ export async function getOrExtractContainerBundles(
       headerUnshapedA, headerDecodedA, unshapedA, rsRepairedA,
       headerUnshapedB, headerDecodedB, unshapedB, rsRepairedB
     );
-    if (!(protectedMp4File instanceof Uint8Array)) {
+    if (!(protectedMp4File instanceof Uint8Array) && !isAlreadyInMemory) {
       zeroizeBuffer(protectedBytes);
     }
   }
@@ -556,6 +557,8 @@ export async function extractFromDualVaultPackage(
   let protectedBytes: Uint8Array | null = null;
   let vaultABytes: Uint8Array | null = null;
   let vaultBBytes: Uint8Array | null = null;
+  let overallSuccess = false;
+  const isAlreadyInMemory = (typeof protectedMp4File === 'object' && protectedMp4File !== null && 'bytes' in protectedMp4File && (protectedMp4File as any).bytes instanceof Uint8Array);
 
   try {
     protectedBytes = protectedMp4File instanceof Uint8Array
@@ -657,18 +660,20 @@ export async function extractFromDualVaultPackage(
       if (resultB && resultB.chunkedData) {
         zeroizeBuffer(resultB.chunkedData);
       }
+      overallSuccess = true;
       return resultA;
     }
     if (resultB) {
+      overallSuccess = true;
       return resultB;
     }
     throw new Error(NEUTRAL_AUTH_FAILURE);
   } finally {
     zeroizeBuffer(vaultABytes, vaultBBytes);
-    if (!(protectedMp4File instanceof Uint8Array) && protectedBytes) {
+    if (!(protectedMp4File instanceof Uint8Array) && protectedBytes && !isAlreadyInMemory) {
       zeroizeBuffer(protectedBytes);
     }
-    if (protectedMp4File && typeof protectedMp4File === 'object' && 'name' in protectedMp4File) {
+    if (overallSuccess && protectedMp4File && typeof protectedMp4File === 'object' && 'name' in protectedMp4File) {
       zeroizeStreamingHandle(protectedMp4File);
     }
   }
