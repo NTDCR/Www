@@ -280,30 +280,16 @@ export async function createDualVaultPackage(
     let lenA = enc.encode(JSON.stringify(effectiveNotesA)).length;
     let lenB = enc.encode(JSON.stringify(effectiveNotesB)).length;
     if (lenA < lenB) {
-      const diff = lenB - lenA;
-      let padStr = 'x'.repeat(Math.max(1, diff - 10));
-      (effectiveNotesA as any)._p = padStr;
+      (effectiveNotesA as any)._p = '';
       lenA = enc.encode(JSON.stringify(effectiveNotesA)).length;
-      while (lenA < lenB) {
-        (effectiveNotesA as any)._p += 'x';
-        lenA = enc.encode(JSON.stringify(effectiveNotesA)).length;
-      }
-      while (lenA > lenB) {
-        (effectiveNotesA as any)._p = (effectiveNotesA as any)._p.slice(0, -1);
-        lenA = enc.encode(JSON.stringify(effectiveNotesA)).length;
+      if (lenA < lenB) {
+        (effectiveNotesA as any)._p = 'x'.repeat(lenB - lenA);
       }
     } else if (lenB < lenA) {
-      const diff = lenA - lenB;
-      let padStr = 'x'.repeat(Math.max(1, diff - 10));
-      (effectiveNotesB as any)._p = padStr;
+      (effectiveNotesB as any)._p = '';
       lenB = enc.encode(JSON.stringify(effectiveNotesB)).length;
-      while (lenB < lenA) {
-        (effectiveNotesB as any)._p += 'x';
-        lenB = enc.encode(JSON.stringify(effectiveNotesB)).length;
-      }
-      while (lenB > lenA) {
-        (effectiveNotesB as any)._p = (effectiveNotesB as any)._p.slice(0, -1);
-        lenB = enc.encode(JSON.stringify(effectiveNotesB)).length;
+      if (lenB < lenA) {
+        (effectiveNotesB as any)._p = 'x'.repeat(lenA - lenB);
       }
     }
   }

@@ -196,6 +196,9 @@ export function serpentEncrypt16ByteBlock(block16: Uint8Array, key256: Uint8Arra
 }
 
 // Fast Serpent-256-CTR encryption / decryption with 32-bit Word Acceleration
+// Endianness check: true on Little-Endian (x86, ARM), false on Big-Endian
+const IS_LITTLE_ENDIAN = new Uint8Array(new Uint32Array([0x12345678]).buffer)[0] === 0x78;
+
 export function serpent256Ctr(
   data: Uint8Array,
   key256: Uint8Array,
@@ -217,11 +220,11 @@ export function serpent256Ctr(
   const data32 = new Uint32Array(data.buffer, data.byteOffset, Math.floor(data.length / 4));
 
   const counterWords = new Uint32Array(4);
-  if (iv128.byteOffset % 4 !== 0) {
-    iv128 = new Uint8Array(iv128);
-  }
-  const iv32 = new Uint32Array(iv128.buffer, iv128.byteOffset, 4);
-  counterWords.set(iv32);
+  const ivView = new DataView(iv128.buffer, iv128.byteOffset, 16);
+  counterWords[0] = ivView.getUint32(0, true);
+  counterWords[1] = ivView.getUint32(4, true);
+  counterWords[2] = ivView.getUint32(8, true);
+  counterWords[3] = ivView.getUint32(12, true);
 
   const blockWords = new Uint32Array(4);
   const fullBlocks = Math.floor(data.length / 16);
@@ -310,11 +313,11 @@ export async function serpent256CtrAsync(
   const data32 = new Uint32Array(data.buffer, data.byteOffset, Math.floor(data.length / 4));
 
   const counterWords = new Uint32Array(4);
-  if (iv128.byteOffset % 4 !== 0) {
-    iv128 = new Uint8Array(iv128);
-  }
-  const iv32 = new Uint32Array(iv128.buffer, iv128.byteOffset, 4);
-  counterWords.set(iv32);
+  const ivView = new DataView(iv128.buffer, iv128.byteOffset, 16);
+  counterWords[0] = ivView.getUint32(0, true);
+  counterWords[1] = ivView.getUint32(4, true);
+  counterWords[2] = ivView.getUint32(8, true);
+  counterWords[3] = ivView.getUint32(12, true);
 
   const blockWords = new Uint32Array(4);
   const fullBlocks = Math.floor(data.length / 16);

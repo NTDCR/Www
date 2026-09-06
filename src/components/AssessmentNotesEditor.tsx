@@ -91,6 +91,12 @@ export const AssessmentNotesEditor: React.FC<AssessmentNotesEditorProps> = ({
   const isComplete = completedCount === ASSESSMENT_QUESTIONS.length;
 
   const handleFieldChange = (field: keyof VaultAssessmentNotes, val: string) => {
+    const enc = new TextEncoder();
+    if (enc.encode(val).length > 40000) {
+      const dec = new TextDecoder('utf-8');
+      const bytes = enc.encode(val).subarray(0, 40000);
+      val = dec.decode(bytes);
+    }
     onChange({
       ...notes,
       [field]: val
@@ -309,9 +315,14 @@ export const AssessmentNotesEditor: React.FC<AssessmentNotesEditorProps> = ({
                 />
                 <div className="flex justify-between items-center mt-1 px-1 text-[11px] text-slate-500">
                   <span>UTF-8 Multiline Assessment Record</span>
-                  <span className={value.length > 38000 ? 'text-amber-400 font-mono font-bold' : 'text-slate-500 font-mono'}>
-                    {value.length.toLocaleString()} / 40,000 max
-                  </span>
+                  {(() => {
+                    const byteLen = new TextEncoder().encode(value).length;
+                    return (
+                      <span className={byteLen > 38000 ? 'text-amber-400 font-mono font-bold' : 'text-slate-500 font-mono'}>
+                        {byteLen.toLocaleString()} / 40,000 bytes max
+                      </span>
+                    );
+                  })()}
                 </div>
               </div>
             </div>

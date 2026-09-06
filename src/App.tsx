@@ -166,10 +166,18 @@ export default function App() {
     setAuditLogs(prev => [newEntry, ...prev]);
   };
 
+  const [resetKey, setResetKey] = useState<number>(0);
+
   const handleZeroizeComplete = () => {
     setShowZeroizeModal(false);
-    // Purge memory and reload UI cleanly
-    window.location.reload();
+    setAuditLogs([]);
+    setDeviceInfo(null);
+    setResetKey(prev => prev + 1);
+    try {
+      window.location.reload();
+    } catch {
+      // Fallback for sandboxed environments where reload is blocked
+    }
   };
 
   return (
@@ -253,9 +261,10 @@ export default function App() {
       {/* Main Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-8">
         
-        {/* TAB 1: DUAL-VAULT PROTECTION */}
-        {activeTab === 'protect' && (
+        {/* TAB 1: DUAL-VAULT PROTECTION (Preserved in DOM to prevent dropping background crypto jobs) */}
+        <div className={activeTab === 'protect' ? 'block' : 'hidden'}>
           <ProtectWorkflow
+            key={`protect-${resetKey}`}
             onAddAuditLog={handleAddAuditLog}
             onMetricsGenerated={(metrics, locs, carrierSize, payloadSize, carrierName) => {
               setInspectorMetrics(metrics);
@@ -265,12 +274,12 @@ export default function App() {
               if (carrierName !== undefined) setInspectorCarrierName(carrierName);
             }}
           />
-        )}
+        </div>
 
         {/* TAB 2: EXTRACTION & SELECTIVE REVEAL */}
-        {activeTab === 'extract' && (
-          <ExtractWorkflow onAddAuditLog={handleAddAuditLog} />
-        )}
+        <div className={activeTab === 'extract' ? 'block' : 'hidden'}>
+          <ExtractWorkflow key={`extract-${resetKey}`} onAddAuditLog={handleAddAuditLog} />
+        </div>
 
         {/* TAB 3: STEGANALYSIS & STATISTICAL INSPECTOR */}
         {activeTab === 'inspector' && (

@@ -250,6 +250,35 @@ export async function embedSpreadSpectrum8Locations(
   let baseCarrier = carrierMp4;
   if (!baseCarrier || baseCarrier.length === 0) {
     baseCarrier = generatePlayableH264Mp4(5);
+  } else {
+    // Normalize any trailing box with size === 0 (standard in iPhone/OBS recordings)
+    // so appended injected metadata boxes remain top-level sibling atoms
+    if (baseCarrier.length >= 8) {
+      let p = 0;
+      let carrierCopy: Uint8Array | null = null;
+      let view = new DataView(baseCarrier.buffer, baseCarrier.byteOffset, baseCarrier.byteLength);
+      while (p <= baseCarrier.length - 8) {
+        const bSize = view.getUint32(p);
+        if (bSize === 0) {
+          const actualBoxLen = baseCarrier.length - p;
+          if (actualBoxLen <= 0xffffffff) {
+            carrierCopy = new Uint8Array(baseCarrier);
+            new DataView(carrierCopy.buffer, carrierCopy.byteOffset, carrierCopy.byteLength).setUint32(p, actualBoxLen);
+            baseCarrier = carrierCopy;
+          }
+          break;
+        } else if (bSize === 1) {
+          if (p + 16 > baseCarrier.length) break;
+          const bSize64 = Number(view.getBigUint64(p + 8));
+          if (bSize64 < 16 || p + bSize64 > baseCarrier.length) break;
+          p += bSize64;
+        } else if (bSize < 8 || p + bSize > baseCarrier.length) {
+          break;
+        } else {
+          p += bSize;
+        }
+      }
+    }
   }
 
   // Inject all 8 spread-spectrum boxes (100% standard ISO/Sony/Canon/RED atom types)
