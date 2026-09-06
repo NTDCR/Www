@@ -40,6 +40,7 @@ interface ExtractWorkflowProps {
 export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog }) => {
   const isMountedRef = useRef(true);
   const activeBlobUrlsRef = useRef<string[]>([]);
+  const resultRef = useRef<DualVaultExtractionResult | null>(null);
   useEffect(() => {
     isMountedRef.current = true;
     return () => {
@@ -48,6 +49,12 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
         try { URL.revokeObjectURL(u); } catch {}
       }
       activeBlobUrlsRef.current = [];
+      if (resultRef.current?.chunkedData) {
+        for (const chunk of resultRef.current.chunkedData) {
+          chunk.fill(0);
+        }
+      }
+      resultRef.current = null;
     };
   }, []);
 
@@ -199,6 +206,7 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
       }
     }
     setResult(null);
+    resultRef.current = null;
     setAssessmentNotes(null);
     setKey6VerifiedUniqueId('');
     setKey6MatchedVault(null);
@@ -271,6 +279,7 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
         }
       }
       setResult(null);
+      resultRef.current = null;
       setAssessmentNotes(null);
       setIsExtracting(true);
       setErrorMsg(null);
@@ -290,9 +299,15 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
       );
 
       const totalDuration = performance.now() - overallOpStartTime;
-      if (!isMountedRef.current) return;
+      if (!isMountedRef.current) {
+        if (res.chunkedData) {
+          for (const chunk of res.chunkedData) chunk.fill(0);
+        }
+        return;
+      }
       setTotalOperationDurationMs(totalDuration);
       setResult(res);
+      resultRef.current = res;
       if (res.assessmentNotes) {
         setAssessmentNotes(res.assessmentNotes);
         setNotesMatchedVault(res.matchedVault || 'VaultA');
@@ -376,6 +391,7 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
       }
     }
     setResult(null);
+    resultRef.current = null;
     setProtectedFile(null);
     setPasswords({
       layer1_kyber: '',

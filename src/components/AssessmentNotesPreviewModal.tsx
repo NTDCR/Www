@@ -48,7 +48,6 @@ export const AssessmentNotesPreviewModal: React.FC<AssessmentNotesPreviewModalPr
 
   if (!isOpen || !notes) return null;
 
-  const isVaultA = vaultMatched === 'VaultA';
   const vaultTitle = 'Security Assessment Record';
 
   const handleCopyField = async (id: string, text: string) => {
@@ -205,11 +204,7 @@ export const AssessmentNotesPreviewModal: React.FC<AssessmentNotesPreviewModalPr
                 <div className="flex items-start justify-between gap-3 mb-2">
                   <div className="flex items-start gap-2.5">
                     <span
-                      className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold mt-0.5 ${
-                        isVaultA
-                          ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
-                          : 'bg-amber-500/20 text-amber-400 border border-amber-500/40'
-                      }`}
+                      className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold mt-0.5 bg-emerald-500/20 text-emerald-400 border border-emerald-500/40"
                     >
                       {q.number}
                     </span>

@@ -1021,31 +1021,33 @@ export async function decryptCascade5Layers(
 
   // Extract payload slices directly in 1 MB chunks without allocating a massive monolithic double array
   const payloadChunks: Uint8Array[] = [];
-  let remainingNeeded = originalSize;
-  for (let i = 0; i < decryptedChunks.length && remainingNeeded > 0; i++) {
-    const start = (i === 0 ? dp : 0);
-    const available = decryptedChunks[i].length - start;
-    if (available <= 0) continue;
-    const take = Math.min(available, remainingNeeded);
-    payloadChunks.push(decryptedChunks[i].slice(start, start + take));
-    remainingNeeded -= take;
-  }
-
-  // For small-to-medium files (<= 32 MB), assemble monolithic data buffer for backwards compatibility
-  let outData: Uint8Array;
-  if (originalSize <= 32 * 1024 * 1024) {
-    outData = new Uint8Array(originalSize);
-    let op = 0;
-    for (const pc of payloadChunks) {
-      outData.set(pc, op);
-      op += pc.length;
+  let outData: Uint8Array = new Uint8Array(0);
+  try {
+    let remainingNeeded = originalSize;
+    for (let i = 0; i < decryptedChunks.length && remainingNeeded > 0; i++) {
+      const start = (i === 0 ? dp : 0);
+      const available = decryptedChunks[i].length - start;
+      if (available <= 0) continue;
+      const take = Math.min(available, remainingNeeded);
+      payloadChunks.push(decryptedChunks[i].slice(start, start + take));
+      remainingNeeded -= take;
     }
-  } else {
-    // For large gigabyte files (> 32 MB), leave outData lightweight to prevent V8 ArrayBuffer allocation failure
-    outData = new Uint8Array(0);
-  }
 
-  zeroizeBuffer(decryptedChunks);
+    // For small-to-medium files (<= 32 MB), assemble monolithic data buffer for backwards compatibility
+    if (originalSize <= 32 * 1024 * 1024) {
+      outData = new Uint8Array(originalSize);
+      let op = 0;
+      for (const pc of payloadChunks) {
+        outData.set(pc, op);
+        op += pc.length;
+      }
+    }
+  } catch (err) {
+    zeroizeBuffer(payloadChunks);
+    throw err;
+  } finally {
+    zeroizeBuffer(decryptedChunks);
+  }
 
   return {
     data: outData,

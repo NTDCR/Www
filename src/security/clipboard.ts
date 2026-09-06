@@ -98,6 +98,7 @@ export async function secureCopyToClipboard(
 
     if (autoPurgeSeconds > 0) {
       activeClipboardPurgeTimer = setTimeout(async () => {
+        let purged = false;
         try {
           // Verify clipboard hash before overwriting to avoid wiping external OS clipboard
           if (navigator.clipboard.readText) {
@@ -107,28 +108,39 @@ export async function secureCopyToClipboard(
               // otherwise defer to focus/visibilitychange listeners when user returns.
               if (typeof document !== 'undefined' && document.hasFocus && document.hasFocus()) {
                 await navigator.clipboard.writeText('');
+                purged = true;
               }
             } else {
               const currentHash = await computeTextSha256(current);
               if (currentHash === lastCopiedHash) {
                 await navigator.clipboard.writeText('');
+                purged = true;
+              } else {
+                // Clipboard content already changed by user/external app - no longer matches
+                purged = true;
               }
             }
           } else {
             if (typeof document !== 'undefined' && document.hasFocus && document.hasFocus()) {
               await navigator.clipboard.writeText('');
+              purged = true;
             }
           }
         } catch {
           try {
             if (typeof document !== 'undefined' && document.hasFocus && document.hasFocus()) {
               await navigator.clipboard.writeText('');
+              purged = true;
             }
           } catch {}
         } finally {
-          lastCopiedHash = null;
           activeClipboardPurgeTimer = null;
-          pendingPurgeDeadline = 0;
+          // If the purge could not execute because the tab was in the background without focus,
+          // keep pendingPurgeDeadline and lastCopiedHash intact so focus/visibilitychange/gesture listeners wipe it!
+          if (purged) {
+            lastCopiedHash = null;
+            pendingPurgeDeadline = 0;
+          }
         }
       }, autoPurgeSeconds * 1000);
     }
@@ -157,4 +169,15 @@ export async function purgeClipboard(): Promise<void> {
       // Ignored in sandboxed contexts
     }
   }
+}
+
+/**
+ * Returns the current clipboard auto-purge schedule status (for test suites and health monitors)
+ */
+export function getClipboardPurgeStatus(): { hasPendingPurge: boolean; pendingPurgeDeadline: number; lastCopiedHash: string | null } {
+  return {
+    hasPendingPurge: pendingPurgeDeadline > 0,
+    pendingPurgeDeadline,
+    lastCopiedHash
+  };
 }
