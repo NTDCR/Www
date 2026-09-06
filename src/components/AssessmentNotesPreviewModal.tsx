@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   FileText,
   ShieldCheck,
@@ -33,6 +33,18 @@ export const AssessmentNotesPreviewModal: React.FC<AssessmentNotesPreviewModalPr
 }) => {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [copiedAll, setCopiedAll] = useState<boolean>(false);
+  const isMountedRef = useRef<boolean>(true);
+  const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      if (copyTimeoutRef.current) {
+        clearTimeout(copyTimeoutRef.current);
+      }
+    };
+  }, []);
 
   if (!isOpen || !notes) return null;
 
@@ -41,8 +53,12 @@ export const AssessmentNotesPreviewModal: React.FC<AssessmentNotesPreviewModalPr
 
   const handleCopyField = async (id: string, text: string) => {
     await secureCopyToClipboard(text, 45);
+    if (!isMountedRef.current) return;
     setCopiedId(id);
-    setTimeout(() => setCopiedId(null), 2500);
+    if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current);
+    copyTimeoutRef.current = setTimeout(() => {
+      if (isMountedRef.current) setCopiedId(null);
+    }, 2500);
   };
 
   const handleCopyAll = async () => {
@@ -58,8 +74,12 @@ export const AssessmentNotesPreviewModal: React.FC<AssessmentNotesPreviewModalPr
     });
 
     await secureCopyToClipboard(fullReport, 45);
+    if (!isMountedRef.current) return;
     setCopiedAll(true);
-    setTimeout(() => setCopiedAll(false), 2500);
+    if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current);
+    copyTimeoutRef.current = setTimeout(() => {
+      if (isMountedRef.current) setCopiedAll(false);
+    }, 2500);
   };
 
   const handleDownloadReport = () => {

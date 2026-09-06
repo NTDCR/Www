@@ -409,11 +409,47 @@ export async function createAnimatedCanvasCarrierBlob(durationSeconds: number = 
         if (e.data && e.data.size > 0) chunks.push(e.data);
       };
 
+      let wallClockTimer: ReturnType<typeof setTimeout> | null = null;
+      let isSettled = false;
+
+      const safeFallback = () => {
+        if (isSettled) return;
+        isSettled = true;
+        if (wallClockTimer) clearTimeout(wallClockTimer);
+        try { if (recorder.state === 'recording') recorder.stop(); } catch {}
+        const bytes = generatePlayableH264Mp4(durationSeconds);
+        const fallback = new Blob([bytes], { type: 'video/mp4' });
+        cachedCarrierBlob = fallback;
+        resolve(fallback);
+      };
+
+      recorder.onerror = () => {
+        safeFallback();
+      };
+
       recorder.onstop = () => {
+        if (isSettled) return;
+        isSettled = true;
+        if (wallClockTimer) clearTimeout(wallClockTimer);
+        if (chunks.length === 0) {
+          safeFallback();
+          return;
+        }
         const recordedBlob = new Blob(chunks, { type: selectedMime.split(';')[0] });
         cachedCarrierBlob = recordedBlob;
         resolve(recordedBlob);
       };
+
+      // Safety fallback: prevents stall if tab is backgrounded and requestAnimationFrame suspends
+      wallClockTimer = setTimeout(() => {
+        try {
+          if (recorder.state === 'recording') {
+            recorder.stop();
+          }
+        } catch {
+          safeFallback();
+        }
+      }, (durationSeconds + 2) * 1000);
 
       recorder.start(100);
 

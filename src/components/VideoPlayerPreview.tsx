@@ -79,12 +79,14 @@ export const VideoPlayerPreview: React.FC<VideoPlayerPreviewProps> = ({
   const togglePlay = () => {
     if (!videoRef.current) return;
     if (videoRef.current.paused) {
-      videoRef.current.play().then(() => setIsPlaying(true)).catch(err => {
+      videoRef.current.play().then(() => {
+        if (isMountedRef.current) setIsPlaying(true);
+      }).catch(err => {
         console.warn('Playback error:', err);
       });
     } else {
       videoRef.current.pause();
-      setIsPlaying(false);
+      if (isMountedRef.current) setIsPlaying(false);
     }
   };
 

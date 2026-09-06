@@ -112,10 +112,18 @@ export async function getAudioFingerprint(): Promise<string> {
     oscillator.start(0);
 
     // Bound audio rendering to 1500ms to guarantee zero UI stall even if privacy extensions stub startRendering()
-    const renderedBuffer = await Promise.race([
-      ctx.startRendering(),
-      new Promise<AudioBuffer>((_, reject) => setTimeout(() => reject(new Error('Audio render timeout')), 1500))
-    ]);
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    let renderedBuffer: AudioBuffer;
+    try {
+      renderedBuffer = await Promise.race([
+        ctx.startRendering(),
+        new Promise<AudioBuffer>((_, reject) => {
+          timeoutId = setTimeout(() => reject(new Error('Audio render timeout')), 1500);
+        })
+      ]);
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
+    }
     const channelData = renderedBuffer.getChannelData(0);
     let sum = 0;
     const step = Math.max(1, Math.floor(channelData.length / 500));
@@ -253,7 +261,7 @@ export async function loadStoredRecoveryCodes(): Promise<RecoveryCode[]> {
   }
 }
 
-export async function markRecoveryCodeUsed(index: number): Promise<void> {
+export async function markRecoveryCodeUsed(index: number, usedState?: boolean): Promise<void> {
   try {
     const db = await openIndexedDB();
     return new Promise<void>((resolve, reject) => {
@@ -263,7 +271,7 @@ export async function markRecoveryCodeUsed(index: number): Promise<void> {
       req.onsuccess = () => {
         if (req.result) {
           const item = req.result;
-          item.used = true;
+          item.used = usedState !== undefined ? usedState : !item.used;
           const putReq = store.put(item);
           putReq.onerror = () => reject(putReq.error);
         }
