@@ -274,23 +274,15 @@ export async function createDualVaultPackage(
   let effectiveNotesA = vaultANotes;
   let effectiveNotesB = vaultBNotes;
   if (vaultANotes && vaultBNotes) {
-    effectiveNotesA = { ...vaultANotes };
-    effectiveNotesB = { ...vaultBNotes };
+    effectiveNotesA = { ...vaultANotes, _p: '' };
+    effectiveNotesB = { ...vaultBNotes, _p: '' };
     const enc = new TextEncoder();
-    let lenA = enc.encode(JSON.stringify(effectiveNotesA)).length;
-    let lenB = enc.encode(JSON.stringify(effectiveNotesB)).length;
+    const lenA = enc.encode(JSON.stringify(effectiveNotesA)).length;
+    const lenB = enc.encode(JSON.stringify(effectiveNotesB)).length;
     if (lenA < lenB) {
-      (effectiveNotesA as any)._p = '';
-      lenA = enc.encode(JSON.stringify(effectiveNotesA)).length;
-      if (lenA < lenB) {
-        (effectiveNotesA as any)._p = 'x'.repeat(lenB - lenA);
-      }
+      (effectiveNotesA as any)._p = 'x'.repeat(lenB - lenA);
     } else if (lenB < lenA) {
-      (effectiveNotesB as any)._p = '';
-      lenB = enc.encode(JSON.stringify(effectiveNotesB)).length;
-      if (lenB < lenA) {
-        (effectiveNotesB as any)._p = 'x'.repeat(lenA - lenB);
-      }
+      (effectiveNotesB as any)._p = 'x'.repeat(lenA - lenB);
     }
   }
 
