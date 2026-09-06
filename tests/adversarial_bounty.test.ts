@@ -1,9 +1,9 @@
-import { createDualVaultPackage, extractFromDualVaultPackage } from '../src/vault/dualVault';
+import { createDualVaultPackage, extractFromDualVaultPackage, zeroizeBundle, inspectContainerKey6Identity, inspectContainerAssessmentNotes } from '../src/vault/dualVault';
 import { encodeRSStream, decodeRSStream, rsDecodeBlock } from '../src/crypto/reedSolomon';
 import { deserializeBundle, serializeBundle, decryptCascade5Layers, deriveLayerKey, sanitizePasswordString, zeroizeBuffer } from '../src/crypto/cascadeEngine';
 import { generateSecureRandomBytes, secureRandomInt } from '../src/crypto/safeRandom';
 import { unmaskAndVerifyKey6FromRSBlock, deriveAndMask1024BitId, sanitizeKey6String } from '../src/crypto/key6Engine';
-import { encryptAssessmentNotesBlock, decryptAssessmentNotesBlock, parseAssessmentNotesJson } from '../src/crypto/notesEngine';
+import { encryptAssessmentNotesBlock, decryptAssessmentNotesBlock, parseAssessmentNotesJson, sanitizeAssessmentNotesInput } from '../src/crypto/notesEngine';
 import { parseIsobmffBoxes, isValidIsobmffCarrier } from '../src/media/isobmff';
 import { sanitizeFilename, revokeAllActiveStreamUrls, zeroizeStreamingHandle } from '../src/utils/fileReader';
 import { generatePlausibleDecoyTemplate } from '../src/components/AssessmentNotesEditor';
@@ -714,6 +714,84 @@ async function runBountySuite() {
 
   const b38Passed = carrierValid && handleZeroized && fastMatches && tamperRejected && componentsValid;
   record('B-38', 'Memory Hygiene & Carrier Assurance', 'ISOBMFF Carrier Format Invariance, Handle Zeroization & Constant-Time Integrity', b38Passed ? 'PASSED' : 'FAILED', 'Verified strict ISOBMFF MP4 carrier generation, complete handle/buffer zeroization, and constant-time frame integrity verification');
+
+  // 6.25: Container Extraction Memory Zeroization, Inspection Bundle Erasure & Notes Sanitization (Test B-39)
+  // 1. zeroizeBundle thoroughly wipes all fields and chunkedPayload
+  const mockBundle: any = {
+    payload: new Uint8Array([1, 2, 3, 4]),
+    saltL1: new Uint8Array(64).fill(1),
+    saltL2: new Uint8Array(64).fill(2),
+    saltL3: new Uint8Array(64).fill(3),
+    saltL4: new Uint8Array(64).fill(4),
+    saltL5: new Uint8Array(64).fill(5),
+    ivL2: new Uint8Array(16).fill(6),
+    ivL3: new Uint8Array(24).fill(7),
+    ivL4: new Uint8Array(16).fill(8),
+    tagL3: new Uint8Array(16).fill(9),
+    tagL4: new Uint8Array(32).fill(10),
+    kyberCt: new Uint8Array(1568).fill(11),
+    otpKey: new Uint8Array(32).fill(12),
+    k6Block: new Uint8Array(224).fill(13),
+    notesBlock: new Uint8Array(256).fill(14),
+    chunkedPayload: [new Uint8Array([50, 51]), new Uint8Array([52, 53])]
+  };
+  const payloadRef = mockBundle.payload;
+  const chunk0Ref = mockBundle.chunkedPayload[0];
+  const kyberRef = mockBundle.kyberCt;
+  zeroizeBundle(mockBundle);
+  const bundleZeroized = payloadRef.every((b: number) => b === 0) &&
+    chunk0Ref.every((b: number) => b === 0) &&
+    kyberRef.every((b: number) => b === 0);
+
+  // 2. inspectContainerKey6Identity and inspectContainerAssessmentNotes execute cleanly and zeroize candidate bundles
+  const k6InspectRes = await inspectContainerKey6Identity(cleanContainer, pwA.layer6_key6, 5000);
+  const k6Matched = k6InspectRes.matchedVault === 'VaultA' && k6InspectRes.uniqueId1024Hex.length === 256;
+
+  const notesInspectRes = await inspectContainerAssessmentNotes(cleanContainer, pwA, 5000);
+  const notesMatched = notesInspectRes.matchedVault === 'VaultA' && notesInspectRes.notes !== null;
+
+  // 3. sanitizeAssessmentNotesInput neutralizes null bytes, Trojan Source BiDi overrides, zero-width spaces, and large multibyte strings
+  const dirtyNotes = 'Confidential Report \x00\u202E\u061C\u2066[RESTRICTED]\u2069\u200B\uFEFF Payload';
+  const cleanedNotes = sanitizeAssessmentNotesInput(dirtyNotes);
+  const notesSanitized = !cleanedNotes.includes('\x00') &&
+    !cleanedNotes.includes('\u202E') &&
+    !cleanedNotes.includes('\u2066') &&
+    !cleanedNotes.includes('\u061C') &&
+    !cleanedNotes.includes('\u200B') &&
+    !cleanedNotes.includes('\uFEFF') &&
+    cleanedNotes === 'Confidential Report [RESTRICTED] Payload';
+
+  // Slicing invariance on oversized multi-byte string
+  const notesMultiByteStr = '🔥'.repeat(12000); // 4 bytes each = 48,000 bytes
+  const slicedMultiByte = sanitizeAssessmentNotesInput(notesMultiByteStr);
+  const slicedUtf8Len = new TextEncoder().encode(slicedMultiByte).length;
+  const multiByteClean = slicedUtf8Len <= 40000 && (slicedUtf8Len % 4) === 0 && !slicedMultiByte.includes('\uFFFD');
+
+  // 4. ISOBMFF 64-bit largesize bounds: rejects size === 1 with raw64 < 16n
+  const bogusLargeBox = new Uint8Array(24);
+  const blView = new DataView(bogusLargeBox.buffer);
+  blView.setUint32(0, 1); // size 1 (indicates 64-bit largesize)
+  bogusLargeBox.set([0x66, 0x74, 0x79, 0x70], 4); // 'ftyp'
+  blView.setBigUint64(8, 8n); // ILLEGAL: largesize < 16 bytes!
+  const largesizeRejectedCarrier = !isValidIsobmffCarrier(bogusLargeBox);
+  const largesizeRejectedParser = parseIsobmffBoxes(bogusLargeBox).length === 0;
+
+  // 5. extractFromDualVaultPackage zeroizes StreamingFileHandle input
+  const testExtractHandle: any = {
+    name: 'protected.mp4',
+    size: cleanContainer.length,
+    type: 'video/mp4',
+    bytes: new Uint8Array(cleanContainer),
+    chunks: [new Uint8Array(cleanContainer)]
+  };
+  const handleBytesRef = testExtractHandle.bytes;
+  const extResult = await extractFromDualVaultPackage(testExtractHandle, pwA, 5000);
+  const extractHandleZeroized = extResult.filename === 'vault_a.bin' &&
+    handleBytesRef.every((b: number) => b === 0) &&
+    !('bytes' in testExtractHandle);
+
+  const b39Passed = bundleZeroized && k6Matched && notesMatched && notesSanitized && multiByteClean && largesizeRejectedCarrier && largesizeRejectedParser && extractHandleZeroized;
+  record('B-39', 'Anti-Forensics & Input Hardening', 'Extraction Handle Zeroization, Inspection Bundle Erasure, Notes Sanitization & ISOBMFF Largesize Invariance', b39Passed ? 'PASSED' : 'FAILED', 'Verified unconditional handle/bundle memory zeroization, notes Trojan Source neutralization, multibyte boundary slicing, and ISOBMFF 64-bit largesize validation');
 
   console.log('\n========================================================================');
   console.log('                 BUG-BOUNTY RESCAN EXECUTIVE SUMMARY');

@@ -53,6 +53,32 @@ const NOTES_REQUIRED_KEYS = [
 ] as const;
 
 /**
+ * Sanitizes input string for Data Assessment Notes fields:
+ * - Normalizes to Unicode NFC
+ * - Strips null bytes (\0)
+ * - Strips Trojan Source BiDi overrides (U+202A-U+202E, U+2066-U+2069, U+061C)
+ * - Strips zero-width characters (U+200B-U+200F, U+FEFF, U+2060-U+2064)
+ * - Atomically slices at UTF-8 multibyte boundary if length exceeds 40,000 bytes
+ */
+export function sanitizeAssessmentNotesInput(raw: string | undefined | null): string {
+  if (typeof raw !== 'string') return '';
+  let clean = raw
+    .normalize('NFC')
+    .replace(/[\x00\u061C\u200B-\u200F\u2060-\u2064\uFEFF\u202A-\u202E\u2066-\u2069]/g, '');
+
+  const enc = new TextEncoder();
+  const encoded = enc.encode(clean);
+  if (encoded.length > 40000) {
+    let sliceLen = 40000;
+    while (sliceLen > 0 && (encoded[sliceLen] & 0xc0) === 0x80) {
+      sliceLen--;
+    }
+    clean = new TextDecoder('utf-8').decode(encoded.subarray(0, sliceLen));
+  }
+  return clean;
+}
+
+/**
  * Safely parse assessment-notes JSON: size cap, prototype-pollution reject, schema allowlist.
  * Returns null on any validation failure (caller maps to neutral invalid result).
  */
@@ -90,12 +116,12 @@ export function parseAssessmentNotesJson(jsonStr: string): VaultAssessmentNotes 
     }
   }
   const notes: VaultAssessmentNotes = {
-    q1_relatedEntities: obj.q1_relatedEntities as string,
-    q2_dataContents: obj.q2_dataContents as string,
-    q3_obtainedMethod: obj.q3_obtainedMethod as string,
-    q4_disclosureAction: obj.q4_disclosureAction as string,
-    q5_comprehensiveDetails: obj.q5_comprehensiveDetails as string,
-    q6_precautionsAndSafety: obj.q6_precautionsAndSafety as string
+    q1_relatedEntities: sanitizeAssessmentNotesInput(obj.q1_relatedEntities as string),
+    q2_dataContents: sanitizeAssessmentNotesInput(obj.q2_dataContents as string),
+    q3_obtainedMethod: sanitizeAssessmentNotesInput(obj.q3_obtainedMethod as string),
+    q4_disclosureAction: sanitizeAssessmentNotesInput(obj.q4_disclosureAction as string),
+    q5_comprehensiveDetails: sanitizeAssessmentNotesInput(obj.q5_comprehensiveDetails as string),
+    q6_precautionsAndSafety: sanitizeAssessmentNotesInput(obj.q6_precautionsAndSafety as string)
   };
   if (typeof obj.createdAt === 'string') {
     notes.createdAt = obj.createdAt;

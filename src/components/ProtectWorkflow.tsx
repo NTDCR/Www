@@ -102,6 +102,12 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
         zeroizeStreamingHandle(carrierFileRef.current);
         carrierFileRef.current = null;
       }
+      if (fileSaltARef.current) {
+        zeroizeBuffer(fileSaltARef.current);
+      }
+      if (fileSaltBRef.current) {
+        zeroizeBuffer(fileSaltBRef.current);
+      }
     };
   }, []);
 
@@ -166,8 +172,12 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
   // Derived 1024-bit Unique Container IDs (Pre-Encrypt Live Derivation)
   const [uniqueIdA1024, setUniqueIdA1024] = useState<string>('');
   const [uniqueIdB1024, setUniqueIdB1024] = useState<string>('');
-  const [fileSaltA] = useState<Uint8Array>(() => generateFreshKey6Salt());
-  const [fileSaltB] = useState<Uint8Array>(() => generateFreshKey6Salt());
+  const [fileSaltA, setFileSaltA] = useState<Uint8Array>(() => generateFreshKey6Salt());
+  const [fileSaltB, setFileSaltB] = useState<Uint8Array>(() => generateFreshKey6Salt());
+  const fileSaltARef = useRef<Uint8Array>(fileSaltA);
+  const fileSaltBRef = useRef<Uint8Array>(fileSaltB);
+  useEffect(() => { fileSaltARef.current = fileSaltA; }, [fileSaltA]);
+  useEffect(() => { fileSaltBRef.current = fileSaltB; }, [fileSaltB]);
 
   const [pbkdf2Iterations] = useState<number>(1000000);
 
@@ -567,6 +577,9 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
     setVaultBNotes(createEmptyAssessmentNotes());
     setUniqueIdA1024('');
     setUniqueIdB1024('');
+    zeroizeBuffer(fileSaltA, fileSaltB);
+    setFileSaltA(generateFreshKey6Salt());
+    setFileSaltB(generateFreshKey6Salt());
     setErrorMsg(null);
     setProgressPct(0);
     setProgressText('');

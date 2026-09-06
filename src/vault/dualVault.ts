@@ -26,7 +26,7 @@ import {
 import { normalizeEntropyToTarget, denormalizeEntropy, denormalizeEntropyHeaderFast, analyzeStatisticalCompliance } from '../crypto/entropy';
 import { embedSpreadSpectrum8Locations, extractSpreadSpectrumPayload, createSyntheticMp4Carrier, isValidIsobmffCarrier } from '../media/isobmff';
 import { getOrGenerateCarrierBlob } from '../media/mp4Generator';
-import { readFileAsUint8Array, StreamingFileHandle, STRICT_CHUNK_SIZE, readChunkFromHandle, sanitizeFilename } from '../utils/fileReader';
+import { readFileAsUint8Array, StreamingFileHandle, STRICT_CHUNK_SIZE, readChunkFromHandle, sanitizeFilename, zeroizeStreamingHandle } from '../utils/fileReader';
 import { generateSecureRandomBytes } from '../crypto/safeRandom';
 import { yieldToMainThread } from '../utils/asyncUtils';
 import {
@@ -47,6 +47,31 @@ import { decryptAssessmentNotesBlock } from '../crypto/notesEngine';
  */
 export function clearContainerInspectionCache() {
   // Maintained as safe no-op for API compatibility
+}
+
+/**
+ * Unconditionally wipes all sensitive cryptographic buffers inside an EncryptedPayloadBundle from RAM.
+ */
+export function zeroizeBundle(bundle: EncryptedPayloadBundle | null | undefined): void {
+  if (!bundle) return;
+  zeroizeBuffer(
+    bundle.payload,
+    bundle.saltL1,
+    bundle.saltL2,
+    bundle.saltL3,
+    bundle.saltL4,
+    bundle.saltL5,
+    bundle.ivL2,
+    bundle.ivL3,
+    bundle.ivL4,
+    bundle.tagL3,
+    bundle.tagL4,
+    bundle.kyberCt,
+    bundle.otpKey,
+    bundle.k6Block,
+    bundle.notesBlock,
+    bundle.chunkedPayload
+  );
 }
 
 
@@ -473,20 +498,10 @@ export async function createDualVaultPackage(
     };
   } finally {
     if (bundleA) {
-      zeroizeBuffer(
-        bundleA.payload, bundleA.saltL1, bundleA.saltL2, bundleA.saltL3, bundleA.saltL4, bundleA.saltL5,
-        bundleA.ivL2, bundleA.ivL3, bundleA.ivL4, bundleA.tagL3, bundleA.tagL4, bundleA.kyberCt,
-        bundleA.k6Block, bundleA.notesBlock,
-        bundleA.chunkedPayload
-      );
+      zeroizeBundle(bundleA);
     }
     if (bundleB) {
-      zeroizeBuffer(
-        bundleB.payload, bundleB.saltL1, bundleB.saltL2, bundleB.saltL3, bundleB.saltL4, bundleB.saltL5,
-        bundleB.ivL2, bundleB.ivL3, bundleB.ivL4, bundleB.tagL3, bundleB.tagL4, bundleB.kyberCt,
-        bundleB.k6Block, bundleB.notesBlock,
-        bundleB.chunkedPayload
-      );
+      zeroizeBundle(bundleB);
     }
     zeroizeBuffer(rawEncryptedA, rawEncryptedB, rsProtectedA, rsProtectedB, finalVaultA, finalVaultB, normalizedA, normalizedB);
   }
@@ -503,100 +518,101 @@ export async function extractFromDualVaultPackage(
   onProgress?: (desc: string, pct: number) => void
 ): Promise<DualVaultExtractionResult> {
   onProgress?.('Reading protected MP4 container stream...', 10);
-  const protectedBytes = protectedMp4File instanceof Uint8Array
-    ? protectedMp4File
-    : await readFileAsUint8Array(protectedMp4File);
-
-  onProgress?.('Demuxing 8 ISOBMFF spread-spectrum locations & 5x redundancy voting...', 25);
-  await yieldToMainThread();
-  const { vaultABytes, vaultBBytes } = await extractSpreadSpectrumPayload(protectedBytes);
-
-  if (vaultABytes.length === 0 && vaultBBytes.length === 0) {
-    throw new Error(NEUTRAL_AUTH_FAILURE);
-  }
-
-  // Neutral progress: Zero exposure of vault names or trial switching
-  onProgress?.('Authenticating 5-Layer Cascade stream in 1 MB chunks...', 45);
-
-  /**
-   * Attempt one equalized vault candidate. Failures are swallowed with buffer wipe —
-   * callers always evaluate BOTH candidates for timing symmetry (zero vault oracle).
-   */
-  async function tryExtractCandidate(
-    vaultBytes: Uint8Array,
-    progressBase: number,
-    vaultLabel: 'VaultA' | 'VaultB' = 'VaultA'
-  ): Promise<DualVaultExtractionResult | null> {
-    if (!vaultBytes || vaultBytes.length === 0) {
-      return null;
-    }
-    let unshaped: Uint8Array | null = null;
-    let rsRepaired: Uint8Array | null = null;
-    let bundle: EncryptedPayloadBundle | null = null;
-    let decrypted: DecryptedPayloadResult | null = null;
-    let success = false;
-    try {
-      unshaped = await denormalizeEntropy(vaultBytes);
-      const rsRes = await decodeRSStreamAsync(unshaped, (pct) => {
-        onProgress?.(
-          `Reed-Solomon FEC integrity repair (${pct}%)...`,
-          progressBase + Math.round(pct * 0.05)
-        );
-      });
-      rsRepaired = rsRes.data;
-      bundle = deserializeBundle(rsRepaired);
-      decrypted = await decryptCascade5Layers(bundle, passwords, iterations, (l, d) =>
-        onProgress?.(d, progressBase + 5 + l * 8)
-      );
-      const payloadChunks = (decrypted.chunkedPayload && decrypted.chunkedPayload.length > 0)
-        ? decrypted.chunkedPayload
-        : [decrypted.data];
-      const digest = await calculateSha512Safe(payloadChunks);
-      const blob = new Blob(payloadChunks, { type: 'application/octet-stream' });
-
-      // Automatically unmask assessment notes if present in bundle
-      let extractedNotes: VaultAssessmentNotes | undefined = undefined;
-      if (bundle.notesBlock && bundle.notesBlock.length > 0) {
-        try {
-          const notesRes = await decryptAssessmentNotesBlock(bundle.notesBlock, passwords, iterations, vaultLabel);
-          if (notesRes && notesRes.valid && notesRes.notes) {
-            extractedNotes = notesRes.notes;
-          }
-        } catch {
-          // Non-fatal if notes block was corrupt or empty
-        }
-      }
-
-      success = true;
-      return {
-        fileBlob: blob,
-        chunkedData: payloadChunks,
-        filename: sanitizeFilename(decrypted.originalFilename),
-        filesize: decrypted.originalSize,
-        vaultRevealed: 'Authenticated Payload',
-        sha512Digest: digest,
-        assessmentNotes: extractedNotes,
-        matchedVault: vaultLabel
-      };
-    } catch {
-      return null;
-    } finally {
-      if (bundle) {
-        zeroizeBuffer(
-          bundle.payload, bundle.saltL1, bundle.saltL2, bundle.saltL3, bundle.saltL4, bundle.saltL5,
-          bundle.ivL2, bundle.ivL3, bundle.ivL4, bundle.tagL3, bundle.tagL4, bundle.kyberCt, bundle.otpKey,
-          bundle.k6Block, bundle.notesBlock,
-          bundle.chunkedPayload
-        );
-      }
-      if (!success && decrypted) {
-        zeroizeBuffer(decrypted.data, decrypted.chunkedPayload);
-      }
-      zeroizeBuffer(unshaped, rsRepaired);
-    }
-  }
+  let protectedBytes: Uint8Array | null = null;
+  let vaultABytes: Uint8Array | null = null;
+  let vaultBBytes: Uint8Array | null = null;
 
   try {
+    protectedBytes = protectedMp4File instanceof Uint8Array
+      ? protectedMp4File
+      : await readFileAsUint8Array(protectedMp4File);
+
+    onProgress?.('Demuxing 8 ISOBMFF spread-spectrum locations & 5x redundancy voting...', 25);
+    await yieldToMainThread();
+    const demuxed = await extractSpreadSpectrumPayload(protectedBytes);
+    vaultABytes = demuxed.vaultABytes;
+    vaultBBytes = demuxed.vaultBBytes;
+
+    if (vaultABytes.length === 0 && vaultBBytes.length === 0) {
+      throw new Error(NEUTRAL_AUTH_FAILURE);
+    }
+
+    // Neutral progress: Zero exposure of vault names or trial switching
+    onProgress?.('Authenticating 5-Layer Cascade stream in 1 MB chunks...', 45);
+
+    /**
+     * Attempt one equalized vault candidate. Failures are swallowed with buffer wipe —
+     * callers always evaluate BOTH candidates for timing symmetry (zero vault oracle).
+     */
+    async function tryExtractCandidate(
+      vaultBytes: Uint8Array,
+      progressBase: number,
+      vaultLabel: 'VaultA' | 'VaultB' = 'VaultA'
+    ): Promise<DualVaultExtractionResult | null> {
+      if (!vaultBytes || vaultBytes.length === 0) {
+        return null;
+      }
+      let unshaped: Uint8Array | null = null;
+      let rsRepaired: Uint8Array | null = null;
+      let bundle: EncryptedPayloadBundle | null = null;
+      let decrypted: DecryptedPayloadResult | null = null;
+      let success = false;
+      try {
+        unshaped = await denormalizeEntropy(vaultBytes);
+        const rsRes = await decodeRSStreamAsync(unshaped, (pct) => {
+          onProgress?.(
+            `Reed-Solomon FEC integrity repair (${pct}%)...`,
+            progressBase + Math.round(pct * 0.05)
+          );
+        });
+        rsRepaired = rsRes.data;
+        bundle = deserializeBundle(rsRepaired);
+        decrypted = await decryptCascade5Layers(bundle, passwords, iterations, (l, d) =>
+          onProgress?.(d, progressBase + 5 + l * 8)
+        );
+        const payloadChunks = (decrypted.chunkedPayload && decrypted.chunkedPayload.length > 0)
+          ? decrypted.chunkedPayload
+          : [decrypted.data];
+        const digest = await calculateSha512Safe(payloadChunks);
+        const blob = new Blob(payloadChunks, { type: 'application/octet-stream' });
+
+        // Automatically unmask assessment notes if present in bundle
+        let extractedNotes: VaultAssessmentNotes | undefined = undefined;
+        if (bundle.notesBlock && bundle.notesBlock.length > 0) {
+          try {
+            const notesRes = await decryptAssessmentNotesBlock(bundle.notesBlock, passwords, iterations, vaultLabel);
+            if (notesRes && notesRes.valid && notesRes.notes) {
+              extractedNotes = notesRes.notes;
+            }
+          } catch {
+            // Non-fatal if notes block was corrupt or empty
+          }
+        }
+
+        success = true;
+        return {
+          fileBlob: blob,
+          chunkedData: payloadChunks,
+          filename: sanitizeFilename(decrypted.originalFilename),
+          filesize: decrypted.originalSize,
+          vaultRevealed: 'Authenticated Payload',
+          sha512Digest: digest,
+          assessmentNotes: extractedNotes,
+          matchedVault: vaultLabel
+        };
+      } catch {
+        return null;
+      } finally {
+        if (bundle) {
+          zeroizeBundle(bundle);
+        }
+        if (!success && decrypted) {
+          zeroizeBuffer(decrypted.data, decrypted.chunkedPayload);
+        }
+        zeroizeBuffer(unshaped, rsRepaired);
+      }
+    }
+
     const resultA = await tryExtractCandidate(vaultABytes, 40, 'VaultA');
     const resultB = await tryExtractCandidate(vaultBBytes, 55, 'VaultB');
 
@@ -614,6 +630,12 @@ export async function extractFromDualVaultPackage(
     throw new Error(NEUTRAL_AUTH_FAILURE);
   } finally {
     zeroizeBuffer(vaultABytes, vaultBBytes);
+    if (!(protectedMp4File instanceof Uint8Array) && protectedBytes) {
+      zeroizeBuffer(protectedBytes);
+    }
+    if (protectedMp4File && typeof protectedMp4File === 'object' && 'name' in protectedMp4File) {
+      zeroizeStreamingHandle(protectedMp4File);
+    }
   }
 }
 
@@ -631,8 +653,13 @@ export async function inspectContainerKey6Identity(
     return { matchedVault: null, uniqueId1024Hex: '' };
   }
 
+  let bundleA: EncryptedPayloadBundle | null = null;
+  let bundleB: EncryptedPayloadBundle | null = null;
+
   try {
-    const { bundleA, bundleB } = await getOrExtractContainerBundles(protectedMp4File);
+    const bundles = await getOrExtractContainerBundles(protectedMp4File);
+    bundleA = bundles.bundleA;
+    bundleB = bundles.bundleB;
 
     // Always evaluate both vaults (timing-invariant; no early-success abort)
     let resA: Awaited<ReturnType<typeof unmaskAndVerifyKey6FromRSBlock>> | null = null;
@@ -658,6 +685,9 @@ export async function inspectContainerKey6Identity(
     return { matchedVault: null, uniqueId1024Hex: '' };
   } catch {
     return { matchedVault: null, uniqueId1024Hex: '' };
+  } finally {
+    zeroizeBundle(bundleA);
+    zeroizeBundle(bundleB);
   }
 }
 
@@ -680,8 +710,13 @@ export async function inspectContainerAssessmentNotes(
     return { matchedVault: null, notes: null, repairedErrors: 0 };
   }
 
+  let bundleA: EncryptedPayloadBundle | null = null;
+  let bundleB: EncryptedPayloadBundle | null = null;
+
   try {
-    const { bundleA, bundleB } = await getOrExtractContainerBundles(protectedMp4File);
+    const bundles = await getOrExtractContainerBundles(protectedMp4File);
+    bundleA = bundles.bundleA;
+    bundleB = bundles.bundleB;
 
     // Always evaluate both vaults (timing-invariant; no early-success abort)
     let resA: Awaited<ReturnType<typeof decryptAssessmentNotesBlock>> | null = null;
@@ -716,6 +751,9 @@ export async function inspectContainerAssessmentNotes(
   } catch {
     // Zero-disclosure: never surface underlying parse/crypto exception text
     return { matchedVault: null, notes: null, repairedErrors: 0 };
+  } finally {
+    zeroizeBundle(bundleA);
+    zeroizeBundle(bundleB);
   }
 }
 

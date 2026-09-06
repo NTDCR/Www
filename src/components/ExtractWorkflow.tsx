@@ -392,8 +392,9 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
       try { URL.revokeObjectURL(u); } catch {}
     }
     activeBlobUrlsRef.current = [];
-    if (result && result.chunkedData) {
-      for (const chunk of result.chunkedData) {
+    const targetResult = resultRef.current || result;
+    if (targetResult && targetResult.chunkedData) {
+      for (const chunk of targetResult.chunkedData) {
         chunk.fill(0);
       }
     }
@@ -404,6 +405,7 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
       protectedFileRef.current = null;
     }
     setProtectedFile(null);
+    setProtectedBlob(null);
     setPasswords({
       layer1_kyber: '',
       layer2_serpent: '',

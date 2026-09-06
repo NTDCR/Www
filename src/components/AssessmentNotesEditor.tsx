@@ -12,7 +12,7 @@ import {
   Lock
 } from 'lucide-react';
 import { VaultAssessmentNotes, isAssessmentNotesComplete, createEmptyAssessmentNotes } from '../types';
-import { ASSESSMENT_QUESTIONS, AssessmentQuestionDef } from '../crypto/notesEngine';
+import { ASSESSMENT_QUESTIONS, AssessmentQuestionDef, sanitizeAssessmentNotesInput } from '../crypto/notesEngine';
 import { secureRandomInt } from '../crypto/safeRandom';
 
 export function generatePlausibleDecoyTemplate(): VaultAssessmentNotes {
@@ -92,19 +92,14 @@ export const AssessmentNotesEditor: React.FC<AssessmentNotesEditorProps> = ({
   const isComplete = completedCount === ASSESSMENT_QUESTIONS.length;
 
   const handleFieldChange = (field: keyof VaultAssessmentNotes, val: string) => {
-    const enc = new TextEncoder();
-    const encoded = enc.encode(val);
-    if (encoded.length > 40000) {
-      let sliceLen = 40000;
-      // Step backwards past any UTF-8 continuation bytes to preserve complete glyphs
-      while (sliceLen > 0 && (encoded[sliceLen] & 0xc0) === 0x80) {
-        sliceLen--;
-      }
-      val = new TextDecoder('utf-8').decode(encoded.subarray(0, sliceLen));
+    const fieldStr = String(field);
+    if (fieldStr === '__proto__' || fieldStr === 'constructor' || fieldStr === 'prototype') {
+      return;
     }
+    const cleanVal = sanitizeAssessmentNotesInput(val);
     onChange({
       ...notes,
-      [field]: val
+      [field]: cleanVal
     });
   };
 

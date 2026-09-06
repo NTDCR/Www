@@ -52,11 +52,8 @@ export const RED_UUID = new Uint8Array([
  */
 export function isValidIsobmffCarrier(data: Uint8Array): boolean {
   if (!data || data.length < 16) return false;
-  // Standard MP4: first box is 'ftyp' at offset 4
-  const b0 = String.fromCharCode(data[4], data[5], data[6], data[7]);
-  if (b0 === 'ftyp') return true;
 
-  // Scan first 128 bytes for top-level 'ftyp' or 'moov' atom
+  // Scan first 128 bytes for valid top-level 'ftyp' or 'moov' atom
   const maxScan = Math.min(data.length - 8, 128);
   let offset = 0;
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
@@ -66,7 +63,7 @@ export function isValidIsobmffCarrier(data: Uint8Array): boolean {
     if (size === 1) {
       if (offset + 16 > data.length) break;
       const raw64 = view.getBigUint64(offset + 8);
-      if (raw64 > BigInt(data.length)) break;
+      if (raw64 < 16n || raw64 > BigInt(data.length)) break;
       size = Number(raw64);
       headerSize = 16;
     } else if (size === 0) {
@@ -108,7 +105,7 @@ export function parseIsobmffBoxes(data: Uint8Array, depth: number = 0, maxDepth:
       // 64-bit extended size with integer boundary verification
       if (offset + 16 > data.length) break;
       const raw64 = view.getBigUint64(offset + 8);
-      if (raw64 > BigInt(data.length)) break;
+      if (raw64 < 16n || raw64 > BigInt(data.length)) break;
       size = Number(raw64);
       headerSize = 16;
     } else if (size === 0) {
