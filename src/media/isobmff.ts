@@ -61,8 +61,19 @@ export function isValidIsobmffCarrier(data: Uint8Array): boolean {
   let offset = 0;
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
   while (offset <= maxScan) {
-    const size = view.getUint32(offset);
-    if (size < 8 || offset + size > data.length) break;
+    let size = view.getUint32(offset);
+    let headerSize = 8;
+    if (size === 1) {
+      if (offset + 16 > data.length) break;
+      const raw64 = view.getBigUint64(offset + 8);
+      if (raw64 > BigInt(data.length)) break;
+      size = Number(raw64);
+      headerSize = 16;
+    } else if (size === 0) {
+      size = data.length - offset;
+    }
+
+    if (size < headerSize || offset + size > data.length) break;
     const type = String.fromCharCode(
       data[offset + 4],
       data[offset + 5],

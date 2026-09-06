@@ -336,6 +336,21 @@ async function runBountySuite() {
   const safeFilenamePassed = !sanitizedLongName.includes('\uFFFD') && encLong.encode(sanitizedLongName).length <= 255 && sanitizedLongName.endsWith('.pdf');
   record('B-25', 'Filename Safety', 'Multi-Byte UTF-8 Filename Truncation Invariance', safeFilenamePassed ? 'PASSED' : 'FAILED', `Clean filename (${encLong.encode(sanitizedLongName).length} bytes), ends with .pdf, zero \uFFFD`);
 
+  // 6.12: 64-Bit ISOBMFF Carrier Largesize Validation Invariance (Test B-26)
+  // Construct a synthetic carrier beginning with a 64-bit largesize container box (size === 1) preceding ftyp
+  const largeCarrier = new Uint8Array(64);
+  const lcView = new DataView(largeCarrier.buffer);
+  lcView.setUint32(0, 1); // 64-bit size indicator
+  largeCarrier[4] = 0x66; largeCarrier[5] = 0x72; largeCarrier[6] = 0x65; largeCarrier[7] = 0x65; // 'free'
+  lcView.setBigUint64(8, 32n); // real size = 32 bytes
+  // At offset 32, add standard ftyp box (size 32 bytes)
+  lcView.setUint32(32, 32);
+  largeCarrier[36] = 0x66; largeCarrier[37] = 0x74; largeCarrier[38] = 0x79; largeCarrier[39] = 0x70; // 'ftyp'
+  const isLargeValid = isValidIsobmffCarrier(largeCarrier);
+  const isCorruptRejected = !isValidIsobmffCarrier(new Uint8Array([0x00, 0x00, 0x00, 0x08, 0x58, 0x59, 0x5a, 0x20]));
+  const b26Passed = isLargeValid && isCorruptRejected;
+  record('B-26', 'Carrier Ingestion', '64-Bit ISOBMFF Largesize Invariance', b26Passed ? 'PASSED' : 'FAILED', 'Validated 64-bit largesize (size === 1) box and rejected non-MP4 bytes');
+
   console.log('\n========================================================================');
   console.log('                 BUG-BOUNTY RESCAN EXECUTIVE SUMMARY');
   console.log('========================================================================');

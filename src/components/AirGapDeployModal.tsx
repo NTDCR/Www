@@ -75,7 +75,7 @@ export const AirGapDeployModal: React.FC<AirGapDeployModalProps> = ({ onClose })
               <span>Zero-Telemetry &amp; Zero-CDN Verification</span>
             </div>
             <p className="text-slate-400 text-[11px] leading-relaxed">
-              Open DevTools Network tab. Verify that zero outgoing requests occur during encryption, decryption, watermarking, or zeroization operations. All cryptography (Kyber-1024, Serpent-256, XChaCha20, AES-256-CTR, ChaCha20 Masking) runs 100% locally in browser memory and Web Workers.
+              Open DevTools Network tab. Verify that zero outgoing requests occur during encryption, decryption, watermarking, or zeroization operations. All cryptography (Kyber-1024, Serpent-256, XChaCha20, AES-256-CTR, ChaCha20 Masking) runs 100% locally in browser memory via cooperative non-blocking scheduling.
             </p>
           </div>
 
