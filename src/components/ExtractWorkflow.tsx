@@ -173,6 +173,17 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
   const [diskSaveStatus, setDiskSaveStatus] = useState<string | null>(null);
   const [isSavingDisk, setIsSavingDisk] = useState<boolean>(false);
 
+  // In-flight navigation and accidental tab close protection
+  useEffect(() => {
+    if (!isExtracting && !isSavingDisk) return;
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isExtracting, isSavingDisk]);
+
   const handleProtectedFileSelection = async (file: File | null) => {
     clearContainerInspectionCache();
     if (result?.chunkedData) {

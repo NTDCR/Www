@@ -152,6 +152,16 @@ export async function fastPbkdf2HmacSha512(
 }
 
 /**
+/**
+ * Normalizes password string to Unicode NFC and strips non-printing zero-width spaces/BOM
+ * that frequently corrupt copy-pasted passphrases from rich text, chat apps, or PDFs.
+ */
+export function sanitizePasswordString(raw: string | undefined | null): string {
+  if (typeof raw !== 'string') return '';
+  return raw.normalize('NFC').replace(/[\u200B\uFEFF]/g, '');
+}
+
+/**
  * Derives 256-bit key from password + 512-bit salt using Audited PBKDF2-HMAC-SHA512 + HKDF-SHA512
  */
 export async function deriveLayerKey(
@@ -161,7 +171,7 @@ export async function deriveLayerKey(
   info: string = 'ContentGuard-Pro-MAX-Layer'
 ): Promise<Uint8Array> {
   const enc = new TextEncoder();
-  const normalizedPassword = typeof password === 'string' ? password.normalize('NFC') : '';
+  const normalizedPassword = sanitizePasswordString(password);
   const passBytes = enc.encode(normalizedPassword);
   let pbkdf2Derived: Uint8Array | null = null;
 
@@ -192,11 +202,11 @@ export async function deriveMasterAuthKey(
   saltL4: Uint8Array,
   iterations: number = DEFAULT_PBKDF2_ITERATIONS
 ): Promise<Uint8Array> {
-  const p1 = (passwords.layer1_kyber || '').normalize('NFC');
-  const p2 = (passwords.layer2_serpent || '').normalize('NFC');
-  const p3 = (passwords.layer3_xchacha || '').normalize('NFC');
-  const p4 = (passwords.layer4_aes || '').normalize('NFC');
-  const p5 = (passwords.layer5_otp || '').normalize('NFC');
+  const p1 = sanitizePasswordString(passwords.layer1_kyber);
+  const p2 = sanitizePasswordString(passwords.layer2_serpent);
+  const p3 = sanitizePasswordString(passwords.layer3_xchacha);
+  const p4 = sanitizePasswordString(passwords.layer4_aes);
+  const p5 = sanitizePasswordString(passwords.layer5_otp);
   // Length-prefixed framing eliminates delimiter collision/injection
   const combined = `${p1.length}:${p1}|${p2.length}:${p2}|${p3.length}:${p3}|${p4.length}:${p4}|${p5.length}:${p5}`;
   const combinedSalt = new Uint8Array(saltL1.length + saltL4.length);

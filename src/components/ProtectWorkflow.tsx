@@ -188,6 +188,17 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
   const [diskSaveStatus, setDiskSaveStatus] = useState<string | null>(null);
   const [isSavingDisk, setIsSavingDisk] = useState<boolean>(false);
 
+  // In-flight navigation and accidental tab close protection
+  useEffect(() => {
+    if (!isProcessing && !isSavingDisk) return;
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isProcessing, isSavingDisk]);
+
   // Resilient File Selection (Instant pre-buffered stream handle, 0 RAM overhead, 0 slice errors)
   const handleCarrierSelection = async (file: File | null) => {
     if (!file) {

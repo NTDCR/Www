@@ -31,29 +31,37 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenDeviceModal,
   onOpenAirGapModal
 }) => {
-  // 12-Hour Session Inactivity Countdown (43200 seconds)
+  // 12-Hour Session Inactivity Countdown (43200 seconds) based on absolute wall-clock target
+  const SESSION_DURATION_MS = 12 * 3600 * 1000;
+  const targetEpochRef = useRef<number>(Date.now() + SESSION_DURATION_MS);
   const [secondsRemaining, setSecondsRemaining] = useState<number>(12 * 3600);
   const onOpenZeroizeModalRef = useRef(onOpenZeroizeModal);
   onOpenZeroizeModalRef.current = onOpenZeroizeModal;
 
   useEffect(() => {
-    const timer = setInterval(() => {
-      setSecondsRemaining(prev => {
-        if (prev <= 1) {
-          // Trigger auto zeroize on session timeout
-          onOpenZeroizeModalRef.current();
-          return 12 * 3600;
-        }
-        return prev - 1;
-      });
-    }, 1000);
+    const updateCountdown = () => {
+      const now = Date.now();
+      const diffMs = targetEpochRef.current - now;
+      if (diffMs <= 0) {
+        // Wall-clock expired (even across laptop sleep/suspension cycles)
+        targetEpochRef.current = Date.now() + SESSION_DURATION_MS;
+        setSecondsRemaining(12 * 3600);
+        onOpenZeroizeModalRef.current();
+      } else {
+        setSecondsRemaining(Math.ceil(diffMs / 1000));
+      }
+    };
 
-    // Throttled heartbeat: user activity (clicks, keypresses) resets timer once per minute
+    const timer = setInterval(updateCountdown, 1000);
+
+    // Throttled heartbeat: user activity (clicks, keypresses) resets countdown once per minute
     let lastActivityReset = Date.now();
     const handleActivity = () => {
       const now = Date.now();
-      if (now - lastActivityReset > 60000) {
+      // Reset if at least 60 seconds passed or if clock shifted backwards
+      if (now - lastActivityReset > 60000 || now < lastActivityReset) {
         lastActivityReset = now;
+        targetEpochRef.current = now + SESSION_DURATION_MS;
         setSecondsRemaining(12 * 3600);
       }
     };

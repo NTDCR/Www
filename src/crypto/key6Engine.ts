@@ -26,7 +26,7 @@ import { hkdf } from '@noble/hashes/hkdf.js';
 import { sha512, sha256 } from '@noble/hashes/sha2.js';
 import { hmac } from '@noble/hashes/hmac.js';
 import { generateSecureRandomBytes } from './safeRandom';
-import { constantTimeCompare, zeroizeBuffer, fastPbkdf2HmacSha512, DEFAULT_PBKDF2_ITERATIONS } from './cascadeEngine';
+import { constantTimeCompare, zeroizeBuffer, fastPbkdf2HmacSha512, DEFAULT_PBKDF2_ITERATIONS, sanitizePasswordString } from './cascadeEngine';
 import { encodeRSStream, decodeRSStream } from './reedSolomon';
 
 export interface Key6IdentityState {
@@ -78,7 +78,7 @@ export async function deriveAndMask1024BitId(
   }
 
   const enc = new TextEncoder();
-  const normalizedKey6 = typeof key6 === 'string' ? key6.normalize('NFC') : '';
+  const normalizedKey6 = sanitizePasswordString(key6);
   const keyBytes = enc.encode(normalizedKey6);
   let stretched: Uint8Array | null = null;
   let rawId128: Uint8Array | null = null;
@@ -194,7 +194,7 @@ export async function unmaskAndVerifyKey6FromRSBlock(
     const expectedCommitmentTag32 = repairedBlock.subarray(64 + 128, 64 + 128 + 32);
 
     const enc = new TextEncoder();
-    const normalizedKey6 = typeof key6 === 'string' ? key6.normalize('NFC') : '';
+    const normalizedKey6 = sanitizePasswordString(key6);
     keyBytes = enc.encode(normalizedKey6);
 
     // 2. Hardware-accelerated PBKDF2 stretching

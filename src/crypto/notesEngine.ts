@@ -22,7 +22,7 @@ import { hkdf } from '@noble/hashes/hkdf.js';
 import { sha512, sha256 } from '@noble/hashes/sha2.js';
 import { hmac } from '@noble/hashes/hmac.js';
 import { generateSecureRandomBytes, generateCSPRNGKeystream } from './safeRandom';
-import { constantTimeCompare, zeroizeBuffer, fastPbkdf2HmacSha512, DEFAULT_PBKDF2_ITERATIONS } from './cascadeEngine';
+import { constantTimeCompare, zeroizeBuffer, fastPbkdf2HmacSha512, DEFAULT_PBKDF2_ITERATIONS, sanitizePasswordString } from './cascadeEngine';
 import { serpent256Ctr } from './serpent';
 import { gcm } from '@noble/ciphers/aes.js';
 import { xchacha20Poly1305Encrypt, xchacha20Poly1305Decrypt } from './xchacha20poly1305';
@@ -122,12 +122,12 @@ async function deriveNotesKeyMaterial(
   iterations: number = DEFAULT_PBKDF2_ITERATIONS,
   vaultLabel: 'VaultA' | 'VaultB' = 'VaultA'
 ) {
-  const p1 = (passwords.layer1_kyber || '').normalize('NFC');
-  const p2 = (passwords.layer2_serpent || '').normalize('NFC');
-  const p3 = (passwords.layer3_xchacha || '').normalize('NFC');
-  const p4 = (passwords.layer4_aes || '').normalize('NFC');
-  const p5 = (passwords.layer5_otp || '').normalize('NFC');
-  const p6 = (passwords.layer6_key6 || '').normalize('NFC');
+  const p1 = sanitizePasswordString(passwords.layer1_kyber);
+  const p2 = sanitizePasswordString(passwords.layer2_serpent);
+  const p3 = sanitizePasswordString(passwords.layer3_xchacha);
+  const p4 = sanitizePasswordString(passwords.layer4_aes);
+  const p5 = sanitizePasswordString(passwords.layer5_otp);
+  const p6 = sanitizePasswordString(passwords.layer6_key6);
   // Length-prefixed framing eliminates delimiter collision & cross-input key injection
   const rawPwString = `${p1.length}:${p1}|${p2.length}:${p2}|${p3.length}:${p3}|${p4.length}:${p4}|${p5.length}:${p5}|${p6.length}:${p6}`;
 
