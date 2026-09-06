@@ -430,6 +430,12 @@ export async function embedSpreadSpectrum8Locations(
     }
   ];
 
+  // Free intermediate chunk buffers immediately before return to mitigate heap memory pressure
+  for (const c of chunks) {
+    c.fill(0);
+  }
+  chunks.length = 0;
+
   return { protectedMp4, locationReports, boxChunks };
 }
 

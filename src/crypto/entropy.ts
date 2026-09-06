@@ -153,13 +153,20 @@ export function calculateSamplePairMatchRate(data: Uint8Array): number {
  * (typically 7.18 - 7.36 bits/byte) by deterministic natural frequency injection.
  * Asynchronous with cooperative event-loop yielding to guarantee zero UI freezes.
  */
+/**
+ * Internal frame integrity verification key.
+ * Used to compute a 32-bit corruption detection checksum over salt and length
+ * to guard against transport truncation or accidental bit flips before allocating denormalization buffers.
+ * Architectural Note: This is an internal structural frame checksum, not a secret authentication MAC
+ * (full cryptographic authenticity is guaranteed independently by the Layer 3/4 AEAD cascade).
+ */
 const SHAPER_HMAC_KEY = new Uint8Array([
   0x43, 0x47, 0x5f, 0x53, 0x48, 0x41, 0x50, 0x45, // "CG_SHAPE"
   0x52, 0x5f, 0x41, 0x55, 0x54, 0x48, 0x5f, 0x56  // "R_AUTH_V"
 ]);
 
 /**
- * 32-bit HMAC-SHA256 authenticated checksum over 16-byte salt and 4-byte payload length to detect any salt/header tampering
+ * 32-bit HMAC-SHA256 frame integrity checksum over 16-byte salt and 4-byte payload length to detect any salt/header corruption
  */
 function computeHeaderChecksum(salt: Uint8Array, len: number): number {
   const msg = new Uint8Array(20);
@@ -346,9 +353,19 @@ export function denormalizeEntropyHeaderFast(normalizedData: Uint8Array, maxByte
   }
   storedChecksum >>>= 0;
 
-  // Header integrity verification: abort immediately on corrupted/non-matching carrier header
+  // Header integrity verification: abort immediately on corrupted/non-matching carrier header (constant-time check)
   const expectedChecksum = computeHeaderChecksum(streamSalt, originalLen);
-  if (storedChecksum !== expectedChecksum) {
+  const storedChecksumBytes = new Uint8Array(4);
+  const expectedChecksumBytes = new Uint8Array(4);
+  storedChecksumBytes[0] = storedChecksum & 0xff;
+  storedChecksumBytes[1] = (storedChecksum >>> 8) & 0xff;
+  storedChecksumBytes[2] = (storedChecksum >>> 16) & 0xff;
+  storedChecksumBytes[3] = (storedChecksum >>> 24) & 0xff;
+  expectedChecksumBytes[0] = expectedChecksum & 0xff;
+  expectedChecksumBytes[1] = (expectedChecksum >>> 8) & 0xff;
+  expectedChecksumBytes[2] = (expectedChecksum >>> 16) & 0xff;
+  expectedChecksumBytes[3] = (expectedChecksum >>> 24) & 0xff;
+  if (!constantTimeCompare(storedChecksumBytes, expectedChecksumBytes)) {
     return new Uint8Array(0);
   }
 

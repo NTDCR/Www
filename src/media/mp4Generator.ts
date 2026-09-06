@@ -5,7 +5,7 @@
  * 100% compatible with HTML5 <video>, QuickTime, Chrome, VLC, Safari, Windows Media Player.
  */
 
-import { buildBox } from './isobmff';
+import { buildBox, isValidIsobmffCarrier } from './isobmff';
 
 /**
  * Creates a standard ISO/IEC 14496-12 compliant playable H.264 MP4 binary.
@@ -384,39 +384,15 @@ export async function createAnimatedCanvasCarrierBlob(durationSeconds: number = 
 
       const stream = canvas.captureStream(30);
       
-      const candidateTypes = [
-        'video/mp4;codecs=avc1',
-        'video/mp4',
-        'video/webm;codecs=vp9',
-        'video/webm;codecs=vp8',
-        'video/webm'
-      ];
-      let selectedMime = 'video/webm';
-      for (const t of candidateTypes) {
-        if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(t)) {
-          selectedMime = t;
-          break;
-        }
-      }
-
-      const recorder = new MediaRecorder(stream, {
-        mimeType: selectedMime,
-        videoBitsPerSecond: 2500000
-      });
-      const chunks: Blob[] = [];
-
-      recorder.ondataavailable = (e) => {
-        if (e.data && e.data.size > 0) chunks.push(e.data);
-      };
-
       let wallClockTimer: ReturnType<typeof setTimeout> | null = null;
       let isSettled = false;
+      let recorder: MediaRecorder | null = null;
 
       const safeFallback = () => {
         if (isSettled) return;
         isSettled = true;
         if (wallClockTimer) clearTimeout(wallClockTimer);
-        try { if (recorder.state === 'recording') recorder.stop(); } catch {}
+        try { if (recorder && recorder.state === 'recording') recorder.stop(); } catch {}
         try { stream.getTracks().forEach(t => t.stop()); } catch {}
         const bytes = generatePlayableH264Mp4(durationSeconds);
         const fallback = new Blob([bytes], { type: 'video/mp4' });
@@ -424,11 +400,48 @@ export async function createAnimatedCanvasCarrierBlob(durationSeconds: number = 
         resolve(fallback);
       };
 
+      // ContentGuard strictly requires an ISOBMFF MP4 carrier ('ftyp' atom).
+      // WebM recording (EBML header) is fundamentally incompatible and rejected downstream.
+      const candidateTypes = [
+        'video/mp4;codecs=avc1',
+        'video/mp4'
+      ];
+      let selectedMime: string | null = null;
+      for (const t of candidateTypes) {
+        if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) {
+          selectedMime = t;
+          break;
+        }
+      }
+
+      if (!selectedMime || typeof MediaRecorder === 'undefined') {
+        // Browser lacks native MP4 recording support (common on Linux/Firefox).
+        // Fall back immediately to playable synthetic H.264 MP4 with 0 latency.
+        safeFallback();
+        return;
+      }
+
+      try {
+        recorder = new MediaRecorder(stream, {
+          mimeType: selectedMime,
+          videoBitsPerSecond: 2500000
+        });
+      } catch {
+        safeFallback();
+        return;
+      }
+
+      const chunks: Blob[] = [];
+
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) chunks.push(e.data);
+      };
+
       recorder.onerror = () => {
         safeFallback();
       };
 
-      recorder.onstop = () => {
+      recorder.onstop = async () => {
         if (isSettled) return;
         isSettled = true;
         if (wallClockTimer) clearTimeout(wallClockTimer);
@@ -437,7 +450,18 @@ export async function createAnimatedCanvasCarrierBlob(durationSeconds: number = 
           safeFallback();
           return;
         }
-        const recordedBlob = new Blob(chunks, { type: selectedMime.split(';')[0] });
+        const recordedBlob = new Blob(chunks, { type: selectedMime!.split(';')[0] });
+        try {
+          // Verify that recorded container starts with a valid ISOBMFF 'ftyp' box
+          const headerSlice = await recordedBlob.slice(0, 16).arrayBuffer();
+          if (!isValidIsobmffCarrier(new Uint8Array(headerSlice))) {
+            safeFallback();
+            return;
+          }
+        } catch {
+          safeFallback();
+          return;
+        }
         cachedCarrierBlob = recordedBlob;
         resolve(recordedBlob);
       };

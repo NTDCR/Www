@@ -821,5 +821,13 @@ export function zeroizeStreamingHandle(handle: any): void {
       }
       handle.chunks.length = 0;
     }
+    if ('inMemoryBuffer' in handle && handle.inMemoryBuffer instanceof Uint8Array) {
+      handle.inMemoryBuffer.fill(0);
+      delete handle.inMemoryBuffer;
+    }
+    if ('rawBuffer' in handle && handle.rawBuffer instanceof Uint8Array) {
+      handle.rawBuffer.fill(0);
+      delete handle.rawBuffer;
+    }
   }
 }

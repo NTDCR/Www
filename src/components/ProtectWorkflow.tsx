@@ -41,7 +41,7 @@ import { Key6BadgeCard } from './Key6BadgeCard';
 import { AssessmentNotesEditor } from './AssessmentNotesEditor';
 import { deriveAndMask1024BitId, generateRandomKey6String, generateFreshKey6Salt } from '../crypto/key6Engine';
 import { getOrGenerateCarrierBlob } from '../media/mp4Generator';
-import { StreamingFileHandle, createStreamingFileHandle, loadStreamingFileHandleAsync, streamChunksDirectToDisk, sanitizeFilename } from '../utils/fileReader';
+import { StreamingFileHandle, createStreamingFileHandle, loadStreamingFileHandleAsync, streamChunksDirectToDisk, sanitizeFilename, zeroizeStreamingHandle } from '../utils/fileReader';
 import { VideoPlayerPreview } from './VideoPlayerPreview';
 import { yieldToMainThread } from '../utils/asyncUtils';
 import { sanitizePasswordString, zeroizeBuffer } from '../crypto/cascadeEngine';
@@ -61,6 +61,25 @@ interface ProtectWorkflowProps {
 export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog, onMetricsGenerated }) => {
   const isMountedRef = useRef(true);
   const activeBlobUrlsRef = useRef<string[]>([]);
+  const vaultAFileRef = useRef<StreamingFileHandle | null>(null);
+  const vaultBFileRef = useRef<StreamingFileHandle | null>(null);
+  const carrierFileRef = useRef<StreamingFileHandle | null>(null);
+  const resultRef = useRef<DualVaultCreationResult | null>(null);
+
+  const zeroizeProtectionResultBuffers = (res: DualVaultCreationResult | null) => {
+    if (!res) return;
+    try {
+      if (res.protectedMp4Bytes && res.protectedMp4Bytes.length > 0) {
+        res.protectedMp4Bytes.fill(0);
+      }
+      if (res.protectedChunks && res.protectedChunks.length > 0) {
+        for (const chunk of res.protectedChunks) {
+          if (chunk instanceof Uint8Array) chunk.fill(0);
+        }
+      }
+    } catch {}
+  };
+
   useEffect(() => {
     isMountedRef.current = true;
     return () => {
@@ -69,6 +88,20 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
         try { URL.revokeObjectURL(u); } catch {}
       }
       activeBlobUrlsRef.current = [];
+      zeroizeProtectionResultBuffers(resultRef.current);
+      resultRef.current = null;
+      if (vaultAFileRef.current) {
+        zeroizeStreamingHandle(vaultAFileRef.current);
+        vaultAFileRef.current = null;
+      }
+      if (vaultBFileRef.current) {
+        zeroizeStreamingHandle(vaultBFileRef.current);
+        vaultBFileRef.current = null;
+      }
+      if (carrierFileRef.current) {
+        zeroizeStreamingHandle(carrierFileRef.current);
+        carrierFileRef.current = null;
+      }
     };
   }, []);
 
@@ -100,6 +133,10 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
   // Vault Files State (Stored as lightweight streaming handle)
   const [vaultAFile, setVaultAFile] = useState<StreamingFileHandle | null>(null);
   const [vaultBFile, setVaultBFile] = useState<StreamingFileHandle | null>(null);
+
+  useEffect(() => { vaultAFileRef.current = vaultAFile; }, [vaultAFile]);
+  useEffect(() => { vaultBFileRef.current = vaultBFile; }, [vaultBFile]);
+  useEffect(() => { carrierFileRef.current = carrierFile; }, [carrierFile]);
 
   // Passwords State (Initialized empty for manual entry)
   const [vaultAPasswords, setVaultAPasswords] = useState<CascadePasswords>({
@@ -193,6 +230,7 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
   const [progressText, setProgressText] = useState<string>('');
   const [progressPct, setProgressPct] = useState<number>(0);
   const [result, setResult] = useState<DualVaultCreationResult | null>(null);
+  useEffect(() => { resultRef.current = result; }, [result]);
   const [totalOperationDurationMs, setTotalOperationDurationMs] = useState<number | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [diskSaveStatus, setDiskSaveStatus] = useState<string | null>(null);
@@ -400,8 +438,12 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
       );
 
       const totalDuration = performance.now() - overallOpStartTime;
-      if (!isMountedRef.current) return;
+      if (!isMountedRef.current) {
+        zeroizeProtectionResultBuffers(res);
+        return;
+      }
       setTotalOperationDurationMs(totalDuration);
+      resultRef.current = res;
       setResult(res);
       const actualCarrierSize = useSyntheticCarrier
         ? (carrierPreviewBlob?.size || 15360)
@@ -486,7 +528,25 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
       try { URL.revokeObjectURL(u); } catch {}
     }
     activeBlobUrlsRef.current = [];
+    zeroizeProtectionResultBuffers(resultRef.current || result);
+    resultRef.current = null;
     setResult(null);
+    if (vaultAFileRef.current || vaultAFile) {
+      zeroizeStreamingHandle(vaultAFileRef.current || vaultAFile);
+      vaultAFileRef.current = null;
+    }
+    setVaultAFile(null);
+    if (vaultBFileRef.current || vaultBFile) {
+      zeroizeStreamingHandle(vaultBFileRef.current || vaultBFile);
+      vaultBFileRef.current = null;
+    }
+    setVaultBFile(null);
+    if (carrierFileRef.current || carrierFile) {
+      zeroizeStreamingHandle(carrierFileRef.current || carrierFile);
+      carrierFileRef.current = null;
+    }
+    setCarrierFile(null);
+    setCarrierPreviewBlob(null);
     setVaultAPasswords({
       layer1_kyber: '',
       layer2_serpent: '',
@@ -505,10 +565,6 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
     });
     setVaultANotes(createEmptyAssessmentNotes());
     setVaultBNotes(createEmptyAssessmentNotes());
-    setVaultAFile(null);
-    setVaultBFile(null);
-    setCarrierFile(null);
-    setCarrierPreviewBlob(null);
     setUniqueIdA1024('');
     setUniqueIdB1024('');
     setErrorMsg(null);

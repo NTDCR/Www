@@ -29,7 +29,7 @@ import { VirtualKeypad } from './VirtualKeypad';
 import { LiveProgressTimer, formatDurationHuman } from './LiveProgressTimer';
 import { Key6BadgeCard } from './Key6BadgeCard';
 import { AssessmentNotesPreviewModal } from './AssessmentNotesPreviewModal';
-import { StreamingFileHandle, createStreamingFileHandle, loadStreamingFileHandleAsync, streamChunksDirectToDisk, sanitizeFilename } from '../utils/fileReader';
+import { StreamingFileHandle, createStreamingFileHandle, loadStreamingFileHandleAsync, streamChunksDirectToDisk, sanitizeFilename, zeroizeStreamingHandle } from '../utils/fileReader';
 import { yieldToMainThread, sanitizePasswordString } from '../crypto/cascadeEngine';
 import { sanitizeKey6String } from '../crypto/key6Engine';
 
@@ -41,6 +41,8 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
   const isMountedRef = useRef(true);
   const activeBlobUrlsRef = useRef<string[]>([]);
   const resultRef = useRef<DualVaultExtractionResult | null>(null);
+  const protectedFileRef = useRef<StreamingFileHandle | null>(null);
+
   useEffect(() => {
     isMountedRef.current = true;
     return () => {
@@ -55,10 +57,15 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
         }
       }
       resultRef.current = null;
+      if (protectedFileRef.current) {
+        zeroizeStreamingHandle(protectedFileRef.current);
+        protectedFileRef.current = null;
+      }
     };
   }, []);
 
   const [protectedFile, setProtectedFile] = useState<StreamingFileHandle | null>(null);
+  useEffect(() => { protectedFileRef.current = protectedFile; }, [protectedFile]);
   const [protectedBlob, setProtectedBlob] = useState<Blob | null>(null);
 
   const [passwords, setPasswords] = useState<CascadePasswords>({
@@ -392,6 +399,10 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
     }
     setResult(null);
     resultRef.current = null;
+    if (protectedFileRef.current || protectedFile) {
+      zeroizeStreamingHandle(protectedFileRef.current || protectedFile);
+      protectedFileRef.current = null;
+    }
     setProtectedFile(null);
     setPasswords({
       layer1_kyber: '',
