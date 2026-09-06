@@ -92,10 +92,14 @@ export const AssessmentNotesEditor: React.FC<AssessmentNotesEditorProps> = ({
 
   const handleFieldChange = (field: keyof VaultAssessmentNotes, val: string) => {
     const enc = new TextEncoder();
-    if (enc.encode(val).length > 40000) {
-      const dec = new TextDecoder('utf-8');
-      const bytes = enc.encode(val).subarray(0, 40000);
-      val = dec.decode(bytes);
+    const encoded = enc.encode(val);
+    if (encoded.length > 40000) {
+      let sliceLen = 40000;
+      // Step backwards past any UTF-8 continuation bytes to preserve complete glyphs
+      while (sliceLen > 0 && (encoded[sliceLen] & 0xc0) === 0x80) {
+        sliceLen--;
+      }
+      val = new TextDecoder('utf-8').decode(encoded.subarray(0, sliceLen));
     }
     onChange({
       ...notes,

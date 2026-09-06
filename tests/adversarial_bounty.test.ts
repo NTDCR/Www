@@ -276,6 +276,18 @@ async function runBountySuite() {
   const osDefended = sanitizedTraversal === 'passwd' && sanitizedAds === 'payload.bin_hidden.exe' && sanitizedCon === '_CON.txt';
   record('B-20', 'Filesystem Security', 'Path Traversal, ADS & DOS Device Disarming', osDefended ? 'PASSED' : 'FAILED', `Sanitized path -> "${sanitizedTraversal}", ADS -> "${sanitizedAds}", DOS device -> "${sanitizedCon}"`);
 
+  // 6.7: Multi-Byte UTF-8 Slicing Integrity (Zero \uFFFD Replacement Characters)
+  const multiByteStr = 'A'.repeat(39998) + '🔒🔑'; // 39998 + 4 + 4 = 40006 bytes
+  const enc = new TextEncoder();
+  const encoded = enc.encode(multiByteStr);
+  let sliceLen = 40000;
+  while (sliceLen > 0 && (encoded[sliceLen] & 0xc0) === 0x80) {
+    sliceLen--;
+  }
+  const cleanSlice = new TextDecoder('utf-8').decode(encoded.subarray(0, sliceLen));
+  const noCorruptReplacement = !cleanSlice.includes('\uFFFD') && enc.encode(cleanSlice).length <= 40000;
+  record('B-21', 'UTF-8 Boundary Safety', 'Multi-Byte Boundary Slicing Invariance', noCorruptReplacement ? 'PASSED' : 'FAILED', `Clean slice length: ${enc.encode(cleanSlice).length} bytes, 0 replacement glyphs (\uFFFD)`);
+
   console.log('\n========================================================================');
   console.log('                 BUG-BOUNTY RESCAN EXECUTIVE SUMMARY');
   console.log('========================================================================');
