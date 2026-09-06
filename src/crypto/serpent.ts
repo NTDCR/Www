@@ -255,9 +255,12 @@ export function serpent256Ctr(
         out32[wordIdx + 3] = data32[wordIdx + 3] ^ blockWords[3];
       } else {
         const byteOffset = b * 16;
-        const ksBytes = new Uint8Array(blockWords.buffer, blockWords.byteOffset, 16);
-        for (let i = 0; i < 16; i++) {
-          out[byteOffset + i] = data[byteOffset + i] ^ ksBytes[i];
+        for (let w = 0; w < 4; w++) {
+          const word = blockWords[w];
+          out[byteOffset + w * 4 + 0] = data[byteOffset + w * 4 + 0] ^ (word & 0xff);
+          out[byteOffset + w * 4 + 1] = data[byteOffset + w * 4 + 1] ^ ((word >>> 8) & 0xff);
+          out[byteOffset + w * 4 + 2] = data[byteOffset + w * 4 + 2] ^ ((word >>> 16) & 0xff);
+          out[byteOffset + w * 4 + 3] = data[byteOffset + w * 4 + 3] ^ ((word >>> 24) & 0xff);
         }
       }
 
@@ -278,10 +281,12 @@ export function serpent256Ctr(
     const rem = data.length % 16;
     if (rem > 0) {
       serpentEncryptBlock(cWord0, cWord1, cLow, cHigh, subkeys, blockWords);
-      const ksBytes = new Uint8Array(blockWords.buffer, blockWords.byteOffset, 16);
       const startByte = fullBlocks * 16;
       for (let i = 0; i < rem; i++) {
-        out[startByte + i] = data[startByte + i] ^ ksBytes[i];
+        const wordIdx = Math.floor(i / 4);
+        const byteInWord = i % 4;
+        const ksByte = (blockWords[wordIdx] >>> (byteInWord * 8)) & 0xff;
+        out[startByte + i] = data[startByte + i] ^ ksByte;
       }
     }
 
@@ -360,9 +365,12 @@ export async function serpent256CtrAsync(
         out32[wordIdx + 3] = data32[wordIdx + 3] ^ blockWords[3];
       } else {
         const byteOffset = b * 16;
-        const ksBytes = new Uint8Array(blockWords.buffer, blockWords.byteOffset, 16);
-        for (let i = 0; i < 16; i++) {
-          out[byteOffset + i] = data[byteOffset + i] ^ ksBytes[i];
+        for (let w = 0; w < 4; w++) {
+          const word = blockWords[w];
+          out[byteOffset + w * 4 + 0] = data[byteOffset + w * 4 + 0] ^ (word & 0xff);
+          out[byteOffset + w * 4 + 1] = data[byteOffset + w * 4 + 1] ^ ((word >>> 8) & 0xff);
+          out[byteOffset + w * 4 + 2] = data[byteOffset + w * 4 + 2] ^ ((word >>> 16) & 0xff);
+          out[byteOffset + w * 4 + 3] = data[byteOffset + w * 4 + 3] ^ ((word >>> 24) & 0xff);
         }
       }
 
@@ -382,10 +390,12 @@ export async function serpent256CtrAsync(
     const rem = data.length % 16;
     if (rem > 0) {
       serpentEncryptBlock(cWord0, cWord1, cLow, cHigh, subkeys, blockWords);
-      const ksBytes = new Uint8Array(blockWords.buffer, blockWords.byteOffset, 16);
       const startByte = fullBlocks * 16;
       for (let i = 0; i < rem; i++) {
-        out[startByte + i] = data[startByte + i] ^ ksBytes[i];
+        const wordIdx = Math.floor(i / 4);
+        const byteInWord = i % 4;
+        const ksByte = (blockWords[wordIdx] >>> (byteInWord * 8)) & 0xff;
+        out[startByte + i] = data[startByte + i] ^ ksByte;
       }
     }
 

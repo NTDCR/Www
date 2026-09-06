@@ -35,7 +35,7 @@ export const AuditLogViewer: React.FC<AuditLogViewerProps> = ({ logs }) => {
     setTimeout(() => {
       try { URL.revokeObjectURL(url); } catch {}
       activeBlobUrlsRef.current = activeBlobUrlsRef.current.filter(u => u !== url);
-    }, 10000);
+    }, 120000);
   };
 
 /**
@@ -77,7 +77,7 @@ function sanitizeCsvCell(cell: string | undefined | null): string {
     setTimeout(() => {
       try { URL.revokeObjectURL(url); } catch {}
       activeBlobUrlsRef.current = activeBlobUrlsRef.current.filter(u => u !== url);
-    }, 10000);
+    }, 120000);
   };
 
   const handleCopy = async () => {

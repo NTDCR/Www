@@ -119,7 +119,7 @@ export const AssessmentNotesPreviewModal: React.FC<AssessmentNotesPreviewModalPr
     setTimeout(() => {
       try { URL.revokeObjectURL(url); } catch {}
       activeBlobUrlsRef.current = activeBlobUrlsRef.current.filter(u => u !== url);
-    }, 10000);
+    }, 120000);
   };
 
   return (

@@ -220,6 +220,7 @@ function compressU(poly: Int16Array): Uint8Array {
     out[o + 9] = ((c[6] >>> 6) & 0x1f) | ((c[7] & 0x07) << 5);
     out[o + 10] = (c[7] >>> 3) & 0xff;
   }
+  coeffs11.fill(0);
   return out;
 }
 
@@ -240,6 +241,7 @@ function decompressU(bytes: Uint8Array): Int16Array {
     for (let j = 0; j < 8; j++) {
       poly[i * 8 + j] = Math.round((raw[j] * KYBER_Q) / 2048);
     }
+    raw.fill(0);
   }
   return poly;
 }
@@ -263,6 +265,7 @@ function compressV(poly: Int16Array): Uint8Array {
     out[o + 3] = (c[4] >>> 4) | (c[5] << 1) | ((c[6] & 0x03) << 6);
     out[o + 4] = (c[6] >>> 2) | (c[7] << 3);
   }
+  coeffs5.fill(0);
   return out;
 }
 
@@ -283,6 +286,7 @@ function decompressV(bytes: Uint8Array): Int16Array {
     for (let j = 0; j < 8; j++) {
       poly[i * 8 + j] = Math.round((raw[j] * KYBER_Q) / 32);
     }
+    raw.fill(0);
   }
   return poly;
 }
@@ -529,21 +533,9 @@ export async function kyber1024Decapsulate(
   const pkHash = secretKey.slice(1536 + 1568, 1536 + 1568 + 32);
   const z = secretKey.slice(1536 + 1568 + 32, 1536 + 1568 + 64);
 
-  // Unpack s vector (4 polynomials x 384 bytes)
   const s: Int16Array[] = [];
-  for (let i = 0; i < KYBER_K; i++) {
-    s.push(unpack12(secretKey.subarray(i * 384, (i + 1) * 384)));
-  }
-
-  // Decompress u vector (4 polynomials x 352 bytes = 1408 bytes)
   const u: Int16Array[] = [];
-  for (let i = 0; i < KYBER_K; i++) {
-    u.push(decompressU(ciphertext.subarray(i * 352, (i + 1) * 352)));
-  }
-
-  // Decompress v polynomial (160 bytes at offset 1408)
-  const v = decompressV(ciphertext.subarray(1408, 1408 + 160));
-
+  let v: Int16Array | null = null;
   const recoveredM = new Uint8Array(32);
   let mAndPk: Uint8Array | null = null;
   let kr: Uint8Array | null = null;
@@ -557,6 +549,19 @@ export async function kyber1024Decapsulate(
   let kRej: Uint8Array | null = null;
 
   try {
+    // Unpack s vector (4 polynomials x 384 bytes)
+    for (let i = 0; i < KYBER_K; i++) {
+      s.push(unpack12(secretKey.subarray(i * 384, (i + 1) * 384)));
+    }
+
+    // Decompress u vector (4 polynomials x 352 bytes = 1408 bytes)
+    for (let i = 0; i < KYBER_K; i++) {
+      u.push(decompressU(ciphertext.subarray(i * 352, (i + 1) * 352)));
+    }
+
+    // Decompress v polynomial (160 bytes at offset 1408)
+    v = decompressV(ciphertext.subarray(1408, 1408 + 160));
+
     // Decrypt: v - s^T * u
     sTu = new Int16Array(KYBER_N);
     for (let i = 0; i < KYBER_K; i++) {
@@ -603,6 +608,9 @@ export async function kyber1024Decapsulate(
     const sharedSecret = ctSelect(match, kOk, kRej);
     zeroize(kOk, kRej, sTu);
     return sharedSecret;
+  } catch {
+    // Suppress exception oracle - return deterministic pseudo-random secret on any decoding or arithmetic error
+    return implicitRejectPseudoSecret(ciphertext, secretKey);
   } finally {
     zeroize(s, u, v, recoveredM, mAndPk, kr, kBar, rCoins, cPrime, kOkBuf, kRejBuf, pkHash, z, sTu, kOk, kRej);
   }

@@ -365,6 +365,13 @@ export async function encryptChunk5Layers(
   }
 ): Promise<Uint8Array> {
   let current: Uint8Array<ArrayBufferLike> = new Uint8Array(chunk);
+  let prev: Uint8Array | null = current;
+  const wipePrev = (c: Uint8Array) => {
+    if (prev && prev !== c && prev !== chunk) {
+      prev.fill(0);
+    }
+    prev = c;
+  };
 
   const blockOffset16 = Math.floor(chunkGlobalOffset / 16);
   const blockOffset64 = Math.floor(chunkGlobalOffset / 64);
@@ -383,6 +390,7 @@ export async function encryptChunk5Layers(
       nonce12[i] = sByte ^ (i * 17);
     }
     current = chacha20Process(key32, nonce12, blockOffset64, current);
+    wipePrev(current);
   } finally {
     key32.fill(0);
     nonce12.fill(0);
@@ -407,6 +415,7 @@ export async function encryptChunk5Layers(
   try {
     const aesCipher = ctr(keys.key4, chunkIv4);
     current = aesCipher.encrypt(current) as Uint8Array;
+    wipePrev(current);
   } finally {
     chunkIv4.fill(0);
   }
@@ -414,10 +423,12 @@ export async function encryptChunk5Layers(
 
   // --- LAYER 3: Audited XChaCha20 Stream with Monotonic Block Offset ---
   current = chacha20Process(keys.key3, keys.ivL3, blockOffset64, current) as Uint8Array;
+  wipePrev(current);
   await yieldToMainThread();
 
   // --- LAYER 2: Serpent-256-CTR with Monotonic 64-bit Block Offset ---
   current = await serpent256CtrAsync(current, keys.key2, keys.ivL2, keys.serpentSubkeys, blockOffset16) as Uint8Array;
+  wipePrev(current);
   await yieldToMainThread();
 
   // --- LAYER 1: Kyber-1024 PQC Lattice Stream Cipher (HKDF-SHA512 + ChaCha20) ---
@@ -437,6 +448,7 @@ export async function encryptChunk5Layers(
   }
   try {
     current = chacha20Process(pKey, pNonce, blockOffset64, current) as Uint8Array;
+    wipePrev(current);
   } finally {
     if (shouldZeroizePqc) {
       if (pKey) pKey.fill(0);
@@ -444,6 +456,7 @@ export async function encryptChunk5Layers(
     }
   }
 
+  prev = null;
   return current;
 }
 
@@ -473,6 +486,13 @@ export async function decryptChunk5Layers(
   }
 ): Promise<Uint8Array> {
   let current: Uint8Array<ArrayBufferLike> = new Uint8Array(chunk);
+  let prev: Uint8Array | null = current;
+  const wipePrev = (c: Uint8Array) => {
+    if (prev && prev !== c && prev !== chunk) {
+      prev.fill(0);
+    }
+    prev = c;
+  };
 
   const blockOffset16 = Math.floor(chunkGlobalOffset / 16);
   const blockOffset64 = Math.floor(chunkGlobalOffset / 64);
@@ -494,6 +514,7 @@ export async function decryptChunk5Layers(
   }
   try {
     current = chacha20Process(pKey, pNonce, blockOffset64, current) as Uint8Array;
+    wipePrev(current);
   } finally {
     if (shouldZeroizePqc) {
       if (pKey) pKey.fill(0);
@@ -504,10 +525,12 @@ export async function decryptChunk5Layers(
 
   // --- UNPACK LAYER 2: Serpent-256-CTR with Monotonic 64-bit Block Offset ---
   current = await serpent256CtrAsync(current, keys.key2, keys.ivL2, keys.serpentSubkeys, blockOffset16) as Uint8Array;
+  wipePrev(current);
   await yieldToMainThread();
 
   // --- UNPACK LAYER 3: Audited XChaCha20 Stream with Monotonic Block Offset ---
   current = chacha20Process(keys.key3, keys.ivL3, blockOffset64, current) as Uint8Array;
+  wipePrev(current);
   await yieldToMainThread();
 
   // --- UNPACK LAYER 4: Audited AES-256-CTR with Monotonic Big-Endian 128-bit Counter Block ---
@@ -528,6 +551,7 @@ export async function decryptChunk5Layers(
   try {
     const aesCipher = ctr(keys.key4, chunkIv4);
     current = aesCipher.decrypt(current) as Uint8Array;
+    wipePrev(current);
   } finally {
     chunkIv4.fill(0);
   }
@@ -547,10 +571,13 @@ export async function decryptChunk5Layers(
       nonce12[i] = sByte ^ (i * 17);
     }
     current = chacha20Process(key32, nonce12, blockOffset64, current);
+    wipePrev(current);
   } finally {
     key32.fill(0);
     nonce12.fill(0);
   }
+
+  prev = null;
 
   return current;
 }

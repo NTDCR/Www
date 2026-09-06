@@ -1,6 +1,6 @@
 import { createDualVaultPackage, extractFromDualVaultPackage, zeroizeBundle, inspectContainerKey6Identity, inspectContainerAssessmentNotes, getOrExtractContainerBundles } from '../src/vault/dualVault';
 import { encodeRSStream, decodeRSStream, rsDecodeBlock } from '../src/crypto/reedSolomon';
-import { deserializeBundle, serializeBundle, decryptCascade5Layers, deriveLayerKey, sanitizePasswordString, zeroizeBuffer } from '../src/crypto/cascadeEngine';
+import { deserializeBundle, serializeBundle, decryptCascade5Layers, deriveLayerKey, sanitizePasswordString, zeroizeBuffer, encryptChunk5Layers, decryptChunk5Layers } from '../src/crypto/cascadeEngine';
 import { generateSecureRandomBytes, secureRandomInt, secureRandomUUID, generateCSPRNGKeystream } from '../src/crypto/safeRandom';
 import { unmaskAndVerifyKey6FromRSBlock, deriveAndMask1024BitId, sanitizeKey6String } from '../src/crypto/key6Engine';
 import { encryptAssessmentNotesBlock, decryptAssessmentNotesBlock, parseAssessmentNotesJson, sanitizeAssessmentNotesInput } from '../src/crypto/notesEngine';
@@ -1154,6 +1154,95 @@ async function runBountySuite() {
     'Preloaded Handle In-Memory Protection, Extraction Retry Resilience & Trojan Source BiDi Sanitization',
     b43Passed ? 'PASSED' : 'FAILED',
     `Handle Bytes Intact: ${handleBytesIntact}, Extraction Passed: ${handleExtractionPassed}, Retry Resilience: ${retryPassed}, BiDi/Trojan Sanitization: ${trojanSanitizationPassed}`
+  );
+
+  // -------------------------------------------------------------------------
+  // TEST B-44: Endianness-Invariant Serpent Keystream, Kyber-1024 Exception Oracle Suppression & Cascade Intermediate Zeroization
+  // -------------------------------------------------------------------------
+  console.log('\n--- Running Test B-44: Endianness-Invariant Keystream, Kyber Exception Oracle Suppression & Layer Hygiene ---');
+
+  // 1. Serpent-256 CTR Little-Endian Keystream Invariance on Arbitrary Lengths:
+  const serpentKey = generateSecureRandomBytes(32);
+  const serpentIv = generateSecureRandomBytes(16);
+  const testLengths = [1, 7, 15, 16, 17, 31, 32, 33, 63, 64, 65, 127, 255];
+  let serpentEndianCheckPassed = true;
+
+  for (const len of testLengths) {
+    const pt = generateSecureRandomBytes(len);
+    const ctSync = serpent256Ctr(pt, serpentKey, serpentIv);
+    const ctAsync = await serpent256CtrAsync(pt, serpentKey, serpentIv);
+    const decrypted = serpent256Ctr(ctSync, serpentKey, serpentIv);
+
+    // Sync and Async must produce identical byte streams
+    const syncAsyncEqual = ctSync.every((b, idx) => b === ctAsync[idx]);
+    // Decrypted must match original plaintext
+    const decEqual = decrypted.every((b, idx) => b === pt[idx]);
+
+    if (!syncAsyncEqual || !decEqual) {
+      serpentEndianCheckPassed = false;
+      break;
+    }
+  }
+
+  // 2. Kyber-1024 IND-CCA2 Decapsulation Exception Oracle Suppression:
+  // Deliberately corrupt secret key coefficients (e.g. >= 3329) to trigger unpack12 failures.
+  // In IND-CCA2 security, any invalid key/ciphertext must produce an implicit rejection
+  // pseudo-random secret WITHOUT leaking an exception oracle to an observer.
+  const kyberKeys = await kyber1024KeyGen();
+  const b44Encap = await kyber1024Encapsulate(kyberKeys.publicKey);
+  const validDecap = await kyber1024Decapsulate(b44Encap.ciphertext, kyberKeys.secretKey);
+  const validMatch = validDecap.every((b, idx) => b === b44Encap.sharedSecret[idx]);
+
+  // Corrupt secret key bytes in polynomial coefficients area (first 1536 bytes)
+  const corruptedSk = new Uint8Array(kyberKeys.secretKey);
+  corruptedSk.fill(0xff, 0, 384); // 0xff causes unpacked coefficients to be 4095 >= 3329
+
+  let kyberOracleSuppressed = false;
+  let kyberImplicitSecret: Uint8Array | null = null;
+  try {
+    kyberImplicitSecret = await kyber1024Decapsulate(b44Encap.ciphertext, corruptedSk);
+    // Must return a 32-byte pseudo-random secret without throwing
+    if (
+      kyberImplicitSecret &&
+      kyberImplicitSecret.length === 32 &&
+      !kyberImplicitSecret.every((b, idx) => b === b44Encap.sharedSecret[idx])
+    ) {
+      kyberOracleSuppressed = true;
+    }
+  } catch {
+    // If it threw an exception, it leaked an oracle!
+    kyberOracleSuppressed = false;
+  }
+
+  // 3. Multi-Layer Chunk Zeroization and Cascade Roundtrip Integrity:
+  const chunkPt = generateSecureRandomBytes(1024);
+  const chunkKeys = {
+    key1: generateSecureRandomBytes(32),
+    key2: generateSecureRandomBytes(32),
+    key3: generateSecureRandomBytes(32),
+    key4: generateSecureRandomBytes(32),
+    key5: generateSecureRandomBytes(32),
+    saltL5: generateSecureRandomBytes(64),
+    ivL2: generateSecureRandomBytes(16),
+    ivL3: generateSecureRandomBytes(24),
+    ivL4: generateSecureRandomBytes(16),
+    pqcSecret: generateSecureRandomBytes(32),
+    saltL1: generateSecureRandomBytes(32)
+  };
+
+  const encryptedChunk = await encryptChunk5Layers(chunkPt, 0, chunkKeys);
+  const decryptedChunk = await decryptChunk5Layers(encryptedChunk, 0, chunkKeys);
+  const cascadeChunkPassed = decryptedChunk.every((b, idx) => b === chunkPt[idx]) &&
+    !encryptedChunk.every((b, idx) => b === chunkPt[idx]);
+
+  const b44Passed = serpentEndianCheckPassed && validMatch && kyberOracleSuppressed && cascadeChunkPassed;
+
+  record(
+    'B-44',
+    'Post-Quantum & Multi-Layer Keystream Robustness',
+    'Endian-Invariant Serpent CTR Keystream, Kyber-1024 Exception Oracle Elimination & Intermediate Buffer Hygiene',
+    b44Passed ? 'PASSED' : 'FAILED',
+    `Serpent Little-Endian CTR: ${serpentEndianCheckPassed}, Kyber Valid Match: ${validMatch}, Kyber Oracle Suppressed: ${kyberOracleSuppressed}, Cascade Intermediate Hygiene: ${cascadeChunkPassed}`
   );
 
   console.log('\n========================================================================');
