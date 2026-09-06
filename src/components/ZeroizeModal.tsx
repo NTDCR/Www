@@ -12,11 +12,15 @@ export const ZeroizeModal: React.FC<ZeroizeModalProps> = ({ onClose, onZeroizeCo
   const [status, setStatus] = useState<PassStatus | null>(null);
   const [isDone, setIsDone] = useState<boolean>(false);
   const isMountedRef = useRef<boolean>(true);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
     };
   }, []);
 
@@ -30,8 +34,10 @@ export const ZeroizeModal: React.FC<ZeroizeModalProps> = ({ onClose, onZeroizeCo
       setIsRunning(false);
       setIsDone(true);
     }
-    setTimeout(() => {
-      onZeroizeComplete();
+    timeoutRef.current = setTimeout(() => {
+      if (isMountedRef.current) {
+        onZeroizeComplete();
+      }
     }, 2000);
   };
 
