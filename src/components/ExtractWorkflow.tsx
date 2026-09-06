@@ -174,6 +174,15 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
 
   const handleProtectedFileSelection = async (file: File | null) => {
     clearContainerInspectionCache();
+    if (result?.chunkedData) {
+      for (const chunk of result.chunkedData) {
+        chunk.fill(0);
+      }
+    }
+    setResult(null);
+    setAssessmentNotes(null);
+    setKey6VerifiedUniqueId('');
+    setKey6MatchedVault(null);
     if (!file) {
       setProtectedFile(null);
       setProtectedBlob(null);
@@ -236,6 +245,13 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
 
     const overallOpStartTime = performance.now();
     try {
+      if (result?.chunkedData) {
+        for (const chunk of result.chunkedData) {
+          chunk.fill(0);
+        }
+      }
+      setResult(null);
+      setAssessmentNotes(null);
       setIsExtracting(true);
       setErrorMsg(null);
       setTotalOperationDurationMs(null);

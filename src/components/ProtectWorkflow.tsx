@@ -313,6 +313,18 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
       return;
     }
 
+    const isSamePasswords =
+      (vaultAPasswords.layer1_kyber || '').normalize('NFC') === (vaultBPasswords.layer1_kyber || '').normalize('NFC') &&
+      (vaultAPasswords.layer2_serpent || '').normalize('NFC') === (vaultBPasswords.layer2_serpent || '').normalize('NFC') &&
+      (vaultAPasswords.layer3_xchacha || '').normalize('NFC') === (vaultBPasswords.layer3_xchacha || '').normalize('NFC') &&
+      (vaultAPasswords.layer4_aes || '').normalize('NFC') === (vaultBPasswords.layer4_aes || '').normalize('NFC') &&
+      (vaultAPasswords.layer5_otp || '').normalize('NFC') === (vaultBPasswords.layer5_otp || '').normalize('NFC');
+
+    if (isSamePasswords) {
+      setErrorMsg('Plausible Deniability Violation: Decoy Vault (Vault B) must have different passwords than Secret Vault (Vault A). Using identical passwords destroys plausible deniability and prevents the decoy from being independently accessed.');
+      return;
+    }
+
     if (!useSyntheticCarrier && !carrierFile) {
       setErrorMsg('Please select your custom MP4 video file or switch to Synthetic Carrier.');
       return;
@@ -322,6 +334,7 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
     try {
       setIsProcessing(true);
       setErrorMsg(null);
+      setResult(null);
       setTotalOperationDurationMs(null);
       setProgressText('Initializing 8 Web Workers & CSPRNG Entropy Engine...');
       setProgressPct(5);
