@@ -192,11 +192,11 @@ export async function deriveMasterAuthKey(
   saltL4: Uint8Array,
   iterations: number = DEFAULT_PBKDF2_ITERATIONS
 ): Promise<Uint8Array> {
-  const p1 = passwords.layer1_kyber || '';
-  const p2 = passwords.layer2_serpent || '';
-  const p3 = passwords.layer3_xchacha || '';
-  const p4 = passwords.layer4_aes || '';
-  const p5 = passwords.layer5_otp || '';
+  const p1 = (passwords.layer1_kyber || '').normalize('NFC');
+  const p2 = (passwords.layer2_serpent || '').normalize('NFC');
+  const p3 = (passwords.layer3_xchacha || '').normalize('NFC');
+  const p4 = (passwords.layer4_aes || '').normalize('NFC');
+  const p5 = (passwords.layer5_otp || '').normalize('NFC');
   // Length-prefixed framing eliminates delimiter collision/injection
   const combined = `${p1.length}:${p1}|${p2.length}:${p2}|${p3.length}:${p3}|${p4.length}:${p4}|${p5.length}:${p5}`;
   const combinedSalt = new Uint8Array(saltL1.length + saltL4.length);
