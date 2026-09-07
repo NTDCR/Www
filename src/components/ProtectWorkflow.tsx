@@ -454,12 +454,12 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
 
     if (containerFormat === 'veracrypt') {
       const baseName = vaultAFile.name.replace(/\.[^/.]+$/, '');
-      defaultFilename = sanitizeFilename(`${baseName}_nested_vault.vc`);
+      defaultFilename = sanitizeFilename(`${baseName}_raw_scrap.raw`);
       if (typeof window !== 'undefined' && 'showSaveFilePicker' in window) {
         try {
           const fileHandle = await (window as any).showSaveFilePicker({
             suggestedName: defaultFilename,
-            types: [{ description: 'VeraCrypt Nested Volume (.vc)', accept: { 'application/octet-stream': ['.vc', '.bin'] } }]
+            types: [{ description: 'Raw Cryptographic Noise Scrap (.raw, .bin, .dat)', accept: { 'application/octet-stream': ['.raw', '.bin', '.dat', '.*'] } }]
           });
           upfrontWritable = await fileHandle.createWritable();
           upfrontTargetName = fileHandle.name || defaultFilename;
@@ -612,9 +612,9 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
         ? (carrierPreviewBlob?.size || 15360)
         : (carrierFile?.size || 5242880);
       const actualPayloadSize = (vaultAFile?.size || 0) + (vaultBFile?.size || 0);
-      const actualCarrierName = containerFormat === 'veracrypt' ? 'VeraCrypt Nested Volume' : (carrierFile ? carrierFile.name : 'Synthetic Active Stream');
+      const actualCarrierName = containerFormat === 'veracrypt' ? 'Raw Anti-Forensic Noise Volume' : (carrierFile ? carrierFile.name : 'Synthetic Active Stream');
       onMetricsGenerated?.(res.metrics, res.locationReports, actualCarrierSize, actualPayloadSize, actualCarrierName);
-      const carrierDesc = containerFormat === 'veracrypt' ? 'VeraCrypt Single Nested Container (~1% Overhead)' : (carrierFile ? `Custom Carrier (${carrierFile.name})` : 'Synthetic Active Stream');
+      const carrierDesc = containerFormat === 'veracrypt' ? 'Raw Anti-Forensic Noise Stream (~1% Complete Garbage)' : (carrierFile ? `Custom Carrier (${carrierFile.name})` : 'Synthetic Active Stream');
       onAddAuditLog(
         'DUAL_VAULT_CREATION',
         `${carrierDesc} created in ${formatDurationHuman(totalDuration)}. Vault A (${vaultAFile.name}, ${vaultAFile.size}B) & Vault B (${vaultBFile.name}, ${vaultBFile.size}B) with 5-Layer Cascade.`,
@@ -658,7 +658,7 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
       if (isMountedRef.current) setDiskSaveStatus('Streaming 1 MB chunks directly to destination...');
       const baseName = vaultAFile ? vaultAFile.name.replace(/\.[^/.]+$/, '') : 'PROTECTED_CONTAINER';
       const filename = containerFormat === 'veracrypt'
-        ? sanitizeFilename(`${baseName}_nested_vault.vc`)
+        ? sanitizeFilename(`${baseName}_raw_scrap.raw`)
         : sanitizeFilename(`${carrierFile && !useSyntheticCarrier ? carrierFile.name.replace(/\.[^/.]+$/, '') : baseName}_dualvault.mp4`);
       const chunks = result.protectedChunks || [result.protectedMp4Bytes];
       const outcome = await streamChunksDirectToDisk(filename, chunks, (_bytes, status) => {
@@ -1391,7 +1391,7 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
           </div>
           <p className="text-xs text-slate-400 mt-0.5">
             {containerFormat === 'veracrypt'
-              ? 'VeraCrypt Single Nested Volume: Strictly ~1% overhead, pure CSPRNG noise, zero headers, real-time on-the-fly streaming.'
+              ? 'Raw Anti-Forensic Noise Stream: Strictly ~1% overhead, complete cryptographic garbage, non-sector aligned, zero headers, real-time on-the-fly streaming.'
               : 'Covert MP4 Video Carrier: Embedded into standard playable ISO/IEC 14496-12 video file.'}
           </p>
         </div>
@@ -1406,7 +1406,7 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
                 : 'text-slate-400 hover:text-slate-200'
             }`}
           >
-            VeraCrypt Nested (~1% Size)
+            Raw Noise (~1% Garbage)
           </button>
           <button
             type="button"
@@ -1453,7 +1453,7 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
           ) : (
             <>
               <Play className="w-4 h-4 fill-current" />
-              <span>{containerFormat === 'veracrypt' ? 'Generate VeraCrypt Nested Container (~1% Size)' : 'Generate Dual-Vault MP4 Container'}</span>
+              <span>{containerFormat === 'veracrypt' ? 'Generate Raw Anti-Forensic Container (~1% Garbage)' : 'Generate Dual-Vault MP4 Container'}</span>
             </>
           )}
         </button>
@@ -1503,7 +1503,7 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
                 )}
               </div>
               <h3 className="text-lg font-bold font-mono text-slate-100">
-                {containerFormat === 'veracrypt' ? 'VeraCrypt-Style Single Nested Container (~1% Overhead)' : 'Standard Playable MP4 with 5-Layer Dual Vault'}
+                {containerFormat === 'veracrypt' ? 'Raw Anti-Forensic Noise Stream (~1% Complete Garbage)' : 'Standard Playable MP4 with 5-Layer Dual Vault'}
               </h3>
               <p className="text-xs text-slate-300 font-mono mt-1">
                 SHA-512 Digest: <span className="text-emerald-400 break-all">{result.sha512Digest.slice(0, 48)}...</span>
@@ -1557,14 +1557,14 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
               <div className="flex items-center justify-between">
                 <h4 className="text-xs font-mono font-bold uppercase text-slate-200 tracking-wider flex items-center gap-2">
                   <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                  <span>VeraCrypt-Style Anti-Forensics &amp; Sizing Compliance</span>
+                  <span>Raw Anti-Forensic Noise Stream Compliance (Complete Garbage Mode)</span>
                 </h4>
                 <span className="text-[10px] font-mono text-emerald-400 bg-emerald-950/80 border border-emerald-500/40 px-2.5 py-0.5 rounded font-bold">
-                  ✓ ~1% Compact Sizing • 0 Magic Bytes
+                  ✓ ~1% Compact Sizing • Non-Sector Aligned • 0 Magic Bytes
                 </span>
               </div>
               <p className="text-xs text-slate-400">
-                This container is a single contiguous <strong className="text-slate-200">100% Pseudo-Random Encrypted Volume</strong>. Total size overhead is strictly ~1%. Outer Volume (Decoy B) and Hidden Volume (Secret A) are structurally indistinguishable from random unallocated noise.
+                This container is a single contiguous <strong className="text-slate-200">100% Pseudo-Random Noise Stream</strong>. Total size overhead is strictly ~1% with prime jitter. File is not sector-aligned, has zero VeraCrypt or file headers, and is indistinguishable from unallocated raw disk noise.
               </p>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2 text-xs font-mono">
                 <div className="p-2.5 bg-slate-950/80 rounded border border-slate-800">
@@ -1572,12 +1572,12 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
                   <span className="text-emerald-400 font-bold">Strictly ~1%</span>
                 </div>
                 <div className="p-2.5 bg-slate-950/80 rounded border border-slate-800">
-                  <span className="text-slate-500 block text-[10px]">Shannon Entropy</span>
-                  <span className="text-emerald-400 font-bold">&gt; 7.999 bits/byte</span>
+                  <span className="text-slate-500 block text-[10px]">Sector Alignment</span>
+                  <span className="text-emerald-400 font-bold">Breaks Carvers (Non-Aligned)</span>
                 </div>
                 <div className="p-2.5 bg-slate-950/80 rounded border border-slate-800">
-                  <span className="text-slate-500 block text-[10px]">Chi-Square (χ²)</span>
-                  <span className="text-emerald-400 font-bold">~256 (Uniform)</span>
+                  <span className="text-slate-500 block text-[10px]">Forensic Identifiers</span>
+                  <span className="text-emerald-400 font-bold">0 Magic Bytes (Pure Noise)</span>
                 </div>
                 <div className="p-2.5 bg-slate-950/80 rounded border border-slate-800">
                   <span className="text-slate-500 block text-[10px]">Disk Stream Timing</span>

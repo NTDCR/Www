@@ -574,7 +574,7 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
             <span>Select Protected Container</span>
           </h3>
           <span className="text-[10px] font-mono text-slate-400 bg-slate-800 px-2 py-0.5 rounded">
-            {detectedContainerFormat === 'veracrypt' ? 'VeraCrypt .vc' : detectedContainerFormat === 'isobmff_mp4' ? 'ISOBMFF .mp4' : 'VeraCrypt .vc / ISOBMFF .mp4'}
+            {detectedContainerFormat === 'veracrypt' ? 'Raw Noise .raw' : detectedContainerFormat === 'isobmff_mp4' ? 'ISOBMFF .mp4' : 'Raw Noise .raw / ISOBMFF .mp4'}
           </span>
         </div>
 
@@ -592,7 +592,7 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
           <input
             ref={protectedInputRef}
             type="file"
-            accept="video/mp4,.mp4,.vc,.bin,*"
+            accept="*,.raw,.bin,.dat,.vc,video/mp4,.mp4"
             onChange={(e) => handleProtectedFileSelection(e.target.files?.[0] || null)}
             className="w-full text-xs text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-emerald-950 file:text-emerald-400 hover:file:bg-emerald-900 cursor-pointer"
           />
@@ -611,7 +611,7 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
                 {detectedContainerFormat === 'veracrypt' ? (
                   <>
                     <HardDrive className="w-3.5 h-3.5 text-indigo-400" />
-                    <span>VeraCrypt-Style Nested Container Detected</span>
+                    <span>Raw Anti-Forensic Ghost Container Detected (Complete Garbage Stream)</span>
                   </>
                 ) : (
                   <>
@@ -625,7 +625,7 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
                   ? 'text-indigo-400 bg-indigo-950/80 border border-indigo-500/40'
                   : 'text-sky-400 bg-sky-950/80 border border-sky-500/40'
               }`}>
-                {detectedContainerFormat === 'veracrypt' ? 'VeraCrypt Architecture' : 'Structure Valid'}
+                {detectedContainerFormat === 'veracrypt' ? 'Zero-Trace Architecture' : 'Structure Valid'}
               </span>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] font-mono text-slate-400 pt-1">
@@ -645,7 +645,7 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
                   </div>
                   <div className="flex items-center gap-1.5">
                     <span className="text-slate-500">Anti-Forensics:</span>
-                    <span className="text-indigo-400 font-semibold">100% CSPRNG Noise (~1% Overhead)</span>
+                    <span className="text-indigo-400 font-semibold">100% Pseudo-Random Noise (Non-Sector Aligned)</span>
                   </div>
                 </>
               ) : (

@@ -129,12 +129,26 @@ export async function createNestedVeraContainer(
   const lenB = serializedB.length;
   const lenA = serializedA.length;
 
-  // Step 3: Compute Offsets & ~1% Anti-Forensic Noise Padding
+  // Step 3: Compute Offsets & ~1% Anti-Forensic Noise Padding with Prime Non-Sector Jitter
   const offsetB = VERA_HEADER_SIZE;
   const offsetA = VERA_HEADER_SIZE + lenB;
   const combinedPayloadLen = lenA + lenB;
-  const antiForensicPaddingLen = Math.max(512, Math.ceil(combinedPayloadLen * 0.01)); // Strictly ~1%
-  const totalContainerSize = VERA_HEADER_SIZE + combinedPayloadLen + antiForensicPaddingLen;
+  let antiForensicPaddingLen = Math.max(512, Math.ceil(combinedPayloadLen * 0.01)); // Strictly ~1%
+
+  // Dynamic Prime-Based Jitter: Breaks automated disk carvers & VeraCrypt heuristics that look for 512-byte block alignment
+  const jitterSeed = (lenA ^ lenB ^ 0x3c3c) >>> 0;
+  const primeJitter = 37 + (jitterSeed % 113); // Range [37..149]
+  antiForensicPaddingLen += primeJitter;
+
+  let totalContainerSize = VERA_HEADER_SIZE + combinedPayloadLen + antiForensicPaddingLen;
+  if (totalContainerSize % 512 === 0) {
+    antiForensicPaddingLen += 17;
+    totalContainerSize += 17;
+  }
+  if (totalContainerSize % 4096 === 0) {
+    antiForensicPaddingLen += 31;
+    totalContainerSize += 31;
+  }
 
   // Step 4: Build Encrypted 4 KB Header Block
   onProgress?.('Constructing 4 KB High-Entropy Encrypted Header Block...', 86.00);
@@ -145,13 +159,14 @@ export async function createNestedVeraContainer(
   const ivA = generateSecureRandomBytes(12);
   const ivB = generateSecureRandomBytes(12);
 
-  const headerKeyA = await deriveLayerKey(vaultAPasswords.layer1_kyber + vaultAPasswords.layer4_aes, saltA, iterations, 'VeraCrypt-Header-KeyA');
-  const headerKeyB = await deriveLayerKey(vaultBPasswords.layer1_kyber + vaultBPasswords.layer4_aes, saltB, iterations, 'VeraCrypt-Header-KeyB');
+  const headerKeyA = await deriveLayerKey(vaultAPasswords.layer1_kyber + vaultAPasswords.layer4_aes, saltA, iterations, 'AntiForensic-Ghost-KeyA');
+  const headerKeyB = await deriveLayerKey(vaultBPasswords.layer1_kyber + vaultBPasswords.layer4_aes, saltB, iterations, 'AntiForensic-Ghost-KeyB');
 
   // Build Descriptor A (Plaintext: 160 bytes)
+  // ZERO plaintext magic bytes (no 'VCRY' or any identifiable ASCII tag) — authenticated by 256-bit HMAC tag
   const descA = new Uint8Array(160);
   const viewA = new DataView(descA.buffer, descA.byteOffset, descA.byteLength);
-  descA.set(VERA_MAGIC, 0); // 'VCRY'
+  descA.set(generateSecureRandomBytes(4), 0); // Random 4-byte nonce
   viewA.setBigUint64(4, BigInt(offsetA), true);
   viewA.setBigUint64(12, BigInt(lenA), true);
   viewA.setBigUint64(20, BigInt(vaultASize), true);
@@ -164,7 +179,7 @@ export async function createNestedVeraContainer(
   // Build Descriptor B (Plaintext: 160 bytes)
   const descB = new Uint8Array(160);
   const viewB = new DataView(descB.buffer, descB.byteOffset, descB.byteLength);
-  descB.set(VERA_MAGIC, 0); // 'VCRY'
+  descB.set(generateSecureRandomBytes(4), 0); // Random 4-byte nonce
   viewB.setBigUint64(4, BigInt(offsetB), true);
   viewB.setBigUint64(12, BigInt(lenB), true);
   viewB.setBigUint64(20, BigInt(vaultBSize), true);
@@ -305,15 +320,22 @@ export async function extractNestedVeraContainer(
   // Try authenticating Header A (Hidden Volume)
   onProgress?.('Attempting authentication against Hidden Volume (Vault A)...', 15.00);
   await yieldToMainThread();
-  const headerKeyA = await deriveLayerKey(passwords.layer1_kyber + passwords.layer4_aes, saltA, iterations, 'VeraCrypt-Header-KeyA');
-  const decDescA = chacha20Process(headerKeyA, ivA, 0, encDescA);
-  const computedTagA = await computeHmacSha256(headerKeyA, decDescA);
+  let headerKeyA = await deriveLayerKey(passwords.layer1_kyber + passwords.layer4_aes, saltA, iterations, 'AntiForensic-Ghost-KeyA');
+  let decDescA = chacha20Process(headerKeyA, ivA, 0, encDescA);
+  let computedTagA = await computeHmacSha256(headerKeyA, decDescA);
 
-  const isVaultAMatch = constantTimeCompare(computedTagA, tagA) &&
-    decDescA[0] === VERA_MAGIC[0] &&
-    decDescA[1] === VERA_MAGIC[1] &&
-    decDescA[2] === VERA_MAGIC[2] &&
-    decDescA[3] === VERA_MAGIC[3];
+  let isVaultAMatch = constantTimeCompare(computedTagA, tagA);
+  if (!isVaultAMatch) {
+    // Backward-compatibility check for legacy test containers
+    const legacyKeyA = await deriveLayerKey(passwords.layer1_kyber + passwords.layer4_aes, saltA, iterations, 'VeraCrypt-Header-KeyA');
+    const legacyDecA = chacha20Process(legacyKeyA, ivA, 0, encDescA);
+    const legacyTagA = await computeHmacSha256(legacyKeyA, legacyDecA);
+    if (constantTimeCompare(legacyTagA, tagA)) {
+      isVaultAMatch = true;
+      decDescA = legacyDecA;
+      headerKeyA = legacyKeyA;
+    }
+  }
 
   let matchedVault: 'VaultA' | 'VaultB';
   let targetOffset: number;
@@ -334,15 +356,22 @@ export async function extractNestedVeraContainer(
     // Try authenticating Header B (Outer Decoy Volume)
     onProgress?.('Attempting authentication against Outer Volume (Vault B - Decoy)...', 25.00);
     await yieldToMainThread();
-    const headerKeyB = await deriveLayerKey(passwords.layer1_kyber + passwords.layer4_aes, saltB, iterations, 'VeraCrypt-Header-KeyB');
-    const decDescB = chacha20Process(headerKeyB, ivB, 0, encDescB);
-    const computedTagB = await computeHmacSha256(headerKeyB, decDescB);
+    let headerKeyB = await deriveLayerKey(passwords.layer1_kyber + passwords.layer4_aes, saltB, iterations, 'AntiForensic-Ghost-KeyB');
+    let decDescB = chacha20Process(headerKeyB, ivB, 0, encDescB);
+    let computedTagB = await computeHmacSha256(headerKeyB, decDescB);
 
-    const isVaultBMatch = constantTimeCompare(computedTagB, tagB) &&
-      decDescB[0] === VERA_MAGIC[0] &&
-      decDescB[1] === VERA_MAGIC[1] &&
-      decDescB[2] === VERA_MAGIC[2] &&
-      decDescB[3] === VERA_MAGIC[3];
+    let isVaultBMatch = constantTimeCompare(computedTagB, tagB);
+    if (!isVaultBMatch) {
+      // Backward-compatibility check for legacy test containers
+      const legacyKeyB = await deriveLayerKey(passwords.layer1_kyber + passwords.layer4_aes, saltB, iterations, 'VeraCrypt-Header-KeyB');
+      const legacyDecB = chacha20Process(legacyKeyB, ivB, 0, encDescB);
+      const legacyTagB = await computeHmacSha256(legacyKeyB, legacyDecB);
+      if (constantTimeCompare(legacyTagB, tagB)) {
+        isVaultBMatch = true;
+        decDescB = legacyDecB;
+        headerKeyB = legacyKeyB;
+      }
+    }
 
     if (!isVaultBMatch) {
       // Single neutral authentication failure — reveals ZERO information about either vault
@@ -438,3 +467,8 @@ export function isLikelyNestedVeraContainer(headerBytes: Uint8Array): boolean {
   }
   return true;
 }
+
+// True Anti-Forensic Aliases (Complete Garbage / Zero-Trace Volume)
+export const createRawAntiForensicContainer = createNestedVeraContainer;
+export const extractRawAntiForensicContainer = extractNestedVeraContainer;
+export const isLikelyAntiForensicContainer = isLikelyNestedVeraContainer;

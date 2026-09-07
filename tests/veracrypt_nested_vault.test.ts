@@ -177,6 +177,24 @@ async function runVeraCryptNestedSuite() {
   const isFakeVera = isLikelyNestedVeraContainer(fakeMp4Header);
   assert('VC-16: MP4 Carrier Identified as Non-Vera', isFakeVera === false, `isLikelyNestedVeraContainer(mp4) = ${isFakeVera}`);
 
+  console.log('\n--- 8. Testing True Anti-Forensics: Non-Sector Alignment & Zero Magic Signatures ---');
+  const nonSectorAligned = (creationResult.totalSize % 512 !== 0) && (creationResult.totalSize % 4096 !== 0);
+  assert('VC-17: Non-Sector-Aligned Jitter Enforced (Breaks Automated Carvers)', nonSectorAligned, `Total size: ${creationResult.totalSize} B (size % 512 = ${creationResult.totalSize % 512}, size % 4096 = ${creationResult.totalSize % 4096})`);
+
+  let foundVcryMagic = false;
+  for (let i = 0; i < creationResult.containerBytes.length - 4; i++) {
+    if (
+      creationResult.containerBytes[i] === 0x56 &&
+      creationResult.containerBytes[i + 1] === 0x43 &&
+      creationResult.containerBytes[i + 2] === 0x52 &&
+      creationResult.containerBytes[i + 3] === 0x59
+    ) {
+      foundVcryMagic = true;
+      break;
+    }
+  }
+  assert('VC-18: Zero Plaintext Magic Headers (No VCRY String Anywhere in Stream)', !foundVcryMagic, 'Container stream is 100% cryptographic noise scrap without volume magic');
+
   console.log('\n====================================================================');
   console.log(`  VERACRYPT NESTED CONTAINER TEST RESULTS: ${passed} PASSED / ${failed} FAILED `);
   console.log('====================================================================\n');
