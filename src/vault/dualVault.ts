@@ -266,7 +266,8 @@ export async function createDualVaultPackage(
   vaultBNotes?: VaultAssessmentNotes,
   k6SaltA?: Uint8Array,
   k6SaltB?: Uint8Array,
-  targetCoverLength?: number
+  targetCoverLength?: number,
+  onChunkReady?: (chunk: Uint8Array, stageDesc: string) => Promise<void>
 ): Promise<DualVaultCreationResult> {
   const vaultAName = 'name' in vaultAFile ? vaultAFile.name : 'vault_a.bin';
   const vaultBName = 'name' in vaultBFile ? vaultBFile.name : 'vault_b.bin';
@@ -563,6 +564,16 @@ export async function createDualVaultPackage(
     }
 
     const metrics = await analyzeStatisticalCompliance(carrierBuffer, protectedSample, normalizedA);
+
+    if (onChunkReady) {
+      onProgress?.('Streaming ISOBMFF carrier directly to disk in real-time...', 96.50);
+      for (let i = 0; i < boxChunks.length; i++) {
+        const chunk = boxChunks[i];
+        const pct = Number((96.50 + ((i + 1) / boxChunks.length) * 3.40).toFixed(2));
+        onProgress?.(`Piping container chunk ${i + 1}/${boxChunks.length} to disk...`, pct);
+        await onChunkReady(chunk, `Piped box chunk ${i + 1}/${boxChunks.length} directly to disk`);
+      }
+    }
 
     onProgress?.('Protected MP4 Dual-Vault Container Ready (Strict 1 MB streaming verified)', 100.00);
     globalStreamEventBus.emit('AUDIT', 'Container Finalized', `Complete dual-vault package finalized. SHA-512: ${sha512Digest.slice(0, 16)}...`, {

@@ -28,9 +28,10 @@ import { LiveStreamTerminal } from './LiveStreamTerminal';
 import { globalStreamEventBus } from '../utils/streamEvents';
 import { Key6BadgeCard } from './Key6BadgeCard';
 import { AssessmentNotesPreviewModal } from './AssessmentNotesPreviewModal';
-import { StreamingFileHandle, loadStreamingFileHandleAsync, streamChunksDirectToDisk, sanitizeFilename, zeroizeStreamingHandle, isFilePermissionOrLockError } from '../utils/fileReader';
+import { StreamingFileHandle, loadStreamingFileHandleAsync, streamChunksDirectToDisk, sanitizeFilename, zeroizeStreamingHandle, isFilePermissionOrLockError, readChunkFromHandle } from '../utils/fileReader';
 import { yieldToMainThread, sanitizePasswordString } from '../crypto/cascadeEngine';
 import { sanitizeKey6String } from '../crypto/key6Engine';
+import { extractNestedVeraContainer, isLikelyNestedVeraContainer } from '../vault/nestedContainer';
 
 interface ExtractWorkflowProps {
   onAddAuditLog: (eventType: 'DECRYPTION' | 'INTEGRITY_CHECK', details: string, digest: string) => void;
@@ -89,6 +90,7 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
   const [pbkdf2Iterations] = useState<number>(1000000);
   const [showPasswords, setShowPasswords] = useState<boolean>(false);
   const [activeKeypadLayer, setActiveKeypadLayer] = useState<keyof CascadePasswords | null>(null);
+  const [detectedContainerFormat, setDetectedContainerFormat] = useState<'veracrypt' | 'isobmff_mp4' | null>(null);
 
   // Live Pre-Decrypt Verification of Key 6 and Assessment Notes with non-blocking debounce
   useEffect(() => {
@@ -217,6 +219,7 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
     setKey6MatchedVault(null);
     if (!file) {
       setProtectedFile(null);
+      setDetectedContainerFormat(null);
       return;
     }
     try {
@@ -226,6 +229,16 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
       const handle = await loadStreamingFileHandleAsync(file);
       await yieldToMainThread();
       setProtectedFile(handle);
+      try {
+        const sample = await readChunkFromHandle(handle, 0, 16);
+        if (isLikelyNestedVeraContainer(sample)) {
+          setDetectedContainerFormat('veracrypt');
+        } else {
+          setDetectedContainerFormat('isobmff_mp4');
+        }
+      } catch {
+        setDetectedContainerFormat('isobmff_mp4');
+      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Error reading selected file';
       if (isFilePermissionOrLockError(err)) {
@@ -236,6 +249,7 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
       }
       setErrorMsg(`Container File Selection: ${msg}. Please re-select or drag & drop.`);
       setProtectedFile(null);
+      setDetectedContainerFormat(null);
     }
   };
 
@@ -257,7 +271,7 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
   const handleStartExtraction = async () => {
     if (isExtracting || isExtractingRef.current) return;
     if (!protectedFile) {
-      setErrorMsg('Please upload a protected MP4 container first.');
+      setErrorMsg('Please upload a protected container (.vc or .mp4) first.');
       return;
     }
 
@@ -313,19 +327,58 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
       setIsExtracting(true);
       setErrorMsg(null);
       setTotalOperationDurationMs(null);
-      setProgressText('Demuxing 8 spread-spectrum locations...');
-      setProgressPct(2.00);
 
-      const res = await extractFromDualVaultPackage(
-        protectedFile,
-        effectivePasswords,
-        pbkdf2Iterations,
-        (desc, pct) => {
-          if (!isMountedRef.current) return;
-          setProgressText(desc);
-          setProgressPct(pct);
-        }
-      );
+      // Check whether this is a VeraCrypt single nested container or an ISOBMFF MP4 carrier
+      const sampleBytes = await readChunkFromHandle(protectedFile, 0, 16);
+      const isVera = isLikelyNestedVeraContainer(sampleBytes);
+
+      let res: DualVaultExtractionResult;
+      let streamedOnTheFly = false;
+
+      if (isVera) {
+        setProgressText('Authenticating VeraCrypt 4 KB Encrypted Header...');
+        setProgressPct(5.00);
+
+        const veraRes = await extractNestedVeraContainer(
+          protectedFile,
+          effectivePasswords,
+          pbkdf2Iterations,
+          (desc, pct) => {
+            if (!isMountedRef.current) return;
+            setProgressText(desc);
+            setProgressPct(pct);
+          },
+          upfrontWritable ? async (chunk, _status) => {
+            await upfrontWritable.write(chunk);
+            streamedOnTheFly = true;
+          } : undefined
+        );
+
+        res = {
+          fileBlob: new Blob(veraRes.chunkedPayload || [veraRes.data], { type: 'application/octet-stream' }),
+          chunkedData: veraRes.chunkedPayload || [veraRes.data],
+          filename: veraRes.originalFilename,
+          filesize: veraRes.originalSize,
+          vaultRevealed: veraRes.matchedVault === 'VaultA' ? 'Vault A (Hidden Secret Vault)' : 'Vault B (Decoy Plausible Deniability Vault)',
+          sha512Digest: veraRes.sha512Digest,
+          assessmentNotes: veraRes.assessmentNotes,
+          matchedVault: veraRes.matchedVault
+        };
+      } else {
+        setProgressText('Demuxing 8 spread-spectrum locations...');
+        setProgressPct(2.00);
+
+        res = await extractFromDualVaultPackage(
+          protectedFile,
+          effectivePasswords,
+          pbkdf2Iterations,
+          (desc, pct) => {
+            if (!isMountedRef.current) return;
+            setProgressText(desc);
+            setProgressPct(pct);
+          }
+        );
+      }
 
       const totalDuration = performance.now() - overallOpStartTime;
       if (!isMountedRef.current) {
@@ -341,29 +394,42 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
       // Stream directly to pre-selected disk location or auto-download via streaming chunks
       const chunks = res.chunkedData || [];
       const targetFilename = upfrontTargetName || sanitizeFilename(res.filename) || defaultFilename;
-      try {
-        setProgressText(upfrontWritable ? 'Streaming decrypted payload directly to disk...' : 'Finalizing automatic chunk download...');
-        const outcome = await streamChunksDirectToDisk(
-          targetFilename,
-          chunks,
-          (_b, status) => {
-            if (isMountedRef.current) setDiskSaveStatus(status);
-          },
-          upfrontWritable
-        );
+
+      if (streamedOnTheFly && upfrontWritable) {
+        // Chunks were already piped on-the-fly directly to the disk stream!
+        setProgressText('Closing on-the-fly disk stream handle...');
+        await upfrontWritable.close();
+        upfrontWritable = null;
         if (isMountedRef.current) {
-          const finalName = outcome.targetName || targetFilename;
-          setSavedPath(finalName);
-          if (outcome.streamedDirectly) {
-            setDiskSaveStatus(`Decrypted file saved directly to disk: ${finalName} (0 MB RAM)`);
-          } else {
-            setDiskSaveStatus(`Decrypted file automatically downloaded: ${finalName}`);
-          }
+          setSavedPath(targetFilename);
+          setDiskSaveStatus(`Decrypted file saved directly to disk on-the-fly: ${targetFilename} (0 MB RAM overhead)`);
         }
-      } catch (saveErr: any) {
-        console.warn('Auto-save encountered an error:', saveErr);
-        if (isMountedRef.current) {
-          setDiskSaveStatus(`Save notice: ${saveErr.message || 'Please use button below to save.'}`);
+      } else {
+        try {
+          setProgressText(upfrontWritable ? 'Streaming decrypted payload directly to disk...' : 'Finalizing automatic chunk download...');
+          const outcome = await streamChunksDirectToDisk(
+            targetFilename,
+            chunks,
+            (_b, status) => {
+              if (isMountedRef.current) setDiskSaveStatus(status);
+            },
+            upfrontWritable
+          );
+          upfrontWritable = null;
+          if (isMountedRef.current) {
+            const finalName = outcome.targetName || targetFilename;
+            setSavedPath(finalName);
+            if (outcome.streamedDirectly) {
+              setDiskSaveStatus(`Decrypted file saved directly to disk: ${finalName} (0 MB RAM)`);
+            } else {
+              setDiskSaveStatus(`Decrypted file automatically downloaded: ${finalName}`);
+            }
+          }
+        } catch (saveErr: any) {
+          console.warn('Auto-save encountered an error:', saveErr);
+          if (isMountedRef.current) {
+            setDiskSaveStatus(`Save notice: ${saveErr.message || 'Please use button below to save.'}`);
+          }
         }
       }
 
@@ -381,12 +447,16 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
       const msg = err instanceof Error ? err.message : 'Extraction failed';
       if (isFilePermissionOrLockError(err)) {
         setFilePermissionError({
-          targetName: protectedFile?.name || 'Protected MP4 Container',
+          targetName: protectedFile?.name || 'Protected Container',
           message: msg
         });
       }
       setErrorMsg(msg);
     } finally {
+      if (upfrontWritable) {
+        try { await upfrontWritable.close(); } catch {}
+        upfrontWritable = null;
+      }
       isExtractingRef.current = false;
       if (isMountedRef.current) {
         setIsExtracting(false);
@@ -501,9 +571,11 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-bold font-mono text-slate-200 uppercase flex items-center gap-2">
             <UploadCloud className="w-4 h-4 text-emerald-400" />
-            <span>Select Protected MP4 Container</span>
+            <span>Select Protected Container</span>
           </h3>
-          <span className="text-[10px] font-mono text-slate-400 bg-slate-800 px-2 py-0.5 rounded">ISOBMFF .mp4</span>
+          <span className="text-[10px] font-mono text-slate-400 bg-slate-800 px-2 py-0.5 rounded">
+            {detectedContainerFormat === 'veracrypt' ? 'VeraCrypt .vc' : detectedContainerFormat === 'isobmff_mp4' ? 'ISOBMFF .mp4' : 'VeraCrypt .vc / ISOBMFF .mp4'}
+          </span>
         </div>
 
         <div
@@ -520,7 +592,7 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
           <input
             ref={protectedInputRef}
             type="file"
-            accept="video/mp4"
+            accept="video/mp4,.mp4,.vc,.bin,*"
             onChange={(e) => handleProtectedFileSelection(e.target.files?.[0] || null)}
             className="w-full text-xs text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-emerald-950 file:text-emerald-400 hover:file:bg-emerald-900 cursor-pointer"
           />
@@ -536,11 +608,24 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
           <div className="mt-4 p-3.5 bg-slate-950/80 border border-slate-800 rounded-lg space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-xs font-mono font-bold text-slate-200 flex items-center gap-1.5">
-                <Film className="w-3.5 h-3.5 text-emerald-400" />
-                <span>ISOBMFF Container Inspection</span>
+                {detectedContainerFormat === 'veracrypt' ? (
+                  <>
+                    <HardDrive className="w-3.5 h-3.5 text-indigo-400" />
+                    <span>VeraCrypt-Style Nested Container Detected</span>
+                  </>
+                ) : (
+                  <>
+                    <Film className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>ISOBMFF Container Inspection</span>
+                  </>
+                )}
               </span>
-              <span className="text-[10px] font-mono font-bold text-sky-400 bg-sky-950/80 border border-sky-500/40 px-2 py-0.5 rounded">
-                Structure Valid
+              <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded ${
+                detectedContainerFormat === 'veracrypt'
+                  ? 'text-indigo-400 bg-indigo-950/80 border border-indigo-500/40'
+                  : 'text-sky-400 bg-sky-950/80 border border-sky-500/40'
+              }`}>
+                {detectedContainerFormat === 'veracrypt' ? 'VeraCrypt Architecture' : 'Structure Valid'}
               </span>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] font-mono text-slate-400 pt-1">
@@ -552,14 +637,29 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
                 <span className="text-slate-500">Container Size:</span>
                 <span className="text-slate-300">{(protectedFile.size / 1024).toFixed(1)} KB</span>
               </div>
-              <div className="flex items-center gap-1.5">
-                <span className="text-slate-500">Stego Dispersions:</span>
-                <span className="text-emerald-400 font-semibold">8 Simultaneous Locations</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <span className="text-slate-500">Device Playback:</span>
-                <span className="text-emerald-400 font-semibold">✓ Smooth in Device Player</span>
-              </div>
+              {detectedContainerFormat === 'veracrypt' ? (
+                <>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-slate-500">Volume Layout:</span>
+                    <span className="text-indigo-400 font-semibold">Outer (Decoy B) + Hidden (Secret A)</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-slate-500">Anti-Forensics:</span>
+                    <span className="text-indigo-400 font-semibold">100% CSPRNG Noise (~1% Overhead)</span>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-slate-500">Stego Dispersions:</span>
+                    <span className="text-emerald-400 font-semibold">8 Simultaneous Locations</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-slate-500">Device Playback:</span>
+                    <span className="text-emerald-400 font-semibold">✓ Smooth in Device Player</span>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         )}
@@ -692,7 +792,7 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
                     </span>
                   ) : (
                     <span className="text-[10px] font-mono text-slate-500 bg-slate-900 px-2 py-0.5 rounded border border-slate-800">
-                      {protectedFile ? 'Awaiting matching password keys...' : 'Awaiting MP4 Container upload...'}
+                      {protectedFile ? 'Awaiting matching password keys...' : 'Awaiting Container upload...'}
                     </span>
                   )}
                 </div>
