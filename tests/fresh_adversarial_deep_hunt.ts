@@ -16,8 +16,6 @@ import {
 import {
   encodeRSStream,
   decodeRSStream,
-  rsDecodeBlock,
-  rsEncodeBlock,
   RS_DEFAULT_BLOCK_SIZE,
   RS_DEFAULT_PARITY_LEN
 } from '../src/crypto/reedSolomon';
@@ -36,7 +34,6 @@ import {
   inspectContainerKey6Identity,
   inspectContainerAssessmentNotes
 } from '../src/vault/dualVault';
-import { serpent256Ctr, serpentKeySchedule } from '../src/crypto/serpent';
 import { generateSecureRandomBytes } from '../src/crypto/safeRandom';
 import { CascadePasswords, VaultAssessmentNotes } from '../src/types';
 
@@ -153,7 +150,6 @@ async function runAdversarialHunt() {
       const totalBlocks = stats.totalBlocks;
       const kBlock = RS_DEFAULT_BLOCK_SIZE; // 223
       const nsym = RS_DEFAULT_PARITY_LEN; // 32
-      const blockSize = kBlock + nsym; // 255
 
       // Corrupt first byte of each data block
       let inOffset = 16;

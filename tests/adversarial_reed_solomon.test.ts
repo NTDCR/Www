@@ -17,7 +17,6 @@ import {
   gfMul,
   gfDiv,
   gfInv,
-  rsGeneratorPoly,
   rsEncodeBlock,
   rsDecodeBlock,
   encodeRSStream,
@@ -25,8 +24,7 @@ import {
   encodeRSStreamAsync,
   decodeRSStreamAsync,
   RS_DEFAULT_PARITY_LEN,
-  RS_DEFAULT_BLOCK_SIZE,
-  RS_DEFAULT_TOTAL_SIZE
+  RS_DEFAULT_BLOCK_SIZE
 } from '../src/crypto/reedSolomon';
 import { constantTimeCompare } from '../src/crypto/cascadeEngine';
 import { generateSecureRandomBytes } from '../src/crypto/safeRandom';

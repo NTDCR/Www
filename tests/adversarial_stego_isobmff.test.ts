@@ -17,9 +17,7 @@ import {
   parseIsobmffBoxes,
   buildBox,
   embedSpreadSpectrum8Locations,
-  extractSpreadSpectrumPayload,
-  SONY_UUID,
-  CANON_UUID
+  extractSpreadSpectrumPayload
 } from '../src/media/isobmff';
 import { generatePlayableH264Mp4 } from '../src/media/mp4Generator';
 import {

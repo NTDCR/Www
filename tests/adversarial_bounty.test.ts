@@ -1,6 +1,6 @@
 import { createDualVaultPackage, extractFromDualVaultPackage, zeroizeBundle, inspectContainerKey6Identity, inspectContainerAssessmentNotes, getOrExtractContainerBundles } from '../src/vault/dualVault';
-import { encodeRSStream, decodeRSStream, rsDecodeBlock, gfInv, gfDiv, RS64_MAGIC, RS_MAGIC } from '../src/crypto/reedSolomon';
-import { deserializeBundle, serializeBundle, decryptCascade5Layers, deriveLayerKey, sanitizePasswordString, zeroizeBuffer, encryptChunk5Layers, decryptChunk5Layers, fastPbkdf2HmacSha512, MIN_ENFORCED_PBKDF2_ITERATIONS } from '../src/crypto/cascadeEngine';
+import { encodeRSStream, decodeRSStream, rsDecodeBlock, gfInv, gfDiv, RS64_MAGIC } from '../src/crypto/reedSolomon';
+import { deserializeBundle, serializeBundle, deriveLayerKey, sanitizePasswordString, zeroizeBuffer, encryptChunk5Layers, decryptChunk5Layers, fastPbkdf2HmacSha512, MIN_ENFORCED_PBKDF2_ITERATIONS } from '../src/crypto/cascadeEngine';
 import { generateSecureRandomBytes, secureRandomInt, secureRandomUUID, generateCSPRNGKeystream } from '../src/crypto/safeRandom';
 import { unmaskAndVerifyKey6FromRSBlock, deriveAndMask1024BitId, sanitizeKey6String } from '../src/crypto/key6Engine';
 import { encryptAssessmentNotesBlock, decryptAssessmentNotesBlock, parseAssessmentNotesJson, sanitizeAssessmentNotesInput } from '../src/crypto/notesEngine';
@@ -1258,11 +1258,10 @@ async function runBountySuite() {
   const gfDivZeroNum = gfDiv(0, 42);
   let gfInversionValid = gfInvZero === 0 && gfDivZeroDenom === 0 && gfDivZeroNum === 0;
 
-  // Verify non-zero inversion satisfies gfMul(x, gfInv(x)) === 1
+  // Verify non-zero inversion satisfies inv !== 0 and double inversion gfInv(gfInv(x)) === x
   for (let x = 1; x < 256; x++) {
     const inv = gfInv(x);
-    const prod = (x === 0 || inv === 0) ? 0 : gfDiv(x, gfInv(inv)); // algebraic check
-    if (inv === 0) {
+    if (inv === 0 || gfInv(inv) !== x) {
       gfInversionValid = false;
       break;
     }

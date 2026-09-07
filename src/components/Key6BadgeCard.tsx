@@ -69,6 +69,12 @@ export const Key6BadgeCard: React.FC<Key6BadgeCardProps> = ({
               }`}>
                 1024-BIT CSPRNG
               </span>
+              {isVerified && (
+                <span className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded font-mono bg-emerald-950/80 border border-emerald-500/60 text-emerald-300">
+                  <ShieldCheck className="w-3 h-3 text-emerald-400" />
+                  AUTHENTICATED
+                </span>
+              )}
             </h4>
           </div>
         </div>

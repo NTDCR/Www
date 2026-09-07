@@ -48,7 +48,6 @@ import {
 } from '../crypto/reedSolomon';
 
 export const VERA_HEADER_SIZE = 4096; // Exactly 4 KB (1 system memory page)
-export const VERA_MAGIC = new Uint8Array([0x56, 0x43, 0x52, 0x59]); // 'VCRY' (only visible after authenticated decryption)
 
 export interface NestedVeraCreationResult {
   containerBlob: Blob;
@@ -377,7 +376,6 @@ export async function extractNestedVeraContainer(
   let matchedVault: 'VaultA' | 'VaultB';
   let targetOffset: number;
   let targetLength: number;
-  let originalSize: number;
   let targetFilename: string;
 
   if (isVaultAMatch) {
@@ -385,7 +383,6 @@ export async function extractNestedVeraContainer(
     const view = new DataView(decDescA.buffer, decDescA.byteOffset, decDescA.byteLength);
     targetOffset = Number(view.getBigUint64(4, true));
     targetLength = Number(view.getBigUint64(12, true));
-    originalSize = Number(view.getBigUint64(20, true));
     const nameLen = view.getUint32(28, true);
     targetFilename = new TextDecoder().decode(decDescA.subarray(32, 32 + Math.min(nameLen, 60)));
     onProgress?.('Authenticated: Hidden Volume (Vault A - Secret) identified!', 30.00);
@@ -419,7 +416,6 @@ export async function extractNestedVeraContainer(
     const view = new DataView(decDescB.buffer, decDescB.byteOffset, decDescB.byteLength);
     targetOffset = Number(view.getBigUint64(4, true));
     targetLength = Number(view.getBigUint64(12, true));
-    originalSize = Number(view.getBigUint64(20, true));
     const nameLen = view.getUint32(28, true);
     targetFilename = new TextDecoder().decode(decDescB.subarray(32, 32 + Math.min(nameLen, 60)));
     onProgress?.('Authenticated: Outer Volume (Vault B - Decoy) identified!', 30.00);
@@ -541,7 +537,3 @@ export function isLikelyNestedVeraContainer(headerBytes: Uint8Array): boolean {
   return true;
 }
 
-// True Anti-Forensic Aliases (Complete Garbage / Zero-Trace Volume)
-export const createRawAntiForensicContainer = createNestedVeraContainer;
-export const extractRawAntiForensicContainer = extractNestedVeraContainer;
-export const isLikelyAntiForensicContainer = isLikelyNestedVeraContainer;

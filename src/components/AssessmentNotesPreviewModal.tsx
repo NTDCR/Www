@@ -57,7 +57,9 @@ export const AssessmentNotesPreviewModal: React.FC<AssessmentNotesPreviewModalPr
 
   if (!isOpen || !notes) return null;
 
-  const vaultTitle = 'Security Assessment Record';
+  const vaultTitle = vaultMatched
+    ? `Security Assessment Record (${vaultMatched === 'VaultA' ? 'Hidden Secret Vault A' : 'Decoy Vault B'})`
+    : 'Security Assessment Record';
 
   const handleCopyField = async (id: string, text: string) => {
     await secureCopyToClipboard(text, 45);

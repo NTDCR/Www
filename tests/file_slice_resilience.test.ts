@@ -1,9 +1,7 @@
 import {
-  readSliceWithFallback,
   readChunkFromHandle,
   streamFileIn1MbChunks,
-  loadStreamingFileHandleAsync,
-  createStreamingFileHandle
+  loadStreamingFileHandleAsync
 } from '../src/utils/fileReader';
 import { generateSecureRandomBytes } from '../src/crypto/safeRandom';
 

@@ -7,13 +7,9 @@ import {
   zeroizeBuffer
 } from '../src/crypto/cascadeEngine';
 import { kyber1024KeyGen, kyber1024Encapsulate, kyber1024Decapsulate } from '../src/crypto/kyber1024';
-import { serpent256Ctr } from '../src/crypto/serpent';
-import { xchacha20Poly1305Encrypt, xchacha20Poly1305Decrypt } from '../src/crypto/xchacha20poly1305';
 import { encodeRSStream, decodeRSStream } from '../src/crypto/reedSolomon';
 import { calculateShannonEntropy, calculateChiSquareTest, normalizeEntropyToTarget, denormalizeEntropy, calculateHistogram, getNaturalMp4Distribution } from '../src/crypto/entropy';
-import { createDualVaultPackage, extractFromDualVaultPackage } from '../src/vault/dualVault';
-import { createStreamingFileHandle } from '../src/utils/fileReader';
-import { CascadePasswords, createEmptyAssessmentNotes } from '../src/types';
+import { CascadePasswords } from '../src/types';
 import { generateSecureRandomBytes } from '../src/crypto/safeRandom';
 
 async function runFullForensicSecurityAudit() {

@@ -13,7 +13,6 @@
 import {
   encryptCascade5Layers,
   decryptCascade5Layers,
-  decryptChunk5Layers,
   serializeBundle,
   deserializeBundle,
   constantTimeCompare,
@@ -360,7 +359,7 @@ export async function runChunksIntegrityAdversarialSuite() {
     let abortedWithError = false;
     const t0 = performance.now();
     try {
-      for await (const chunk of streamFileIn1MbChunks(deadSource as any)) {
+      for await (const _chunk of streamFileIn1MbChunks(deadSource as any)) {
         // Should never produce chunks
       }
     } catch (err: any) {

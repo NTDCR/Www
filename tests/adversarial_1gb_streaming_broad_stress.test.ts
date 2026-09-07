@@ -16,14 +16,9 @@
 import {
   STRICT_CHUNK_SIZE,
   StreamingFileHandle,
-  createStreamingFileHandle,
   streamFileIn1MbChunks
 } from '../src/utils/fileReader';
 import {
-  encryptChunk5Layers,
-  decryptChunk5Layers,
-  deriveLayerKey,
-  deriveMasterAuthKey,
   computeHmacSha256,
   constantTimeCompare,
   zeroizeBuffer
@@ -122,7 +117,6 @@ export async function run1GbBroadStressSuite() {
     const handle1Gb = createVirtual1GbFileHandle();
     let chunkCount = 0;
     let expectedOffset = 0;
-    let lastChunkObserved = false;
 
     // Stream first 50 chunks of the 1 GB file to verify monotonic progression
     for await (const chunkInfo of streamFileIn1MbChunks(handle1Gb)) {
@@ -159,13 +153,14 @@ export async function run1GbBroadStressSuite() {
       // Simulate in-flight encryption
       const encrypted = new Uint8Array(chunk.length);
       for (let i = 0; i < Math.min(1024, chunk.length); i++) {
-        encrypted[i] = chunk[i] ^ key[i % 32];
+        encrypted[i] = chunk[i] ^ key[i % 32] ^ iv[i % 12];
       }
       zeroizeBuffer(encrypted);
       processedMb++;
       if (processedMb >= 30) break;
       await yieldToMainThread();
     }
+    zeroizeBuffer(key, iv);
 
     if (typeof global.gc === 'function') global.gc();
     const endHeap = process.memoryUsage().heapUsed;
@@ -195,6 +190,7 @@ export async function run1GbBroadStressSuite() {
     for await (const { chunk } of streamFileIn1MbChunks(handle)) {
       // Heavy crypto operation on chunk
       const digest = sha256(chunk.subarray(0, 65536));
+      if (!digest || digest.length !== 32) throw new Error('Digest computation error');
       count++;
       if (count >= 20) break; // 20 MB
       await yieldToMainThread();

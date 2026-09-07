@@ -39,21 +39,6 @@ export function sanitizeKey6String(raw: string | undefined | null): string {
   return raw.normalize('NFC').replace(/[\u200B-\u200F\u2060-\u2064\uFEFF]/g, '').trim();
 }
 
-export interface Key6IdentityState {
-  key6: string;
-  uniqueId1024Hex: string;
-  salt64: Uint8Array;
-  verified: boolean;
-  isGenerating: boolean;
-}
-
-export interface Key6ContainerBlock {
-  salt64: Uint8Array;              // 64 bytes
-  encryptedId128: Uint8Array;      // 128 bytes (XOR-masked 1024-bit ID)
-  commitmentTag32: Uint8Array;     // 32 bytes (HMAC-SHA256 commitment)
-  rsEncodedData: Uint8Array;       // Reed-Solomon protected stream
-}
-
 /**
  * Generates a fresh 64-byte CSPRNG salt for a new container/file protection session
  */
@@ -253,18 +238,6 @@ export async function unmaskAndVerifyKey6FromRSBlock(
   } finally {
     zeroizeBuffer(keyBytes, stretched, xorMask128, tagKey, recoveredRawId128, repairedBlock);
   }
-}
-
-/**
- * Formats a 256-hex character (1024-bit) string into human-readable 8-character chunks
- */
-export function format1024BitIdFormatted(hex: string): string {
-  if (!hex || hex.length !== 256) return hex;
-  const blocks: string[] = [];
-  for (let i = 0; i < 256; i += 8) {
-    blocks.push(hex.substring(i, i + 8));
-  }
-  return blocks.join(' ');
 }
 
 /**

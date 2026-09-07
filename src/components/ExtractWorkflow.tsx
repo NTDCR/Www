@@ -3,7 +3,6 @@ import {
   Unlock,
   UploadCloud,
   Key,
-  Download,
   AlertCircle,
   Eye,
   EyeOff,
@@ -499,10 +498,6 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
       if (isMountedRef.current) setIsSavingDisk(false);
     }
   };
-
-  // Aliases for backward compatibility
-  const handleSaveDirectToDisk = handleSaveExtractedPayload;
-  const handleDownloadExtractedFile = handleSaveExtractedPayload;
 
   const handleZeroizeExtractionSession = () => {
     clearContainerInspectionCache();

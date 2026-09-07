@@ -30,26 +30,3 @@ export async function yieldToMainThread(): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, 0));
 }
 
-/**
- * Yields every N iterations or when a given time threshold has elapsed (e.g. 16ms = 1 frame)
- */
-export class CooperativeScheduler {
-  private lastYieldTime: number = performance.now();
-  private readonly maxFrameBudgetMs: number;
-
-  constructor(maxFrameBudgetMs: number = 12) {
-    this.maxFrameBudgetMs = maxFrameBudgetMs;
-  }
-
-  public async step(): Promise<void> {
-    const now = performance.now();
-    if (now - this.lastYieldTime >= this.maxFrameBudgetMs) {
-      await yieldToMainThread();
-      this.lastYieldTime = performance.now();
-    }
-  }
-
-  public reset(): void {
-    this.lastYieldTime = performance.now();
-  }
-}

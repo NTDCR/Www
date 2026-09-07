@@ -115,7 +115,6 @@ export async function getOrExtractContainerBundles(
   protectedMp4File: File | StreamingFileHandle | Uint8Array
 ): Promise<{ bundleA: EncryptedPayloadBundle | null; bundleB: EncryptedPayloadBundle | null }> {
   await yieldToMainThread();
-  const isAlreadyInMemory = (typeof protectedMp4File === 'object' && protectedMp4File !== null && 'bytes' in protectedMp4File && (protectedMp4File as any).bytes instanceof Uint8Array);
   const protectedBytes = protectedMp4File instanceof Uint8Array
     ? protectedMp4File
     : await readFileAsUint8Array(protectedMp4File);

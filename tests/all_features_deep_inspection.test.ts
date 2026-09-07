@@ -5,10 +5,7 @@ import {
   deserializeBundle,
   constantTimeCompare,
   computeFullPayloadSha256,
-  computeFullPayloadSha256Async,
-  fastPbkdf2HmacSha512,
-  deriveLayerKey,
-  zeroizeBuffer
+  computeFullPayloadSha256Async
 } from '../src/crypto/cascadeEngine';
 import { serpent256Ctr } from '../src/crypto/serpent';
 import { kyber1024KeyGen, kyber1024Encapsulate, kyber1024Decapsulate } from '../src/crypto/kyber1024';
@@ -16,7 +13,6 @@ import { xchacha20Poly1305Encrypt, xchacha20Poly1305Decrypt } from '../src/crypt
 import {
   gfMul,
   gfInv,
-  rsDecodeBlock,
   encodeRSStream,
   decodeRSStream
 } from '../src/crypto/reedSolomon';

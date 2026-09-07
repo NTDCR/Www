@@ -42,17 +42,6 @@ export function isAssessmentNotesComplete(notes?: VaultAssessmentNotes | null): 
   );
 }
 
-export interface DualVaultInputs {
-  carrierFile: File | null;
-  vaultAFile: File | null;
-  vaultBFile: File | null;
-  vaultAPasswords: CascadePasswords;
-  vaultBPasswords: CascadePasswords;
-  vaultANotes: VaultAssessmentNotes;
-  vaultBNotes: VaultAssessmentNotes;
-  pbkdf2Iterations: number;
-}
-
 export interface StatisticalMetrics {
   originalEntropy?: number;
   rawEntropy?: number;
@@ -77,15 +66,6 @@ export interface EmbeddingLocationReport {
   redundancyFactor: number;
   status: string;
   description: string;
-}
-
-export interface ProcessProgress {
-  stage: string;
-  percentage: number;
-  currentOperation: string;
-  vaultId: 'A' | 'B' | 'both';
-  workerId: number;
-  throughputMbPerSec: number;
 }
 
 export interface AuditLogEntry {

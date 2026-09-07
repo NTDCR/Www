@@ -7,8 +7,6 @@
 
 export const STRICT_CHUNK_SIZE = 1024 * 1024; // Strictly 1 MB (1,048,576 bytes)
 import { yieldToMainThread } from './asyncUtils';
-import { generatePlayableH264Mp4 } from '../media/mp4Generator';
-
 export interface StreamingFileHandle {
   name: string;
   size: number;
@@ -16,7 +14,6 @@ export interface StreamingFileHandle {
   source?: File | Blob;
   chunks?: Uint8Array[];
   bytes?: Uint8Array;
-  isSynthetic?: boolean;
 }
 
 export class FilePermissionError extends Error {
@@ -123,32 +120,6 @@ export function createStreamingFileHandle(
     source: file,
     bytes: preloadedBytes,
     chunks: preloadedChunks
-  };
-}
-
-/**
- * Creates a synthetic streaming MP4 handle for demo/test mode without pre-allocating full file
- */
-export function createSyntheticFileHandle(size: number = 2 * 1024 * 1024, name: string = 'synthetic_carrier.mp4'): StreamingFileHandle {
-  const baseMp4 = generatePlayableH264Mp4(5);
-  let syntheticBlob: Blob;
-  if (size > baseMp4.length + 8) {
-    const freeBoxSize = size - baseMp4.length;
-    const freeHeader = new Uint8Array(8);
-    new DataView(freeHeader.buffer).setUint32(0, freeBoxSize, false);
-    freeHeader.set([0x66, 0x72, 0x65, 0x65], 4); // 'free' box
-    const padding = new Uint8Array(freeBoxSize - 8);
-    syntheticBlob = new Blob([baseMp4, freeHeader, padding], { type: 'video/mp4' });
-  } else {
-    syntheticBlob = new Blob([baseMp4], { type: 'video/mp4' });
-  }
-
-  return {
-    name,
-    size: syntheticBlob.size,
-    type: 'video/mp4',
-    source: syntheticBlob,
-    isSynthetic: true
   };
 }
 
@@ -728,12 +699,6 @@ export async function loadStreamingFileHandleAsync(
     type,
     source: file
   };
-}
-
-export type LoadedFileData = StreamingFileHandle;
-
-export async function loadFileImmediately(file: File): Promise<StreamingFileHandle> {
-  return loadStreamingFileHandleAsync(file);
 }
 
 /**

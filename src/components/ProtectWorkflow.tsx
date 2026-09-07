@@ -3,8 +3,6 @@ import {
   ShieldCheck,
   UploadCloud,
   Play,
-  Download,
-  Video,
   Sparkles,
   Lock,
   Eye,
@@ -653,10 +651,6 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
       if (isMountedRef.current) setIsSavingDisk(false);
     }
   };
-
-  // Aliases for backward compatibility
-  const handleSaveDirectToDisk = handleSaveProtectedContainer;
-  const handleDownloadProtectedMp4 = handleSaveProtectedContainer;
 
   const handleZeroizeProtectionSession = () => {
     for (const u of activeBlobUrlsRef.current) {

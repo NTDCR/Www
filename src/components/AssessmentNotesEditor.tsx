@@ -66,8 +66,6 @@ export function generatePlausibleDecoyTemplate(): VaultAssessmentNotes {
   };
 }
 
-export const PLAUSIBLE_DECOY_TEMPLATE: VaultAssessmentNotes = generatePlausibleDecoyTemplate();
-
 interface AssessmentNotesEditorProps {
   vaultType: 'VaultA' | 'VaultB';
   vaultTitle: string;

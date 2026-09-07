@@ -152,6 +152,9 @@ export const LiveProgressTimer: React.FC<LiveProgressTimerProps> = ({
         <div className="flex items-center gap-2">
           <RefreshCw className="w-4 h-4 text-emerald-400 animate-spin" />
           <span className="font-bold text-slate-100 uppercase tracking-wider">{title}</span>
+          <span className="text-[10px] px-2 py-0.5 rounded bg-slate-900 border border-slate-700 text-slate-300 font-semibold uppercase">
+            {mode === 'encryption' ? '5-Layer Cascade Encrypt' : '5-Layer Cascade Decrypt'}
+          </span>
         </div>
         <div className="flex flex-wrap items-center gap-2.5">
           <div className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-950/90 border border-emerald-500/50 rounded-md text-emerald-300 font-bold text-xs shadow-md">

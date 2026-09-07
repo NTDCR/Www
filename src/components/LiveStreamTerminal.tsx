@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Terminal, Copy, Check, Trash2, ArrowDownCircle, Shield, Cpu, Layers, HardDrive, Filter, Activity } from 'lucide-react';
+import { Terminal, Copy, Check, Trash2, ArrowDownCircle, Cpu, Layers, HardDrive, Filter, Activity } from 'lucide-react';
 import { StreamEvent, EventCategory, globalStreamEventBus } from '../utils/streamEvents';
 import { secureCopyToClipboard } from '../security/clipboard';
 

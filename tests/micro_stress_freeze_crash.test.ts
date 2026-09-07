@@ -4,52 +4,27 @@ import {
   serializeBundle,
   deserializeBundle,
   constantTimeCompare,
-  computeFullPayloadSha256,
   computeFullPayloadSha256Async,
-  fastPbkdf2HmacSha512,
-  deriveLayerKey,
   zeroizeBuffer
 } from '../src/crypto/cascadeEngine';
 import { serpent256Ctr } from '../src/crypto/serpent';
-import { kyber1024KeyGen, kyber1024Encapsulate, kyber1024Decapsulate } from '../src/crypto/kyber1024';
-import { xchacha20Poly1305Encrypt, xchacha20Poly1305Decrypt } from '../src/crypto/xchacha20poly1305';
+import { xchacha20Poly1305Encrypt } from '../src/crypto/xchacha20poly1305';
 import {
   encodeRSStream,
-  decodeRSStream,
-  encodeRSStreamAsync,
-  decodeRSStreamAsync
+  decodeRSStream
 } from '../src/crypto/reedSolomon';
 import {
-  calculateShannonEntropy,
-  normalizeEntropyToTarget,
-  denormalizeEntropy
+  normalizeEntropyToTarget
 } from '../src/crypto/entropy';
-import {
-  deriveAndMask1024BitId,
-  unmaskAndVerifyKey6FromRSBlock,
-  generateFreshKey6Salt
-} from '../src/crypto/key6Engine';
-import {
-  encryptAssessmentNotesBlock,
-  decryptAssessmentNotesBlock
-} from '../src/crypto/notesEngine';
-import {
-  parseIsobmffBoxes,
-  embedSpreadSpectrum8Locations,
-  extractSpreadSpectrumPayload
-} from '../src/media/isobmff';
-import { generatePlayableH264Mp4 } from '../src/media/mp4Generator';
 import {
   createDualVaultPackage,
   extractFromDualVaultPackage,
   inspectContainerKey6Identity,
-  inspectContainerAssessmentNotes,
   clearContainerInspectionCache
 } from '../src/vault/dualVault';
 import { generateSecureRandomBytes } from '../src/crypto/safeRandom';
 import { createStreamingFileHandle, streamFileIn1MbChunks } from '../src/utils/fileReader';
 import { yieldToMainThread } from '../src/utils/asyncUtils';
-import { VaultAssessmentNotes } from '../src/types';
 
 interface MicroTestResult {
   id: string;

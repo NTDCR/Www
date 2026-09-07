@@ -88,6 +88,7 @@ export async function runSpeedRamLoadAdversarialSuite() {
     const data = generateSecureRandomBytes(5 * 1024 * 1024); // 5 MB
     const bundle = await encryptCascade5Layers(data, 'heap_test.bin', defaultPw, 1000);
     const serialized = serializeBundle(bundle);
+    if (!serialized || serialized.length === 0) throw new Error('Serialization failed');
 
     const peakHeap = process.memoryUsage().heapUsed;
     const heapDeltaMb = (peakHeap - initialHeap) / (1024 * 1024);
@@ -259,6 +260,7 @@ export async function runSpeedRamLoadAdversarialSuite() {
     const t0 = performance.now();
     const shaped = await normalizeEntropyToTarget(data, 7.38);
     const unshaped = await denormalizeEntropy(shaped);
+    if (!unshaped || unshaped.length !== data.length) throw new Error('Unshaped data mismatch');
     const elapsedSec = (performance.now() - t0) / 1000;
     const mbps = (sizeMb * 2) / elapsedSec; // shaped + unshaped
 

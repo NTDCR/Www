@@ -14,14 +14,9 @@
  */
 
 import {
-  encryptCascade5Layers,
-  decryptCascade5Layers,
   deriveLayerKey,
   deriveMasterAuthKey,
-  serializeBundle,
-  deserializeBundle,
-  constantTimeCompare,
-  computeHmacSha256
+  constantTimeCompare
 } from '../src/crypto/cascadeEngine';
 import {
   createDualVaultPackage,
@@ -35,9 +30,8 @@ import {
 } from '../src/security/deviceFingerprint';
 import { execute35PassSecureWipe, PassStatus } from '../src/security/sanitization';
 import { generateSecureRandomBytes } from '../src/crypto/safeRandom';
-import { CascadePasswords, VaultAssessmentNotes } from '../src/types';
+import { CascadePasswords } from '../src/types';
 import { sha512, sha256 } from '@noble/hashes/sha2.js';
-import { pbkdf2 } from '@noble/hashes/pbkdf2.js';
 import { hkdf } from '@noble/hashes/hkdf.js';
 
 interface TestResult {
@@ -158,7 +152,6 @@ export async function runKeyInteropIntegritySuite() {
 
   await runInteropTest('KEY-ADV-04', 'In-Memory Ephemeral Secret Zeroization Verification', async () => {
     const rawSecret = generateSecureRandomBytes(32);
-    const copy = new Uint8Array(rawSecret);
 
     // Call internal zeroization on rawSecret
     const { zeroizeBuffer } = await import('../src/crypto/cascadeEngine');

@@ -60,7 +60,7 @@ async function runTelemetryAuditSuite() {
   // --- 2. Subscriber Notification & Fault Tolerance ---
   console.log('\n--- 2. Subscriber Notification & Fault Tolerance ---');
   let receivedCount = 0;
-  const unsubscribe = bus.subscribe((evt) => {
+  const unsubscribe = bus.subscribe((_evt) => {
     receivedCount++;
   });
 

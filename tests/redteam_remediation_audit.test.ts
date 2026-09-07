@@ -17,15 +17,10 @@ import {
   normalizeEntropyToTarget,
   denormalizeEntropy,
   calculateShannonEntropy,
-  calculateHistogram,
-  getNaturalMp4Distribution,
-  calculateChiSquareTest,
-  calculateSamplePairMatchRate,
-  analyzeStatisticalCompliance
+  calculateHistogram
 } from '../src/crypto/entropy';
 import { createDualVaultPackage, extractFromDualVaultPackage, inspectContainerAssessmentNotes } from '../src/vault/dualVault';
-import { decodeRSStream } from '../src/crypto/reedSolomon';
-import { parseIsobmffBoxes, extractSpreadSpectrumPayload } from '../src/media/isobmff';
+import { extractSpreadSpectrumPayload } from '../src/media/isobmff';
 import { generatePlayableH264Mp4 } from '../src/media/mp4Generator';
 import { zeroizeStreamingHandle, createStreamingFileHandle } from '../src/utils/fileReader';
 import { CascadePasswords, VaultAssessmentNotes } from '../src/types';
