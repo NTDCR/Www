@@ -798,13 +798,14 @@ export function revokeAllActiveStreamUrls(): void {
 export async function streamChunksDirectToDisk(
   filename: string,
   chunkGenerator: AsyncGenerator<Uint8Array> | (() => AsyncGenerator<Uint8Array>) | Uint8Array[],
-  onProgress?: (bytesWritten: number, status: string) => void
-): Promise<{ success: boolean; streamedDirectly: boolean }> {
+  onProgress?: (bytesWritten: number, status: string) => void,
+  existingWritable?: any
+): Promise<{ success: boolean; streamedDirectly: boolean; targetName?: string }> {
   let fileHandle: any = null;
-  let writable: any = null;
+  let writable: any = existingWritable || null;
 
   // Check if Native File System Access API is supported and accessible
-  if (typeof window !== 'undefined' && 'showSaveFilePicker' in window) {
+  if (!writable && typeof window !== 'undefined' && 'showSaveFilePicker' in window) {
     try {
       const ext = filename.includes('.') ? filename.split('.').pop()?.toLowerCase() || 'bin' : 'bin';
       let mimeType = 'application/octet-stream';
@@ -854,7 +855,7 @@ export async function streamChunksDirectToDisk(
       }
       await writable.close();
       onProgress?.(totalWritten, `Finished streaming ${(totalWritten / (1024 * 1024)).toFixed(2)} MB directly to disk.`);
-      return { success: true, streamedDirectly: true };
+      return { success: true, streamedDirectly: true, targetName: fileHandle?.name || filename };
     } catch (writeErr) {
       try { await writable.abort(); } catch {}
       throw writeErr;
@@ -895,7 +896,7 @@ export async function streamChunksDirectToDisk(
     }, 15000);
   }
 
-  return { success: true, streamedDirectly: false };
+  return { success: true, streamedDirectly: false, targetName: filename };
 }
 
 /**
