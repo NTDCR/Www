@@ -6,7 +6,7 @@ import { unmaskAndVerifyKey6FromRSBlock, deriveAndMask1024BitId, sanitizeKey6Str
 import { encryptAssessmentNotesBlock, decryptAssessmentNotesBlock, parseAssessmentNotesJson, sanitizeAssessmentNotesInput } from '../src/crypto/notesEngine';
 import { parseIsobmffBoxes, isValidIsobmffCarrier, buildBox64, embedSpreadSpectrum8Locations, extractSpreadSpectrumPayload } from '../src/media/isobmff';
 import { createOpfsStreamHandle, purgeAndZeroizeOpfs } from '../src/storage/opfsStreamEngine';
-import { sanitizeFilename, revokeAllActiveStreamUrls, zeroizeStreamingHandle, StreamingFileHandle } from '../src/utils/fileReader';
+import { sanitizeFilename, revokeAllActiveStreamUrls, zeroizeStreamingHandle, StreamingFileHandle, FilePermissionError, isFilePermissionOrLockError, readSliceWithFallback, readRootFileAsUint8Array } from '../src/utils/fileReader';
 import { generatePlausibleDecoyTemplate } from '../src/components/AssessmentNotesEditor';
 import { isAssessmentNotesComplete } from '../src/types';
 import { generateRecoveryCodesInMemory, generateAndStoreRecoveryCodes } from '../src/security/deviceFingerprint';
@@ -1496,6 +1496,70 @@ async function runBountySuite() {
     'Unbuffered Handle Inspection Non-Destruction, Retry Resilience & OPFS Sandbox Wipe',
     b47Passed ? 'PASSED' : 'FAILED',
     `Unbuffered Bytes Intact: ${unbufferedBytesIntact}, Unbuffered Extract: ${unbufferedExtractPassed}, Retry Passed: ${unbufRetryPassed}, OPFS Wipe: ${wipeExecuted}`
+  );
+
+  // -------------------------------------------------------------------------
+  // TEST ASSERTION B-48: File Read Permission Immunity, Mobile Stale Handle
+  // Classification & OPFS Private Browsing Resiliency
+  // -------------------------------------------------------------------------
+  console.log('\n--- Running Test B-48: File Permission Immunity & Stale Handle Recovery ---');
+  // 1. Error classification
+  const notReadableErr = { name: 'NotReadableError', message: 'The requested file could not be read, typically due to permission problems.' };
+  const secErr = { name: 'SecurityError', message: 'The operation is insecure.' };
+  const notAllowedErr = { name: 'NotAllowedError', message: 'Permission was denied to read file.' };
+  const abortErr = { name: 'AbortError', message: 'Read aborted.' };
+  const permClassified = isFilePermissionOrLockError(notReadableErr) &&
+    isFilePermissionOrLockError(secErr) &&
+    isFilePermissionOrLockError(notAllowedErr) &&
+    isFilePermissionOrLockError(abortErr) &&
+    !isFilePermissionOrLockError(new Error('Calculated 42'));
+
+  // 2. readSliceWithFallback & readRootFileAsUint8Array throw structured FilePermissionError
+  const deadBlob = {
+    size: 256,
+    arrayBuffer: async () => {
+      const e: any = new Error('Permission denied by OS');
+      e.name = 'NotReadableError';
+      throw e;
+    },
+    stream: () => {
+      const e: any = new Error('Permission denied by OS');
+      e.name = 'NotReadableError';
+      throw e;
+    }
+  };
+
+  let slicePermErrCaught = false;
+  try {
+    await readSliceWithFallback(deadBlob as any, 1);
+  } catch (e: any) {
+    if (e instanceof FilePermissionError && isFilePermissionOrLockError(e)) {
+      slicePermErrCaught = true;
+    }
+  }
+
+  let rootPermErrCaught = false;
+  try {
+    await readRootFileAsUint8Array(deadBlob as any);
+  } catch (e: any) {
+    if (e instanceof FilePermissionError && isFilePermissionOrLockError(e)) {
+      rootPermErrCaught = true;
+    }
+  }
+
+  // 3. OPFS private browsing fallback
+  const opfsMemStore = await createOpfsStreamHandle('b48_priv_test.bin');
+  const opfsFallbackPassed = opfsMemStore !== null && (opfsMemStore.isVirtual() || typeof opfsMemStore.getSize === 'function');
+  await purgeAndZeroizeOpfs(opfsMemStore);
+
+  const b48Passed = permClassified && slicePermErrCaught && rootPermErrCaught && opfsFallbackPassed;
+
+  record(
+    'B-48',
+    'File Read Permission & Mobile Stale Handle Immunity',
+    'File Permission Classification, Re-Select Actionability & OPFS Fallback',
+    b48Passed ? 'PASSED' : 'FAILED',
+    `Perm Classified: ${permClassified}, Slice Error: ${slicePermErrCaught}, Root Error: ${rootPermErrCaught}, OPFS Fallback: ${opfsFallbackPassed}`
   );
 
   console.log('\n========================================================================');

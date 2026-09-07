@@ -15,7 +15,8 @@ import {
   CheckCircle,
   HardDrive,
   Film,
-  Trash2
+  Trash2,
+  AlertTriangle
 } from 'lucide-react';
 import {
   CascadePasswords,
@@ -34,7 +35,7 @@ import { Key6BadgeCard } from './Key6BadgeCard';
 import { AssessmentNotesEditor } from './AssessmentNotesEditor';
 import { deriveAndMask1024BitId, generateRandomKey6String, generateFreshKey6Salt } from '../crypto/key6Engine';
 import { getOrGenerateCarrierBlob, clearCarrierBlobCache } from '../media/mp4Generator';
-import { StreamingFileHandle, createStreamingFileHandle, loadStreamingFileHandleAsync, streamChunksDirectToDisk, sanitizeFilename, zeroizeStreamingHandle } from '../utils/fileReader';
+import { StreamingFileHandle, createStreamingFileHandle, loadStreamingFileHandleAsync, streamChunksDirectToDisk, sanitizeFilename, zeroizeStreamingHandle, readSliceWithFallback, isFilePermissionOrLockError } from '../utils/fileReader';
 import { VideoPlayerPreview } from './VideoPlayerPreview';
 import { yieldToMainThread } from '../utils/asyncUtils';
 import { sanitizePasswordString, zeroizeBuffer } from '../crypto/cascadeEngine';
@@ -235,7 +236,16 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
   const [result, setResult] = useState<DualVaultCreationResult | null>(null);
   useEffect(() => { resultRef.current = result; }, [result]);
   const [totalOperationDurationMs, setTotalOperationDurationMs] = useState<number | null>(null);
+  const carrierInputRef = useRef<HTMLInputElement>(null);
+  const vaultAInputRef = useRef<HTMLInputElement>(null);
+  const vaultBInputRef = useRef<HTMLInputElement>(null);
+
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [filePermissionError, setFilePermissionError] = useState<{
+    target: 'carrier' | 'vaultA' | 'vaultB' | 'any';
+    targetName: string;
+    message: string;
+  } | null>(null);
   const [diskSaveStatus, setDiskSaveStatus] = useState<string | null>(null);
   const [isSavingDisk, setIsSavingDisk] = useState<boolean>(false);
 
@@ -259,9 +269,10 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
     }
     try {
       setErrorMsg(null);
-      // Validate that carrier is a genuine MP4 / ISOBMFF container before proceeding
-      const headerSlice = await file.slice(0, 64).arrayBuffer();
-      if (!isValidIsobmffCarrier(new Uint8Array(headerSlice))) {
+      setFilePermissionError(null);
+      // Validate that carrier is a genuine MP4 / ISOBMFF container before proceeding (uses 6-tier fallback)
+      const headerSlice = await readSliceWithFallback(file.slice(0, 64));
+      if (!isValidIsobmffCarrier(headerSlice)) {
         setErrorMsg('Invalid Video Carrier: Selected file is not a valid MP4/ISOBMFF container (missing "ftyp" header). Please select a valid MP4/H.264 video or use the built-in synthetic carrier.');
         setCarrierFile(null);
         setCarrierPreviewBlob(null);
@@ -274,6 +285,13 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
       setUseSyntheticCarrier(false);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Error reading carrier file';
+      if (isFilePermissionOrLockError(err)) {
+        setFilePermissionError({
+          target: 'carrier',
+          targetName: file.name,
+          message: msg
+        });
+      }
       setErrorMsg(`Carrier File Selection: ${msg}. Please re-select or drag & drop.`);
       setCarrierFile(null);
       setCarrierPreviewBlob(null);
@@ -285,6 +303,7 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
     const handle = createStreamingFileHandle(blob, name);
     setCarrierFile(handle);
     setUseSyntheticCarrier(false);
+    setFilePermissionError(null);
   };
 
   const handleVaultASelection = async (file: File | null) => {
@@ -294,10 +313,18 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
     }
     try {
       setErrorMsg(null);
+      setFilePermissionError(null);
       const handle = await loadStreamingFileHandleAsync(file);
       setVaultAFile(handle);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Error reading Vault A file';
+      if (isFilePermissionOrLockError(err)) {
+        setFilePermissionError({
+          target: 'vaultA',
+          targetName: file.name,
+          message: msg
+        });
+      }
       setErrorMsg(`Vault A File Selection: ${msg}. Please re-select or drag & drop.`);
       setVaultAFile(null);
     }
@@ -310,10 +337,18 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
     }
     try {
       setErrorMsg(null);
+      setFilePermissionError(null);
       const handle = await loadStreamingFileHandleAsync(file);
       setVaultBFile(handle);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Error reading Vault B file';
+      if (isFilePermissionOrLockError(err)) {
+        setFilePermissionError({
+          target: 'vaultB',
+          targetName: file.name,
+          message: msg
+        });
+      }
       setErrorMsg(`Vault B File Selection: ${msg}. Please re-select or drag & drop.`);
       setVaultBFile(null);
     }
@@ -461,6 +496,25 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
     } catch (err: unknown) {
       if (!isMountedRef.current) return;
       const msg = err instanceof Error ? err.message : 'Protection workflow failed';
+      if (isFilePermissionOrLockError(err)) {
+        let target: 'carrier' | 'vaultA' | 'vaultB' | 'any' = 'any';
+        let targetName = 'Selected File';
+        if (msg.includes('Carrier') || (carrierFile && msg.includes(carrierFile.name))) {
+          target = 'carrier';
+          targetName = carrierFile?.name || 'Carrier Video';
+        } else if (msg.includes('Vault A') || (vaultAFile && msg.includes(vaultAFile.name))) {
+          target = 'vaultA';
+          targetName = vaultAFile?.name || 'Vault A File';
+        } else if (msg.includes('Vault B') || (vaultBFile && msg.includes(vaultBFile.name))) {
+          target = 'vaultB';
+          targetName = vaultBFile?.name || 'Vault B File';
+        }
+        setFilePermissionError({
+          target,
+          targetName,
+          message: msg
+        });
+      }
       setErrorMsg(msg);
     } finally {
       isProcessingRef.current = false;
@@ -573,6 +627,7 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
     setFileSaltA(generateFreshKey6Salt());
     setFileSaltB(generateFreshKey6Salt());
     setErrorMsg(null);
+    setFilePermissionError(null);
     setProgressPct(0);
     setProgressText('');
     setDiskSaveStatus(null);
@@ -668,6 +723,7 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
                 className="border-2 border-dashed border-slate-700 hover:border-emerald-500/50 rounded-lg p-4 text-center cursor-pointer transition-colors bg-slate-950/40 mb-4"
               >
                 <input
+                  ref={carrierInputRef}
                   type="file"
                   accept="video/mp4"
                   onChange={(e) => handleCarrierSelection(e.target.files?.[0] || null)}
@@ -836,6 +892,7 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
                   {vaultAFile && <span className="text-[10px] text-slate-400">{(vaultAFile.size / 1024).toFixed(1)} KB</span>}
                 </div>
                 <input
+                  ref={vaultAInputRef}
                   type="file"
                   onChange={(e) => handleVaultASelection(e.target.files?.[0] || null)}
                   className="w-full text-xs text-slate-400 file:mr-3 file:py-1 file:px-3 file:rounded file:border-0 file:text-[11px] file:font-semibold file:bg-emerald-950 file:text-emerald-400 hover:file:bg-emerald-900 cursor-pointer"
@@ -864,6 +921,7 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
                   {vaultBFile && <span className="text-[10px] text-slate-400">{(vaultBFile.size / 1024).toFixed(1)} KB</span>}
                 </div>
                 <input
+                  ref={vaultBInputRef}
                   type="file"
                   onChange={(e) => handleVaultBSelection(e.target.files?.[0] || null)}
                   className="w-full text-xs text-slate-400 file:mr-3 file:py-1 file:px-3 file:rounded file:border-0 file:text-[11px] file:font-semibold file:bg-amber-950 file:text-amber-400 hover:file:bg-amber-900 cursor-pointer"
@@ -1158,8 +1216,52 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
         </div>
       </div>
 
+      {/* Actionable File Permission / Revocation Recovery Banner */}
+      {filePermissionError && (
+        <div className="bg-amber-950/90 border-2 border-amber-500/80 text-amber-200 p-4 rounded-xl space-y-3 font-mono text-xs shadow-2xl">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <h4 className="font-bold text-amber-300 text-sm">
+                File Read Access Revoked / Expired by Browser or OS
+              </h4>
+              <p className="text-slate-300 leading-relaxed">
+                Your browser or mobile operating system revoked read access to <span className="text-amber-300 font-bold underline">{filePermissionError.targetName}</span> (common on iOS Safari &amp; Android Chrome when switched to background, or when temporary file descriptors expire).
+              </p>
+              <p className="text-emerald-400 font-semibold">
+                ✓ All your entered passwords, unique container keys, and comprehensive assessment notes remain 100% preserved!
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-3 pt-2 border-t border-amber-800/60">
+            <button
+              type="button"
+              onClick={() => {
+                if (filePermissionError.target === 'carrier') carrierInputRef.current?.click();
+                else if (filePermissionError.target === 'vaultA') vaultAInputRef.current?.click();
+                else if (filePermissionError.target === 'vaultB') vaultBInputRef.current?.click();
+                else {
+                  carrierInputRef.current?.click();
+                }
+              }}
+              className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-lg transition-all flex items-center gap-2 text-xs shadow-md active:scale-95"
+            >
+              <RefreshCw className="w-4 h-4" />
+              <span>Re-Select "{filePermissionError.targetName}" &amp; Resume</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setFilePermissionError(null)}
+              className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition-colors text-xs"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Error Message */}
-      {errorMsg && (
+      {errorMsg && !filePermissionError && (
         <div className="bg-rose-950/80 border border-rose-800 text-rose-300 p-4 rounded-xl flex items-center gap-3 text-xs font-mono">
           <AlertCircle className="w-5 h-5 text-rose-400 shrink-0" />
           <span>{errorMsg}</span>

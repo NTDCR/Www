@@ -165,11 +165,28 @@ export async function execute35PassSecureWipe(
     }
   } catch {}
 
-  // 5b. Purge OPFS .cgpm_sandbox temporary streaming directory
+  // 5b. Purge OPFS .cgpm_sandbox temporary streaming directory (multi-tab lock resilient)
   try {
     if (typeof navigator !== 'undefined' && navigator.storage && typeof navigator.storage.getDirectory === 'function') {
       const root = await navigator.storage.getDirectory();
-      await root.removeEntry('.cgpm_sandbox', { recursive: true });
+      try {
+        await root.removeEntry('.cgpm_sandbox', { recursive: true });
+      } catch (dirErr: any) {
+        // If whole directory removal failed (e.g. NoModificationAllowedError from another tab holding an active lock),
+        // gracefully walk and remove all unlocked orphaned files individually
+        try {
+          const sandboxDir = await root.getDirectoryHandle('.cgpm_sandbox', { create: false });
+          if ((sandboxDir as any).entries) {
+            for await (const [name] of (sandboxDir as any).entries()) {
+              try {
+                await sandboxDir.removeEntry(name);
+              } catch {
+                // Ignore locked entry from active peer tab
+              }
+            }
+          }
+        } catch {}
+      }
     }
   } catch {}
 

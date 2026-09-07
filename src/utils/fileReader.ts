@@ -19,13 +19,57 @@ export interface StreamingFileHandle {
   isSynthetic?: boolean;
 }
 
+export class FilePermissionError extends Error {
+  public readonly code: 'PERMISSION_REVOKED' | 'FILE_LOCKED' | 'SECURITY_RESTRICTION' | 'ABORTED' | 'NOT_READABLE';
+  public readonly originalError?: unknown;
+
+  constructor(
+    message: string,
+    code: 'PERMISSION_REVOKED' | 'FILE_LOCKED' | 'SECURITY_RESTRICTION' | 'ABORTED' | 'NOT_READABLE',
+    originalError?: unknown
+  ) {
+    super(message);
+    this.name = 'FilePermissionError';
+    this.code = code;
+    this.originalError = originalError;
+  }
+}
+
+export function isFilePermissionOrLockError(err: unknown): boolean {
+  if (!err) return false;
+  if (err instanceof FilePermissionError) return true;
+  const name = typeof err === 'object' && err !== null && 'name' in err ? String((err as any).name).toLowerCase() : '';
+  const str = String((err as any)?.message || err).toLowerCase();
+  return (
+    name.includes('notreadable') ||
+    name.includes('notallowed') ||
+    name.includes('securityerror') ||
+    name.includes('aborterror') ||
+    str.includes('permission') ||
+    str.includes('not readable') ||
+    str.includes('notreadable') ||
+    str.includes('insecure') ||
+    str.includes('file lock') ||
+    str.includes('stale descriptor') ||
+    str.includes('stale handle') ||
+    str.includes('could not be read') ||
+    str.includes('re-select')
+  );
+}
+
 /**
- * Reads blob/slice using FileReader as a robust fallback
+ * Reads blob/slice using FileReader as a robust fallback with safety timeout against stalled revoked descriptors
  */
 export async function readBlobViaFileReader(blob: Blob): Promise<Uint8Array> {
   return new Promise<Uint8Array>((resolve, reject) => {
     const reader = new FileReader();
+    const timeoutId = setTimeout(() => {
+      try { reader.abort(); } catch {}
+      reject(new FilePermissionError('FileReader operation timed out (stale OS descriptor / revoked permission)', 'NOT_READABLE'));
+    }, 15000);
+
     reader.onload = () => {
+      clearTimeout(timeoutId);
       if (reader.result instanceof ArrayBuffer) {
         resolve(new Uint8Array(reader.result));
       } else if (typeof reader.result === 'string') {
@@ -39,8 +83,14 @@ export async function readBlobViaFileReader(blob: Blob): Promise<Uint8Array> {
         reject(new Error('FileReader returned invalid data format'));
       }
     };
-    reader.onerror = () => reject(reader.error || new Error('FileReader read error'));
-    reader.onabort = () => reject(new Error('FileReader operation aborted'));
+    reader.onerror = () => {
+      clearTimeout(timeoutId);
+      reject(reader.error || new Error('FileReader read error'));
+    };
+    reader.onabort = () => {
+      clearTimeout(timeoutId);
+      reject(new FilePermissionError('FileReader operation was aborted', 'ABORTED'));
+    };
     reader.readAsArrayBuffer(blob);
   });
 }
@@ -109,6 +159,15 @@ export async function readSliceWithFallback(slice: Blob, maxRetries: number = 3)
   if (slice.size === 0) return new Uint8Array(0);
 
   let lastError: any = null;
+  const recordError = (e: any) => {
+    if (!lastError) {
+      lastError = e;
+    } else if (isFilePermissionOrLockError(e) && !isFilePermissionOrLockError(lastError)) {
+      lastError = e;
+    } else if (e?.name === 'NotReadableError' || e?.name === 'SecurityError' || e?.name === 'NotAllowedError' || e?.name === 'AbortError') {
+      lastError = e;
+    }
+  };
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     if (attempt > 0) {
@@ -123,21 +182,23 @@ export async function readSliceWithFallback(slice: Blob, maxRetries: number = 3)
       if (ab && ab.byteLength >= 0) {
         return new Uint8Array(ab);
       }
-    } catch (e) { lastError = e; }
+    } catch (e) { recordError(e); }
 
     // Strategy 2: FileReader ArrayBuffer
     try {
       const u8 = await readBlobViaFileReader(slice);
       if (u8 && u8.length >= 0) return u8;
-    } catch (e) { lastError = e; }
+    } catch (e) { recordError(e); }
 
     // Strategy 3: Response(slice).arrayBuffer() (resilient in sandboxed iframe contexts)
     try {
-      const ab = await new Response(slice).arrayBuffer();
-      if (ab && ab.byteLength >= 0) {
-        return new Uint8Array(ab);
+      if (typeof Response !== 'undefined' && (typeof Blob === 'undefined' || slice instanceof Blob)) {
+        const ab = await new Response(slice).arrayBuffer();
+        if (ab && ab.byteLength >= 0) {
+          return new Uint8Array(ab);
+        }
       }
-    } catch (e) { lastError = e; }
+    } catch (e) { recordError(e); }
 
     // Strategy 4: Web Streams API stream().getReader()
     try {
@@ -163,7 +224,7 @@ export async function readSliceWithFallback(slice: Blob, maxRetries: number = 3)
           return combined;
         }
       }
-    } catch (e) { lastError = e; }
+    } catch (e) { recordError(e); }
 
     // Strategy 5: Blob URL fetch (uses browser internal blob protocol)
     try {
@@ -179,13 +240,19 @@ export async function readSliceWithFallback(slice: Blob, maxRetries: number = 3)
           try { URL.revokeObjectURL(blobUrl); } catch {}
         }
       }
-    } catch (e) { lastError = e; }
+    } catch (e) { recordError(e); }
 
-    // Strategy 6: FileReader readAsBinaryString
+    // Strategy 6: FileReader readAsBinaryString with timeout
     try {
       const u8 = await new Promise<Uint8Array>((resolve, reject) => {
         const reader = new FileReader();
+        const timeoutId = setTimeout(() => {
+          try { reader.abort(); } catch {}
+          reject(new FilePermissionError('FileReader slice read timed out (stale descriptor)', 'NOT_READABLE'));
+        }, 15000);
+
         reader.onload = () => {
+          clearTimeout(timeoutId);
           if (typeof reader.result === 'string') {
             const str = reader.result;
             const arr = new Uint8Array(str.length);
@@ -199,15 +266,46 @@ export async function readSliceWithFallback(slice: Blob, maxRetries: number = 3)
             reject(new Error('Unable to parse file stream bytes'));
           }
         };
-        reader.onerror = () => reject(reader.error || new Error('Slice read error'));
+        reader.onerror = () => {
+          clearTimeout(timeoutId);
+          reject(reader.error || new Error('Slice read error'));
+        };
+        reader.onabort = () => {
+          clearTimeout(timeoutId);
+          reject(new FilePermissionError('FileReader slice operation was aborted', 'ABORTED'));
+        };
         reader.readAsBinaryString(slice);
       });
       if (u8) return u8;
-    } catch (e) { lastError = e; }
+    } catch (e) { recordError(e); }
   }
 
-  throw new Error(
-    `The requested file slice could not be read after ${maxRetries} attempts (${lastError?.message || 'OS file lock/stale handle'}). Please re-select or drag & drop the file.`
+  const errName = lastError?.name || '';
+  const errMsg = lastError?.message || '';
+  const isSecurity = errName === 'SecurityError' || errMsg.toLowerCase().includes('insecure');
+  const isPermission = errName === 'NotAllowedError' || errMsg.toLowerCase().includes('permission');
+  const isAbort = errName === 'AbortError';
+
+  const reason = isSecurity
+    ? 'Browser security restriction (private browsing / sandboxed iframe)'
+    : isPermission
+    ? 'File read permission revoked / expired'
+    : isAbort
+    ? 'Read operation aborted'
+    : (lastError?.message || 'OS file lock or stale descriptor');
+
+  const code = isSecurity
+    ? 'SECURITY_RESTRICTION'
+    : isPermission
+    ? 'PERMISSION_REVOKED'
+    : isAbort
+    ? 'ABORTED'
+    : 'NOT_READABLE';
+
+  throw new FilePermissionError(
+    `The requested file slice could not be read after ${maxRetries} attempts (${reason}). On mobile devices (iOS Safari / Android Chrome), file access tokens expire when the app was in the background. Please re-select or drag & drop the file.`,
+    code,
+    lastError
   );
 }
 
@@ -288,9 +386,15 @@ export async function readChunkFromHandle(
     try {
       const retrySlice = source.slice(offset, end);
       return await readSliceWithFallback(retrySlice);
-    } catch {
-      throw new Error(
-        `The requested file chunk [${offset}..${end}] could not be read (${err?.message || 'OS file lock/timeout'}). Please re-select the file.`
+    } catch (retryErr: any) {
+      const activeErr = retryErr || err;
+      if (activeErr instanceof FilePermissionError) {
+        throw activeErr;
+      }
+      throw new FilePermissionError(
+        `The requested file chunk [${offset}..${end}] could not be read (${activeErr?.message || 'OS file lock/timeout'}). Please re-select the file.`,
+        'NOT_READABLE',
+        activeErr
       );
     }
   }
@@ -424,12 +528,22 @@ export async function* streamFileIn1MbChunks(
  */
 export async function readRootFileAsUint8Array(file: File | Blob): Promise<Uint8Array> {
   if (file.size === 0) return new Uint8Array(0);
+  let lastErr: any = null;
+  const recordError = (e: any) => {
+    if (!lastErr) {
+      lastErr = e;
+    } else if (isFilePermissionOrLockError(e) && !isFilePermissionOrLockError(lastErr)) {
+      lastErr = e;
+    } else if (e?.name === 'NotReadableError' || e?.name === 'SecurityError' || e?.name === 'NotAllowedError' || e?.name === 'AbortError') {
+      lastErr = e;
+    }
+  };
 
   // Strategy 1: Direct file.arrayBuffer()
   try {
     const ab = await file.arrayBuffer();
     if (ab && ab.byteLength >= 0) return new Uint8Array(ab);
-  } catch {}
+  } catch (e) { recordError(e); }
 
   // Strategy 2: Web Streams API file.stream().getReader()
   try {
@@ -455,19 +569,21 @@ export async function readRootFileAsUint8Array(file: File | Blob): Promise<Uint8
         return out;
       }
     }
-  } catch {}
+  } catch (e) { recordError(e); }
 
   // Strategy 3: FileReader readAsArrayBuffer
   try {
     const u8 = await readBlobViaFileReader(file);
     if (u8 && u8.length >= 0) return u8;
-  } catch {}
+  } catch (e) { recordError(e); }
 
   // Strategy 4: new Response(file).arrayBuffer()
   try {
-    const ab = await new Response(file).arrayBuffer();
-    if (ab && ab.byteLength >= 0) return new Uint8Array(ab);
-  } catch {}
+    if (typeof Response !== 'undefined' && (typeof Blob === 'undefined' || file instanceof Blob)) {
+      const ab = await new Response(file).arrayBuffer();
+      if (ab && ab.byteLength >= 0) return new Uint8Array(ab);
+    }
+  } catch (e) { recordError(e); }
 
   // Strategy 5: Blob URL fetch (browser internal storage protocol)
   try {
@@ -481,26 +597,63 @@ export async function readRootFileAsUint8Array(file: File | Blob): Promise<Uint8
         try { URL.revokeObjectURL(url); } catch {}
       }
     }
-  } catch {}
+  } catch (e) { recordError(e); }
 
-  // Strategy 6: FileReader readAsBinaryString
-  return await new Promise<Uint8Array>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === 'string') {
-        const str = reader.result;
-        const u8 = new Uint8Array(str.length);
-        for (let i = 0; i < str.length; i++) u8[i] = str.charCodeAt(i) & 0xff;
-        resolve(u8);
-      } else if (reader.result instanceof ArrayBuffer) {
-        resolve(new Uint8Array(reader.result));
-      } else {
-        reject(new Error('Invalid reader result'));
-      }
-    };
-    reader.onerror = () => reject(reader.error || new Error('FileReader read error'));
-    reader.readAsBinaryString(file);
-  });
+  // Strategy 6: FileReader readAsBinaryString with timeout
+  try {
+    return await new Promise<Uint8Array>((resolve, reject) => {
+      const reader = new FileReader();
+      const timeoutId = setTimeout(() => {
+        try { reader.abort(); } catch {}
+        reject(new FilePermissionError('FileReader root read timed out (stale OS descriptor / revoked permission)', 'NOT_READABLE'));
+      }, 15000);
+
+      reader.onload = () => {
+        clearTimeout(timeoutId);
+        if (typeof reader.result === 'string') {
+          const str = reader.result;
+          const u8 = new Uint8Array(str.length);
+          for (let i = 0; i < str.length; i++) u8[i] = str.charCodeAt(i) & 0xff;
+          resolve(u8);
+        } else if (reader.result instanceof ArrayBuffer) {
+          resolve(new Uint8Array(reader.result));
+        } else {
+          reject(new Error('Invalid reader result'));
+        }
+      };
+      reader.onerror = () => {
+        clearTimeout(timeoutId);
+        reject(reader.error || new Error('FileReader read error'));
+      };
+      reader.onabort = () => {
+        clearTimeout(timeoutId);
+        reject(new FilePermissionError('FileReader operation was aborted', 'ABORTED'));
+      };
+      reader.readAsBinaryString(file);
+    });
+  } catch (e) {
+    recordError(e);
+  }
+
+  const errName = lastErr?.name || '';
+  const errMsg = lastErr?.message || '';
+  const isSecurity = errName === 'SecurityError' || errMsg.toLowerCase().includes('insecure');
+  const isPermission = errName === 'NotAllowedError' || errMsg.toLowerCase().includes('permission');
+  const isAbort = errName === 'AbortError';
+
+  const code = isSecurity
+    ? 'SECURITY_RESTRICTION'
+    : isPermission
+    ? 'PERMISSION_REVOKED'
+    : isAbort
+    ? 'ABORTED'
+    : 'NOT_READABLE';
+
+  throw new FilePermissionError(
+    `File read permission error: The browser or OS denied access to this file (${lastErr?.name || 'Error'}: ${lastErr?.message || 'Access denied / stale descriptor'}). On mobile devices (iOS Safari / Android Chrome), file access tokens expire if the tab was suspended. Please re-select the file.`,
+    code,
+    lastErr
+  );
 }
 
 /**

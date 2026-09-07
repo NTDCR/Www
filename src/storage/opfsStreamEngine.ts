@@ -9,6 +9,7 @@
  */
 
 import { yieldToMainThread } from '../utils/asyncUtils';
+import { readSliceWithFallback } from '../utils/fileReader';
 
 export const OPFS_CHUNK_SIZE = 1024 * 1024; // Strictly 1 MB (1,048,576 bytes)
 export const MAX_SAFE_OPFS_STREAM_SIZE = 100 * 1024 * 1024 * 1024; // 100 GB ceiling
@@ -181,9 +182,24 @@ class BrowserOpfsStreamHandle implements IOpfsStreamHandle {
     return false;
   }
 
-  private async ensureWritable(): Promise<any> {
+  private async ensureWritable(maxRetries: number = 3): Promise<any> {
     if (!this.writable) {
-      this.writable = await this.fileHandle.createWritable({ keepExistingData: true });
+      let lastErr: any = null;
+      for (let attempt = 0; attempt < maxRetries; attempt++) {
+        try {
+          this.writable = await this.fileHandle.createWritable({ keepExistingData: true });
+          return this.writable;
+        } catch (err: any) {
+          lastErr = err;
+          if ((err?.name === 'NoModificationAllowedError' || err?.name === 'InvalidStateError') && attempt < maxRetries - 1) {
+            await yieldToMainThread();
+            await new Promise(r => setTimeout(r, 60 * (attempt + 1)));
+            continue;
+          }
+          throw err;
+        }
+      }
+      throw lastErr;
     }
     return this.writable;
   }
@@ -204,14 +220,15 @@ class BrowserOpfsStreamHandle implements IOpfsStreamHandle {
     if (!this.isOpen) throw new Error('BrowserOpfsStreamHandle is closed.');
     if (this.writable) {
       // Flush write buffer before reading
-      await this.writable.close();
+      try {
+        await this.writable.close();
+      } catch {}
       this.writable = null;
     }
     const file = await this.fileHandle.getFile();
     this.currentSize = file.size;
     const slice = file.slice(offset, offset + length);
-    const buf = await slice.arrayBuffer();
-    return new Uint8Array(buf);
+    return await readSliceWithFallback(slice);
   }
 
   async truncate(newSize: number = 0): Promise<void> {
@@ -330,11 +347,21 @@ export async function purgeAndZeroizeOpfs(handle: IOpfsStreamHandle): Promise<vo
     if (handle instanceof VirtualOpfsMemoryStore) {
       handle.wipeMemory();
     } else if (isOpfsSupported()) {
-      try {
-        const root = await navigator.storage.getDirectory();
-        const sandboxDir = await root.getDirectoryHandle('.cgpm_sandbox', { create: false });
-        await sandboxDir.removeEntry(handle.getName());
-      } catch {}
+      for (let retry = 0; retry < 3; retry++) {
+        try {
+          const root = await navigator.storage.getDirectory();
+          const sandboxDir = await root.getDirectoryHandle('.cgpm_sandbox', { create: false });
+          await sandboxDir.removeEntry(handle.getName());
+          break;
+        } catch (e: any) {
+          if ((e?.name === 'NoModificationAllowedError' || e?.name === 'InvalidStateError') && retry < 2) {
+            await yieldToMainThread();
+            await new Promise(r => setTimeout(r, 60 * (retry + 1)));
+            continue;
+          }
+          break;
+        }
+      }
     }
   }
 }

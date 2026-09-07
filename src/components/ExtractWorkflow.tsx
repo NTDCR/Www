@@ -12,7 +12,8 @@ import {
   HardDrive,
   Film,
   FileText,
-  Trash2
+  Trash2,
+  AlertTriangle
 } from 'lucide-react';
 import { CascadePasswords, DualVaultExtractionResult, VaultAssessmentNotes } from '../types';
 import {
@@ -25,7 +26,7 @@ import { VirtualKeypad } from './VirtualKeypad';
 import { LiveProgressTimer, formatDurationHuman } from './LiveProgressTimer';
 import { Key6BadgeCard } from './Key6BadgeCard';
 import { AssessmentNotesPreviewModal } from './AssessmentNotesPreviewModal';
-import { StreamingFileHandle, loadStreamingFileHandleAsync, streamChunksDirectToDisk, sanitizeFilename, zeroizeStreamingHandle } from '../utils/fileReader';
+import { StreamingFileHandle, loadStreamingFileHandleAsync, streamChunksDirectToDisk, sanitizeFilename, zeroizeStreamingHandle, isFilePermissionOrLockError } from '../utils/fileReader';
 import { yieldToMainThread, sanitizePasswordString } from '../crypto/cascadeEngine';
 import { sanitizeKey6String } from '../crypto/key6Engine';
 
@@ -179,7 +180,12 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
   const [progressPct, setProgressPct] = useState<number>(0);
   const [result, setResult] = useState<DualVaultExtractionResult | null>(null);
   const [totalOperationDurationMs, setTotalOperationDurationMs] = useState<number | null>(null);
+  const protectedInputRef = useRef<HTMLInputElement>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [filePermissionError, setFilePermissionError] = useState<{
+    targetName: string;
+    message: string;
+  } | null>(null);
   const [diskSaveStatus, setDiskSaveStatus] = useState<string | null>(null);
   const [isSavingDisk, setIsSavingDisk] = useState<boolean>(false);
 
@@ -212,12 +218,19 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
     }
     try {
       setErrorMsg(null);
+      setFilePermissionError(null);
       await yieldToMainThread();
       const handle = await loadStreamingFileHandleAsync(file);
       await yieldToMainThread();
       setProtectedFile(handle);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Error reading selected file';
+      if (isFilePermissionOrLockError(err)) {
+        setFilePermissionError({
+          targetName: file.name,
+          message: msg
+        });
+      }
       setErrorMsg(`Container File Selection: ${msg}. Please re-select or drag & drop.`);
       setProtectedFile(null);
     }
@@ -313,6 +326,12 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
     } catch (err: unknown) {
       if (!isMountedRef.current) return;
       const msg = err instanceof Error ? err.message : 'Extraction failed';
+      if (isFilePermissionOrLockError(err)) {
+        setFilePermissionError({
+          targetName: protectedFile?.name || 'Protected MP4 Container',
+          message: msg
+        });
+      }
       setErrorMsg(msg);
     } finally {
       isExtractingRef.current = false;
@@ -405,6 +424,7 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
     setKey6MatchedVault(null);
     setAssessmentNotes(null);
     setErrorMsg(null);
+    setFilePermissionError(null);
     setProgressPct(0);
     setProgressText('');
     setDiskSaveStatus(null);
@@ -454,6 +474,7 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
           className="border-2 border-dashed border-slate-700 hover:border-emerald-500/50 rounded-lg p-5 text-center cursor-pointer transition-colors bg-slate-950/40"
         >
           <input
+            ref={protectedInputRef}
             type="file"
             accept="video/mp4"
             onChange={(e) => handleProtectedFileSelection(e.target.files?.[0] || null)}
@@ -668,8 +689,45 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
         )}
       </div>
 
+      {/* Actionable File Permission / Revocation Recovery Banner */}
+      {filePermissionError && (
+        <div className="bg-amber-950/90 border-2 border-amber-500/80 text-amber-200 p-4 rounded-xl space-y-3 font-mono text-xs shadow-2xl">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <h4 className="font-bold text-amber-300 text-sm">
+                File Read Access Revoked / Expired by Browser or OS
+              </h4>
+              <p className="text-slate-300 leading-relaxed">
+                Your browser or mobile operating system revoked read access to <span className="text-amber-300 font-bold underline">{filePermissionError.targetName}</span> (common on iOS Safari &amp; Android Chrome when switched to background, or when temporary file descriptors expire).
+              </p>
+              <p className="text-emerald-400 font-semibold">
+                ✓ All your entered 5-layer passwords and Key 6 credentials remain 100% preserved!
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-3 pt-2 border-t border-amber-800/60">
+            <button
+              type="button"
+              onClick={() => protectedInputRef.current?.click()}
+              className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-lg transition-all flex items-center gap-2 text-xs shadow-md active:scale-95"
+            >
+              <RefreshCw className="w-4 h-4" />
+              <span>Re-Select "{filePermissionError.targetName}" &amp; Resume</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setFilePermissionError(null)}
+              className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition-colors text-xs"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Error Message */}
-      {errorMsg && (
+      {errorMsg && !filePermissionError && (
         <div className="bg-rose-950/80 border border-rose-800 text-rose-300 p-4 rounded-xl flex items-center gap-3 text-xs font-mono">
           <AlertCircle className="w-5 h-5 text-rose-400 shrink-0" />
           <span>{errorMsg}</span>
