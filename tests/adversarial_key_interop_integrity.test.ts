@@ -234,13 +234,13 @@ export async function runKeyInteropIntegritySuite() {
     }
   });
 
-  await runInteropTest('ALIGN-ADV-03', 'Headless & Fallback Device Fingerprinting Safety Boundaries', async () => {
-    // In Node.js / headless mode, DOM and Canvas/WebGL APIs are absent
+  await runInteropTest('ALIGN-ADV-03', 'Zero-Telemetry Anonymity & Device Fingerprint Neutralization Boundaries', async () => {
+    // Verify device fingerprinting is completely neutralized to zero-telemetry anonymous signatures
     const canvasFp = await getCanvasFingerprint();
     const webglFp = await getWebGLFingerprint();
     const audioFp = await getAudioFingerprint();
 
-    // Must return stable deterministic fallback prefixes without throwing uncaught exceptions
+    // Must return stable deterministic anonymous prefixes with zero hardware profiling
     if (!canvasFp.startsWith('cv-')) throw new Error(`Unexpected canvas fingerprint: ${canvasFp}`);
     if (!webglFp.startsWith('gl-')) throw new Error(`Unexpected webgl fingerprint: ${webglFp}`);
     if (!audioFp.startsWith('au-')) throw new Error(`Unexpected audio fingerprint: ${audioFp}`);

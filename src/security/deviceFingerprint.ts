@@ -1,180 +1,39 @@
 /**
- * ContentGuard Pro MAX - Device Security & Hardware Identification
- * Software device identification using Canvas 2D, WebGL 3D, and Web Audio API synthesis
- * 10 One-Time Recovery Codes stored in IndexedDB (Feature 48, 49)
- * Powered by Web Crypto SHA-256 and CSPRNG.
+ * ContentGuard Pro MAX - Zero-Knowledge Anonymity & Offline Recovery System
+ * Device fingerprinting & hardware telemetry are completely wiped out for anti-forensic privacy.
+ * 10 One-Time Emergency Recovery Codes stored in IndexedDB (Feature 49).
  */
 
 import { DeviceFingerprint, RecoveryCode } from '../types';
 import { generateSecureRandomBytes } from '../crypto/safeRandom';
 
 /**
- * Helper to compute SHA-256 hex string from any text
- */
-async function sha256Hex(text: string): Promise<string> {
-  try {
-    const encoder = new TextEncoder();
-    const data = encoder.encode(text);
-    const hashBuf = await crypto.subtle.digest('SHA-256', data);
-    return Array.from(new Uint8Array(hashBuf))
-      .map(b => b.toString(16).padStart(2, '0'))
-      .join('');
-  } catch {
-    // Fallback constant-length hex
-    let h1 = 0xdeadbeef, h2 = 0x41c64e6d;
-    for (let i = 0; i < text.length; i++) {
-      const ch = text.charCodeAt(i);
-      h1 = Math.imul(h1 ^ ch, 2654435761);
-      h2 = Math.imul(h2 ^ ch, 1597334677);
-    }
-    return Math.abs(h1).toString(16).padStart(8, '0') + Math.abs(h2).toString(16).padStart(8, '0');
-  }
-}
-
-/**
- * Generates Canvas 2D render fingerprint hash
+ * Zero-telemetry anonymous stubs for interface compatibility.
+ * Hardware sniffing, canvas reading, WebGL extraction, and audio synthesis are permanently wiped out.
  */
 export async function getCanvasFingerprint(): Promise<string> {
-  try {
-    if (typeof document === 'undefined') return 'cv-headless-df81';
-    const canvas = document.createElement('canvas');
-    canvas.width = 240;
-    canvas.height = 60;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return 'canvas-unavailable';
-
-    ctx.textBaseline = 'top';
-    ctx.font = "14px 'Arial', sans-serif";
-    ctx.textBaseline = 'alphabetic';
-    ctx.fillStyle = '#f60';
-    ctx.fillRect(125, 1, 62, 20);
-    ctx.fillStyle = '#069';
-    ctx.fillText('ContentGuard Pro MAX <drm>', 2, 15);
-    ctx.fillStyle = 'rgba(102, 204, 0, 0.7)';
-    ctx.fillText('ContentGuard Pro MAX <drm>', 4, 17);
-
-    const dataUrl = canvas.toDataURL();
-    const hex = await sha256Hex(dataUrl);
-    return 'cv-' + hex.slice(0, 12);
-  } catch {
-    return 'cv-fallback-df81';
-  }
+  return 'cv-anonymized-zero-telemetry';
 }
 
-/**
- * Generates WebGL GPU Renderer & Vendor hash
- */
 export async function getWebGLFingerprint(): Promise<string> {
-  try {
-    if (typeof document === 'undefined') return 'gl-headless';
-    const canvas = document.createElement('canvas');
-    const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
-    if (!gl) return 'webgl-disabled';
-
-    const debugInfo = (gl as WebGLRenderingContext).getExtension('WEBGL_debug_renderer_info');
-    if (debugInfo) {
-      const vendor = (gl as WebGLRenderingContext).getParameter(debugInfo.UNMASKED_VENDOR_WEBGL) || '';
-      const renderer = (gl as WebGLRenderingContext).getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) || '';
-      const hex = await sha256Hex(vendor + '::' + renderer);
-      return 'gl-' + hex.slice(0, 12);
-    }
-    return 'gl-generic';
-  } catch {
-    return 'gl-fallback';
-  }
+  return 'gl-anonymized-zero-telemetry';
 }
 
-/**
- * Generates Web Audio API synthesis oscillation buffer fingerprint
- */
 export async function getAudioFingerprint(): Promise<string> {
-  try {
-    if (typeof window === 'undefined') return 'au-headless';
-    const OfflineContextClass = window.OfflineAudioContext || (window as unknown as { webkitOfflineAudioContext: typeof OfflineAudioContext }).webkitOfflineAudioContext;
-    if (!OfflineContextClass) return 'audio-unavailable';
-
-    // Modern future-proof W3C standard: OfflineAudioContext with DynamicsCompressorNode
-    // 0 deprecation warnings, deterministic hardware audio DSP render, no audio playback needed
-    const ctx = new OfflineContextClass(1, 44100, 44100);
-    const oscillator = ctx.createOscillator();
-    oscillator.type = 'triangle';
-    oscillator.frequency.setValueAtTime(10000, ctx.currentTime);
-
-    const compressor = ctx.createDynamicsCompressor();
-    compressor.threshold.setValueAtTime(-50, ctx.currentTime);
-    compressor.knee.setValueAtTime(40, ctx.currentTime);
-    compressor.ratio.setValueAtTime(12, ctx.currentTime);
-    compressor.attack.setValueAtTime(0, ctx.currentTime);
-    compressor.release.setValueAtTime(0.25, ctx.currentTime);
-
-    oscillator.connect(compressor);
-    compressor.connect(ctx.destination);
-    oscillator.start(0);
-
-    // Bound audio rendering to 1500ms to guarantee zero UI stall even if privacy extensions stub startRendering()
-    let timeoutId: ReturnType<typeof setTimeout> | null = null;
-    let renderedBuffer: AudioBuffer;
-    try {
-      renderedBuffer = await Promise.race([
-        ctx.startRendering(),
-        new Promise<AudioBuffer>((_, reject) => {
-          timeoutId = setTimeout(() => reject(new Error('Audio render timeout')), 1500);
-        })
-      ]);
-    } finally {
-      if (timeoutId) clearTimeout(timeoutId);
-    }
-    const channelData = renderedBuffer.getChannelData(0);
-    let sum = 0;
-    const step = Math.max(1, Math.floor(channelData.length / 500));
-    for (let i = 0; i < channelData.length; i += step) {
-      sum += Math.abs(channelData[i]);
-    }
-
-    const hex = await sha256Hex('audio-' + sum.toFixed(8));
-    return 'au-' + hex.slice(0, 10);
-  } catch {
-    return 'au-fallback';
-  }
+  return 'au-anonymized-zero-telemetry';
 }
 
-/**
- * Compiles full device hardware/software fingerprint with SHA-256
- */
 export async function generateDeviceFingerprint(): Promise<DeviceFingerprint> {
-  const cvHash = await getCanvasFingerprint();
-  const glHash = await getWebGLFingerprint();
-  const auHash = await getAudioFingerprint();
-  const uaStr = typeof navigator !== 'undefined' ? navigator.userAgent : 'ContentGuard-Pro-MAX';
-  const uaHash = await sha256Hex(uaStr);
-
-  const hwConcurrency = typeof navigator !== 'undefined' ? navigator.hardwareConcurrency || 8 : 8;
-  const scrWidth = typeof window !== 'undefined' && window.screen ? window.screen.width : 1920;
-  const scrHeight = typeof window !== 'undefined' && window.screen ? window.screen.height : 1080;
-  const clrDepth = typeof window !== 'undefined' && window.screen ? window.screen.colorDepth || 24 : 24;
-
-  const visitorSeed = `${cvHash}:${glHash}:${auHash}:${uaHash}:${hwConcurrency}:${scrWidth}x${scrHeight}`;
-  const fullDigest = await sha256Hex(visitorSeed);
-  const visitorId = 'CGP-' + fullDigest.slice(0, 12).toUpperCase();
-
   return {
-    visitorId,
-    canvasHash: cvHash,
-    webglHash: glHash,
-    audioHash: auHash,
-    hardwareConcurrency: hwConcurrency,
-    screenResolution: `${scrWidth}x${scrHeight}`,
-    colorDepth: clrDepth,
-    timezone: (() => {
-      try {
-        return (typeof Intl !== 'undefined' && Intl.DateTimeFormat)
-          ? Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
-          : 'UTC';
-      } catch {
-        return 'UTC';
-      }
-    })(),
-    userAgentHash: 'ua-' + uaHash.slice(0, 12),
+    visitorId: 'CGP-ANONYMOUS',
+    canvasHash: 'cv-anonymized',
+    webglHash: 'gl-anonymized',
+    audioHash: 'au-anonymized',
+    hardwareConcurrency: 0,
+    screenResolution: 'anonymized',
+    colorDepth: 0,
+    timezone: 'UTC',
+    userAgentHash: 'ua-anonymized',
     generatedAt: new Date().toISOString()
   };
 }

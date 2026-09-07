@@ -1,15 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { KeyRound, X, Copy, Check, Printer, RefreshCw, Cpu } from 'lucide-react';
-import { DeviceFingerprint, RecoveryCode } from '../types';
+import { KeyRound, X, Copy, Check, Printer, RefreshCw } from 'lucide-react';
+import { RecoveryCode } from '../types';
 import { loadStoredRecoveryCodes, generateAndStoreRecoveryCodes, markRecoveryCodeUsed } from '../security/deviceFingerprint';
 import { secureCopyToClipboard } from '../security/clipboard';
 
 interface DeviceSecurityModalProps {
-  deviceInfo: DeviceFingerprint | null;
   onClose: () => void;
 }
 
-export const DeviceSecurityModal: React.FC<DeviceSecurityModalProps> = ({ deviceInfo, onClose }) => {
+export const DeviceSecurityModal: React.FC<DeviceSecurityModalProps> = ({ onClose }) => {
   const [recoveryCodes, setRecoveryCodes] = useState<RecoveryCode[]>([]);
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
@@ -82,15 +81,15 @@ export const DeviceSecurityModal: React.FC<DeviceSecurityModalProps> = ({ device
         {/* Header */}
         <div className="flex items-center justify-between pb-4 border-b border-slate-800">
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-lg bg-blue-950/80 border border-blue-500/40 flex items-center justify-center text-blue-400">
+            <div className="w-9 h-9 rounded-lg bg-emerald-950/80 border border-emerald-500/40 flex items-center justify-center text-emerald-400">
               <KeyRound className="w-5 h-5" />
             </div>
             <div>
               <h3 className="text-base font-bold font-mono text-slate-100">
-                DEVICE IDENTIFICATION &amp; ONE-TIME RECOVERY CODES
+                EMERGENCY OFFLINE RECOVERY KEYS
               </h3>
               <p className="text-xs text-slate-400">
-                Software hardware fingerprinting via Canvas, WebGL &amp; Web Audio API.
+                Zero-knowledge CSPRNG one-time recovery tokens stored locally in IndexedDB with zero device tracking or telemetry.
               </p>
             </div>
           </div>
@@ -102,43 +101,6 @@ export const DeviceSecurityModal: React.FC<DeviceSecurityModalProps> = ({ device
             <X className="w-5 h-5" />
           </button>
         </div>
-
-        {/* Device Fingerprint Details */}
-        {deviceInfo && (
-          <div className="bg-slate-950/70 border border-slate-800 rounded-xl p-4 font-mono text-xs space-y-3">
-            <div className="text-xs font-bold text-blue-400 uppercase tracking-wider flex items-center gap-2">
-              <Cpu className="w-4 h-4" />
-              <span>Hardware / Software Fingerprint Signatures</span>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 text-slate-300">
-              <div className="p-2.5 bg-slate-900/90 rounded border border-slate-800">
-                <span className="text-[10px] text-slate-400 block uppercase">Device Visitor ID</span>
-                <span className="font-bold text-emerald-400">{deviceInfo.visitorId}</span>
-              </div>
-              <div className="p-2.5 bg-slate-900/90 rounded border border-slate-800">
-                <span className="text-[10px] text-slate-400 block uppercase">Canvas 2D Hash</span>
-                <span className="font-bold text-slate-200">{deviceInfo.canvasHash}</span>
-              </div>
-              <div className="p-2.5 bg-slate-900/90 rounded border border-slate-800">
-                <span className="text-[10px] text-slate-400 block uppercase">WebGL 3D Context Hash</span>
-                <span className="font-bold text-slate-200">{deviceInfo.webglHash}</span>
-              </div>
-              <div className="p-2.5 bg-slate-900/90 rounded border border-slate-800">
-                <span className="text-[10px] text-slate-400 block uppercase">Web Audio Buffer Hash</span>
-                <span className="font-bold text-slate-200">{deviceInfo.audioHash}</span>
-              </div>
-              <div className="p-2.5 bg-slate-900/90 rounded border border-slate-800">
-                <span className="text-[10px] text-slate-400 block uppercase">CPU Concurrency</span>
-                <span className="font-bold text-slate-200">{deviceInfo.hardwareConcurrency} Cores</span>
-              </div>
-              <div className="p-2.5 bg-slate-900/90 rounded border border-slate-800">
-                <span className="text-[10px] text-slate-400 block uppercase">Screen / Depth</span>
-                <span className="font-bold text-slate-200">{deviceInfo.screenResolution} ({deviceInfo.colorDepth}-bit)</span>
-              </div>
-            </div>
-          </div>
-        )}
 
         {/* 10 One-Time Recovery Codes */}
         <div className="space-y-3 font-mono">

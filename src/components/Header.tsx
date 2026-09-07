@@ -8,11 +8,9 @@ import {
   Cpu,
   KeyRound
 } from 'lucide-react';
-import { DeviceFingerprint } from '../types';
 import { PWAInstallButton } from './PWAInstallButton';
 
 interface HeaderProps {
-  deviceInfo: DeviceFingerprint | null;
   onOpenZeroizeModal: () => void;
   onOpenComplianceModal: () => void;
   onOpenBenchmarkModal: () => void;
@@ -21,7 +19,6 @@ interface HeaderProps {
 }
 
 export const Header: React.FC<HeaderProps> = ({
-  deviceInfo,
   onOpenZeroizeModal,
   onOpenComplianceModal,
   onOpenBenchmarkModal,
@@ -154,20 +151,17 @@ export const Header: React.FC<HeaderProps> = ({
               <span>Session: <strong className="text-amber-400">{formatTime(secondsRemaining)}</strong></span>
             </button>
 
-            {/* Device ID */}
-            {deviceInfo && (
-              <button
-                id="header-device-btn"
-                type="button"
-                onClick={onOpenDeviceModal}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-800 hover:border-blue-500/40 text-slate-300 hover:text-blue-300 font-mono transition-colors"
-                title="Device Fingerprint & 10 Recovery Codes"
-              >
-                <KeyRound className="w-3.5 h-3.5 text-blue-400" />
-                <span className="hidden sm:inline">{deviceInfo.visitorId}</span>
-                <span className="sm:hidden">Device</span>
-              </button>
-            )}
+            {/* 10 One-Time Emergency Recovery Keys */}
+            <button
+              id="header-recovery-btn"
+              type="button"
+              onClick={onOpenDeviceModal}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-800 hover:border-emerald-500/40 text-slate-300 hover:text-emerald-300 font-mono transition-colors"
+              title="10 One-Time Emergency Offline Recovery Keys (Stored in IndexedDB)"
+            >
+              <KeyRound className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Recovery Keys</span>
+            </button>
 
             {/* Benchmark Suite */}
             <button

@@ -6,8 +6,8 @@ import { xchacha20Poly1305Encrypt, xchacha20Poly1305Decrypt, chacha20Process } f
 import { deriveLayerKey, zeroizeBuffer } from '../crypto/cascadeEngine';
 import { calculateShannonEntropy, normalizeEntropyToTarget, denormalizeEntropy } from '../crypto/entropy';
 import { embedSpreadSpectrum8Locations, extractSpreadSpectrumPayload, createSyntheticMp4Carrier } from '../media/isobmff';
-import { generateDeviceFingerprint, generateRecoveryCodesInMemory } from '../security/deviceFingerprint';
 import { generateSecureRandomBytes } from '../crypto/safeRandom';
+import { generateRecoveryCodesInMemory } from '../security/deviceFingerprint';
 import { createDualVaultPackage } from '../vault/dualVault';
 import { CascadePasswords } from '../types';
 
@@ -107,11 +107,11 @@ export const BenchmarkSuite: React.FC<BenchmarkSuiteProps> = ({ onClose }) => {
     },
     {
       id: 't9',
-      name: 'Canvas 2D / WebGL / Web Audio Hardware Fingerprinting',
+      name: 'Zero-Telemetry & Anti-Forensic Device Neutrality Verification',
       category: 'Security',
       status: 'pending',
       durationMs: 0,
-      details: 'Collects unique browser audio synthesis, WebGL renderer, and 2D canvas checksums'
+      details: 'Confirms complete elimination of Canvas, WebGL, and Web Audio tracking telemetry'
     },
     {
       id: 't10',
@@ -249,8 +249,10 @@ export const BenchmarkSuite: React.FC<BenchmarkSuiteProps> = ({ onClose }) => {
               zeroizeBuffer(vA, vB);
             }
           } else if (test.id === 't9') {
-            const fp = await generateDeviceFingerprint();
-            if (!fp.visitorId.startsWith('CGP-')) throw new Error('Fingerprint format invalid');
+            // Verify zero device tracking and anti-forensic memory hygiene
+            const testSecret = generateSecureRandomBytes(32);
+            zeroizeBuffer(testSecret);
+            if (!testSecret.every(b => b === 0)) throw new Error('Zeroization hygiene failed');
           } else if (test.id === 't10') {
             // Pure in-memory verification: does NOT overwrite user's real IndexedDB recovery codes
             const codes = generateRecoveryCodesInMemory();

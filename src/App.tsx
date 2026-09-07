@@ -6,8 +6,7 @@ import {
   Activity,
   FileText
 } from 'lucide-react';
-import { DeviceFingerprint, AuditLogEntry, StatisticalMetrics, EmbeddingLocationReport } from './types';
-import { generateDeviceFingerprint } from './security/deviceFingerprint';
+import { AuditLogEntry, StatisticalMetrics, EmbeddingLocationReport } from './types';
 import { getNaturalMp4Distribution, calculateHistogram } from './crypto/entropy';
 import { secureRandomHex, generateSecureRandomBytes } from './crypto/safeRandom';
 import { Header } from './components/Header';
@@ -30,9 +29,6 @@ export default function App() {
   const [showComplianceModal, setShowComplianceModal] = useState<boolean>(false);
   const [showAirGapModal, setShowAirGapModal] = useState<boolean>(false);
   const [showBenchmarkModal, setShowBenchmarkModal] = useState<boolean>(false);
-
-  // Device Fingerprint
-  const [deviceInfo, setDeviceInfo] = useState<DeviceFingerprint | null>(null);
 
   // Audit Logs (Immutable Session State — starts empty, records live user operations)
   const [auditLogs, setAuditLogs] = useState<AuditLogEntry[]>([]);
@@ -136,14 +132,6 @@ export default function App() {
   const [inspectorPayloadSize, setInspectorPayloadSize] = useState<number>(1048576);
   const [inspectorCarrierName, setInspectorCarrierName] = useState<string>('Standard MP4 Video Stream');
 
-  // Generate Device Fingerprint on mount & record live audit log
-  useEffect(() => {
-    generateDeviceFingerprint().then(fp => {
-      setDeviceInfo(fp);
-      handleAddAuditLog('INTEGRITY_CHECK', 'Hardware Fingerprint Enclave Initialized', fp.visitorId);
-    });
-  }, []);
-
   const handleAddAuditLog = (eventType: 'ENCRYPTION' | 'DECRYPTION' | 'DUAL_VAULT_CREATION' | 'INTEGRITY_CHECK', details: string, digest: string) => {
     const newEntry: AuditLogEntry = {
       id: `log-${Date.now()}-${secureRandomHex(4)}`,
@@ -162,7 +150,6 @@ export default function App() {
   const handleZeroizeComplete = () => {
     setShowZeroizeModal(false);
     setAuditLogs([]);
-    setDeviceInfo(null);
     setInspectorLocations([]);
     setInspectorMetrics(null);
     setInspectorCarrierName('Sanitized Carrier State');
@@ -182,7 +169,6 @@ export default function App() {
       
       {/* Sticky Header */}
       <Header
-        deviceInfo={deviceInfo}
         onOpenZeroizeModal={() => setShowZeroizeModal(true)}
         onOpenComplianceModal={() => setShowComplianceModal(true)}
         onOpenBenchmarkModal={() => setShowBenchmarkModal(true)}
@@ -342,7 +328,6 @@ export default function App() {
 
       {showDeviceModal && (
         <DeviceSecurityModal
-          deviceInfo={deviceInfo}
           onClose={() => setShowDeviceModal(false)}
         />
       )}

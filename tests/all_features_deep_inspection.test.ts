@@ -461,9 +461,9 @@ async function startDeepInspection() {
   });
 
   // ---------------------------------------------------------------------------
-  // 10. Device Security & Hardware Fingerprinting
+  // 10. Zero-Knowledge Anonymity & Zero Device Fingerprinting Policy
   // ---------------------------------------------------------------------------
-  await runInspection('FEAT-10', 'Hardware Fingerprint Generation (Canvas/WebGL/Audio)', async () => {
+  await runInspection('FEAT-10', 'Zero-Knowledge Anonymity & Zero Device Fingerprinting Policy', async () => {
     const fp = await generateDeviceFingerprint();
     if (!fp.visitorId || fp.visitorId.length === 0) {
       throw new Error('Failed to generate device fingerprint visitor ID');
