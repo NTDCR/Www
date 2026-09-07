@@ -217,8 +217,8 @@ export async function embedSpreadSpectrum8Locations(
 
   await yieldToMainThread();
 
-  // Calculate 8-way striped chunk lengths
-  const chunkLens = new Uint32Array(8);
+  // Calculate 8-way striped chunk lengths (number[] prevents 32-bit integer truncation on >34GB streams)
+  const chunkLens: number[] = new Array(8);
   for (let c = 0; c < 8; c++) {
     chunkLens[c] = Math.floor(combinedPayloadLen / 8) + (c < (combinedPayloadLen % 8) ? 1 : 0);
   }

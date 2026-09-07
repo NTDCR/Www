@@ -190,12 +190,11 @@ class BrowserOpfsStreamHandle implements IOpfsStreamHandle {
 
   async write(chunk: Uint8Array, offset?: number): Promise<void> {
     if (!this.isOpen) throw new Error('BrowserOpfsStreamHandle is closed.');
+    const writeOffset = offset !== undefined ? offset : this.currentSize;
     const w = await this.ensureWritable();
-    if (offset !== undefined) {
-      await w.seek(offset);
-    }
+    await w.seek(writeOffset);
     await w.write(chunk);
-    const writeEnd = (offset !== undefined ? offset : this.currentSize) + chunk.length;
+    const writeEnd = writeOffset + chunk.length;
     if (writeEnd > this.currentSize) {
       this.currentSize = writeEnd;
     }

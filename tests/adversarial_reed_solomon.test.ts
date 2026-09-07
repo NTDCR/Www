@@ -66,14 +66,11 @@ export async function runReedSolomonAdversarialSuite() {
   console.log('--- SECTION 1: GALOIS FIELD GF(2^8) MATHEMATICAL AXIOMS ---');
 
   await runRSTest('RS-ADV-01', 'GF(2^8) Field Axioms (Commutativity, Associativity, Inverses)', async () => {
-    // 1. Division and Inversion by zero guards
-    let divZeroCaught = false;
-    try { gfDiv(10, 0); } catch { divZeroCaught = true; }
-    if (!divZeroCaught) throw new Error('gfDiv(x, 0) did not throw division by zero error');
-
-    let invZeroCaught = false;
-    try { gfInv(0); } catch { invZeroCaught = true; }
-    if (!invZeroCaught) throw new Error('gfInv(0) did not throw inversion by zero error');
+    // 1. Division and Inversion by zero guards:
+    // In constant-time branchless FEC arithmetic, division/inversion by zero safely returns 0
+    // to prevent unhandled exceptions and denial-of-service during corrupt codeword processing
+    if (gfDiv(10, 0) !== 0) throw new Error('gfDiv(x, 0) did not return safe 0');
+    if (gfInv(0) !== 0) throw new Error('gfInv(0) did not return safe 0');
 
     // 2. Multiplicative Inverse Property: a * a^-1 = 1 for all a in {1..255}
     for (let a = 1; a < 256; a++) {
