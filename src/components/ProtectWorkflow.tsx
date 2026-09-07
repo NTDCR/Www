@@ -37,8 +37,8 @@ import { globalStreamEventBus } from '../utils/streamEvents';
 import { Key6BadgeCard } from './Key6BadgeCard';
 import { AssessmentNotesEditor } from './AssessmentNotesEditor';
 import { deriveAndMask1024BitId, generateRandomKey6String, generateFreshKey6Salt } from '../crypto/key6Engine';
-import { getOrGenerateCarrierBlob, clearCarrierBlobCache } from '../media/mp4Generator';
-import { StreamingFileHandle, createStreamingFileHandle, loadStreamingFileHandleAsync, streamChunksDirectToDisk, sanitizeFilename, zeroizeStreamingHandle, readSliceWithFallback, isFilePermissionOrLockError } from '../utils/fileReader';
+import { clearCarrierBlobCache } from '../media/mp4Generator';
+import { StreamingFileHandle, loadStreamingFileHandleAsync, streamChunksDirectToDisk, sanitizeFilename, zeroizeStreamingHandle, readSliceWithFallback, isFilePermissionOrLockError } from '../utils/fileReader';
 import { VideoPlayerPreview } from './VideoPlayerPreview';
 import { yieldToMainThread } from '../utils/asyncUtils';
 import { sanitizePasswordString, zeroizeBuffer } from '../crypto/cascadeEngine';
@@ -108,30 +108,10 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
     };
   }, []);
 
-  // Carrier File State (Stored as lightweight streaming handle)
+  // Carrier File State (Stored as lightweight streaming handle - authentic custom MP4 only)
   const [carrierFile, setCarrierFile] = useState<StreamingFileHandle | null>(null);
-  const [useSyntheticCarrier, setUseSyntheticCarrier] = useState<boolean>(false);
   const [carrierPreviewBlob, setCarrierPreviewBlob] = useState<Blob | null>(null);
   const [showPlayerPreview, setShowPlayerPreview] = useState<boolean>(false);
-
-  // Initialize synthetic carrier only if user explicitly selects synthetic mode
-  useEffect(() => {
-    let isMounted = true;
-    if (useSyntheticCarrier && !carrierFile) {
-      getOrGenerateCarrierBlob(3).then(blob => {
-        if (!isMounted) return;
-        setCarrierPreviewBlob(blob);
-        const handle = createStreamingFileHandle(blob, 'ContentGuard_Carrier_Stream.mp4');
-        setCarrierFile(handle);
-      }).catch(err => {
-        if (!isMounted) return;
-        setErrorMsg('Failed to initialize synthetic carrier: ' + (err?.message || 'Carrier generation failed'));
-      });
-    }
-    return () => {
-      isMounted = false;
-    };
-  }, [useSyntheticCarrier, carrierFile]);
 
   // Vault Files State (Stored as lightweight streaming handle)
   const [vaultAFile, setVaultAFile] = useState<StreamingFileHandle | null>(null);
@@ -252,7 +232,7 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
   const [diskSaveStatus, setDiskSaveStatus] = useState<string | null>(null);
   const [isSavingDisk, setIsSavingDisk] = useState<boolean>(false);
   const [savedPath, setSavedPath] = useState<string | null>(null);
-  const [containerFormat, setContainerFormat] = useState<'veracrypt' | 'isobmff_mp4'>('veracrypt');
+  const [containerFormat, setContainerFormat] = useState<'veracrypt' | 'isobmff_mp4'>('isobmff_mp4');
 
   // In-flight navigation and accidental tab close protection
   useEffect(() => {
@@ -278,7 +258,7 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
       // Validate that carrier is a genuine MP4 / ISOBMFF container before proceeding (uses 6-tier fallback)
       const headerSlice = await readSliceWithFallback(file.slice(0, 64));
       if (!isValidIsobmffCarrier(headerSlice)) {
-        setErrorMsg('Invalid Video Carrier: Selected file is not a valid MP4/ISOBMFF container (missing "ftyp" header). Please select a valid MP4/H.264 video or use the built-in synthetic carrier.');
+        setErrorMsg('Invalid Video Carrier: Selected file is not a valid MP4/ISOBMFF container (missing "ftyp" header). Please select an authentic MP4/H.264 video.');
         setCarrierFile(null);
         setCarrierPreviewBlob(null);
         return;
@@ -287,7 +267,6 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
       const handle = await loadStreamingFileHandleAsync(file);
       setCarrierFile(handle);
       setCarrierPreviewBlob(file);
-      setUseSyntheticCarrier(false);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Error reading carrier file';
       if (isFilePermissionOrLockError(err)) {
@@ -301,14 +280,6 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
       setCarrierFile(null);
       setCarrierPreviewBlob(null);
     }
-  };
-
-  const handleCanvasCarrierGenerated = (blob: Blob, name: string) => {
-    setCarrierPreviewBlob(blob);
-    const handle = createStreamingFileHandle(blob, name);
-    setCarrierFile(handle);
-    setUseSyntheticCarrier(false);
-    setFilePermissionError(null);
   };
 
   const handleVaultASelection = async (file: File | null) => {
@@ -443,8 +414,8 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
       return;
     }
 
-    if (containerFormat === 'isobmff_mp4' && !useSyntheticCarrier && !carrierFile) {
-      setErrorMsg('Please select your custom MP4 video file or switch to Synthetic Carrier.');
+    if (containerFormat === 'isobmff_mp4' && !carrierFile) {
+      setErrorMsg('Custom MP4 Carrier Required: Please upload your authentic custom MP4 video carrier to proceed (or uncheck the MP4 checkmark below to switch to Raw Noise Scrap mode).');
       return;
     }
 
@@ -469,7 +440,7 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
         }
       }
     } else {
-      const rawName = carrierFile && !useSyntheticCarrier ? carrierFile.name : 'PROTECTED_CONTAINER.mp4';
+      const rawName = carrierFile ? carrierFile.name : 'PROTECTED_CONTAINER.mp4';
       const baseName = rawName.replace(/\.[^/.]+$/, '');
       defaultFilename = sanitizeFilename(`${baseName}_dualvault.mp4`);
       if (typeof window !== 'undefined' && 'showSaveFilePicker' in window) {
@@ -545,9 +516,8 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
           sha512Digest: veraRes.sha512Digest
         };
       } else {
-        const activeCarrier = useSyntheticCarrier ? null : carrierFile;
         res = await createDualVaultPackage(
-          activeCarrier,
+          carrierFile,
           vaultAFile,
           vaultBFile,
           vaultAPasswords,
@@ -608,13 +578,11 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
         }
       }
 
-      const actualCarrierSize = useSyntheticCarrier
-        ? (carrierPreviewBlob?.size || 15360)
-        : (carrierFile?.size || 5242880);
+      const actualCarrierSize = carrierFile?.size || 0;
       const actualPayloadSize = (vaultAFile?.size || 0) + (vaultBFile?.size || 0);
-      const actualCarrierName = containerFormat === 'veracrypt' ? 'Raw Anti-Forensic Noise Volume' : (carrierFile ? carrierFile.name : 'Synthetic Active Stream');
+      const actualCarrierName = containerFormat === 'veracrypt' ? 'Raw Anti-Forensic Noise Volume' : (carrierFile ? carrierFile.name : 'Custom MP4 Carrier');
       onMetricsGenerated?.(res.metrics, res.locationReports, actualCarrierSize, actualPayloadSize, actualCarrierName);
-      const carrierDesc = containerFormat === 'veracrypt' ? 'Raw Anti-Forensic Noise Stream (~1% Complete Garbage)' : (carrierFile ? `Custom Carrier (${carrierFile.name})` : 'Synthetic Active Stream');
+      const carrierDesc = containerFormat === 'veracrypt' ? 'Raw Anti-Forensic Noise Stream (~1% Complete Garbage)' : `Custom MP4 Carrier (${carrierFile?.name || 'video'})`;
       onAddAuditLog(
         'DUAL_VAULT_CREATION',
         `${carrierDesc} created in ${formatDurationHuman(totalDuration)}. Vault A (${vaultAFile.name}, ${vaultAFile.size}B) & Vault B (${vaultBFile.name}, ${vaultBFile.size}B) with 5-Layer Cascade.`,
@@ -659,7 +627,7 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
       const baseName = vaultAFile ? vaultAFile.name.replace(/\.[^/.]+$/, '') : 'PROTECTED_CONTAINER';
       const filename = containerFormat === 'veracrypt'
         ? sanitizeFilename(`${baseName}_raw_scrap.raw`)
-        : sanitizeFilename(`${carrierFile && !useSyntheticCarrier ? carrierFile.name.replace(/\.[^/.]+$/, '') : baseName}_dualvault.mp4`);
+        : sanitizeFilename(`${carrierFile ? carrierFile.name.replace(/\.[^/.]+$/, '') : baseName}_dualvault.mp4`);
       const chunks = result.protectedChunks || [result.protectedMp4Bytes];
       const outcome = await streamChunksDirectToDisk(filename, chunks, (_bytes, status) => {
         if (isMountedRef.current) setDiskSaveStatus(status);
@@ -778,142 +746,133 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
                 <span className="w-6 h-6 rounded-full bg-emerald-950 border border-emerald-500/50 text-emerald-400 text-xs font-mono font-bold flex items-center justify-center">1</span>
-                <h3 className="text-sm font-bold font-mono text-slate-200 uppercase">MP4 Carrier Media Asset</h3>
+                <h3 className="text-sm font-bold font-mono text-slate-200 uppercase">
+                  {containerFormat === 'isobmff_mp4' ? 'Custom MP4 Carrier Asset' : 'Step 1: MP4 Carrier (Bypassed)'}
+                </h3>
               </div>
-              <span className="text-[10px] font-mono text-slate-400 uppercase bg-slate-800 px-2 py-0.5 rounded">Standard MP4 Only</span>
+              <span className={`text-[10px] font-mono uppercase px-2 py-0.5 rounded ${
+                containerFormat === 'isobmff_mp4'
+                  ? 'text-emerald-400 bg-emerald-950/80 border border-emerald-500/40'
+                  : 'text-slate-400 bg-slate-800'
+              }`}>
+                {containerFormat === 'isobmff_mp4' ? 'Authentic MP4 Required' : 'Bypassed in Raw Mode'}
+              </span>
             </div>
 
-            <p className="text-xs text-slate-400 mb-4">
-              Select an existing natural MP4 video carrier, or generate an in-memory standard compliant ISOBMFF carrier.
-            </p>
+            {containerFormat === 'isobmff_mp4' ? (
+              <>
+                <p className="text-xs text-slate-400 mb-4">
+                  Upload an authentic recorded MP4 cover video from your phone or camera to hide your dual-vault payloads. (Synthetic in-memory carrier has been completely wiped out for uncompromising operational security).
+                </p>
 
-            {/* Synthetic vs Custom Toggle */}
-            <div className="grid grid-cols-2 gap-2 mb-4 font-mono text-xs">
-              <button
-                type="button"
-                onClick={() => setUseSyntheticCarrier(true)}
-                className={`p-3 rounded-lg border text-left transition-colors ${
-                  useSyntheticCarrier
-                    ? 'bg-emerald-950/50 border-emerald-500/60 text-emerald-300'
-                    : 'bg-slate-950/50 border-slate-800 text-slate-400 hover:border-slate-700'
-                }`}
-              >
-                <div className="font-bold flex items-center gap-1.5 mb-1">
-                  <Video className="w-4 h-4 text-emerald-400" />
-                  <span>Synthetic Carrier</span>
+                {/* Custom MP4 Upload Dropzone */}
+                <div 
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    handleCarrierSelection(e.dataTransfer.files?.[0] || null);
+                  }}
+                  className="border-2 border-dashed border-slate-700 hover:border-emerald-500/50 rounded-lg p-5 text-center cursor-pointer transition-colors bg-slate-950/40 mb-4"
+                >
+                  <div className="flex flex-col items-center justify-center gap-2">
+                    <UploadCloud className="w-6 h-6 text-emerald-400" />
+                    <span className="text-xs font-bold text-slate-200 font-mono">
+                      {carrierFile ? carrierFile.name : 'Drag & drop or click to select custom MP4 video'}
+                    </span>
+                    <input
+                      ref={carrierInputRef}
+                      type="file"
+                      accept="video/mp4"
+                      onChange={(e) => handleCarrierSelection(e.target.files?.[0] || null)}
+                      className="w-full text-xs text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-emerald-950 file:text-emerald-400 hover:file:bg-emerald-900 cursor-pointer"
+                    />
+                  </div>
+                  {carrierFile && (
+                    <p className="mt-2 text-xs text-emerald-400 font-mono font-bold">
+                      ✓ Custom Carrier Loaded: {carrierFile.name} ({(carrierFile.size / (1024 * 1024)).toFixed(2)} MB)
+                    </p>
+                  )}
                 </div>
-                <div className="text-[11px] text-slate-400">Pure H.264 ISOBMFF video stream generated in RAM</div>
-              </button>
 
-              <button
-                type="button"
-                onClick={() => {
-                  setUseSyntheticCarrier(false);
-                  if (carrierFile?.name === 'ContentGuard_Carrier_Stream.mp4') {
-                    setCarrierFile(null);
-                  }
-                }}
-                className={`p-3 rounded-lg border text-left transition-colors ${
-                  !useSyntheticCarrier
-                    ? 'bg-emerald-950/50 border-emerald-500/60 text-emerald-300'
-                    : 'bg-slate-950/50 border-slate-800 text-slate-400 hover:border-slate-700'
-                }`}
-              >
-                <div className="font-bold flex items-center gap-1.5 mb-1">
-                  <UploadCloud className="w-4 h-4 text-emerald-400" />
-                  <span>Upload Custom MP4</span>
+                {/* Carrier Stream Status Card */}
+                <div className="mt-2 p-3.5 bg-slate-950/80 border border-slate-800 rounded-lg space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-mono font-bold text-slate-200 flex items-center gap-1.5">
+                      <Film className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Carrier Configuration</span>
+                    </span>
+                    <span className="text-[10px] font-mono font-bold text-emerald-400 bg-emerald-950/80 border border-emerald-500/40 px-2 py-0.5 rounded">
+                      {carrierFile ? 'Custom File Ready' : 'Awaiting Upload'}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] font-mono text-slate-400 pt-1">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-slate-500">Source:</span>
+                      <span className="text-slate-300 font-semibold truncate max-w-[150px]">
+                        {carrierFile ? carrierFile.name : 'No custom MP4 selected'}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-slate-500">Format:</span>
+                      <span className="text-slate-300">ISO/IEC 14496-12 MP4</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-slate-500">Codec:</span>
+                      <span className="text-slate-300">H.264 / AVC1 (Universal)</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-slate-500">Device Playback:</span>
+                      <span className="text-emerald-400 font-semibold">100% Native (VLC, Phones, PC)</span>
+                    </div>
+                  </div>
                 </div>
-                <div className="text-[11px] text-slate-400">Use your own raw recorded MP4 file as cover</div>
-              </button>
-            </div>
 
-            {!useSyntheticCarrier && (
-              <div 
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  handleCarrierSelection(e.dataTransfer.files?.[0] || null);
-                }}
-                className="border-2 border-dashed border-slate-700 hover:border-emerald-500/50 rounded-lg p-4 text-center cursor-pointer transition-colors bg-slate-950/40 mb-4"
-              >
-                <input
-                  ref={carrierInputRef}
-                  type="file"
-                  accept="video/mp4"
-                  onChange={(e) => handleCarrierSelection(e.target.files?.[0] || null)}
-                  className="w-full text-xs text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-emerald-950 file:text-emerald-400 hover:file:bg-emerald-900 cursor-pointer"
-                />
-                {carrierFile && (
-                  <p className="mt-2 text-xs text-emerald-400 font-mono">
-                    Selected: {carrierFile.name} ({(carrierFile.size / 1024).toFixed(1)} KB)
-                  </p>
+                {/* Live Carrier Video Preview Toggle & Player */}
+                {carrierPreviewBlob && (
+                  <div className="mt-3">
+                    <button
+                      type="button"
+                      onClick={() => setShowPlayerPreview(!showPlayerPreview)}
+                      className="w-full flex items-center justify-center gap-2 py-1.5 px-3 rounded-lg border border-slate-700 bg-slate-950/60 text-slate-300 hover:text-emerald-400 hover:border-emerald-500/40 text-xs font-mono transition-colors"
+                    >
+                      <Play className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>{showPlayerPreview ? 'Hide Carrier Video Player' : 'Live Carrier Video Player Preview'}</span>
+                    </button>
+                    {showPlayerPreview && (
+                      <div className="mt-3">
+                        <VideoPlayerPreview
+                          videoBlob={carrierPreviewBlob}
+                          title={`Carrier: ${carrierFile?.name || 'Custom Video'}`}
+                          subtitle="Authentic Custom Cover Video"
+                          badgeText="100% Playable Stream"
+                          showCanvasGenerator={false}
+                        />
+                      </div>
+                    )}
+                  </div>
                 )}
+              </>
+            ) : (
+              /* Raw Noise Mode Active - Step 1 Bypassed */
+              <div className="p-4 bg-slate-950/80 border border-slate-800 rounded-lg space-y-3 font-mono text-xs">
+                <div className="flex items-center gap-2 text-emerald-400 font-bold">
+                  <ShieldCheck className="w-4 h-4" />
+                  <span>Raw Anti-Forensic Noise Stream Active (~1% Garbage)</span>
+                </div>
+                <p className="text-slate-400 leading-relaxed text-[11px]">
+                  Step 1 is bypassed. In Raw Noise Scrap mode, <strong className="text-slate-200">no video cover is required</strong>. Your dual-vault payloads will be directly streamed into a non-sector aligned cryptographic scrap container (<code className="text-emerald-400">.raw</code>) with strictly ~1% overhead and zero magic bytes.
+                </p>
+                <div className="p-2.5 bg-emerald-950/40 border border-emerald-500/30 rounded text-[11px] text-emerald-300 flex items-center gap-2">
+                  <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>Zero Video Required. Proceed directly to Step 2 (Dual-Vault Payloads) and Step 3 (Passwords).</span>
+                </div>
               </div>
             )}
-
-            {/* Carrier Stream Status Card (Optimized: No heavy browser video element) */}
-            <div className="mt-4 p-3.5 bg-slate-950/80 border border-slate-800 rounded-lg space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-mono font-bold text-slate-200 flex items-center gap-1.5">
-                  <Film className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>Carrier Stream Configuration</span>
-                </span>
-                <span className="text-[10px] font-mono font-bold text-emerald-400 bg-emerald-950/80 border border-emerald-500/40 px-2 py-0.5 rounded">
-                  Playback Verified
-                </span>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] font-mono text-slate-400 pt-1">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-slate-500">Source:</span>
-                  <span className="text-slate-300 font-semibold">
-                    {useSyntheticCarrier 
-                      ? 'Synthetic 30 FPS Stream' 
-                      : (carrierFile ? `Custom Video (${carrierFile.name})` : 'Awaiting Custom MP4 upload...')}
-                  </span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="text-slate-500">Format:</span>
-                  <span className="text-slate-300">ISO/IEC 14496-12 MP4</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="text-slate-500">Codec:</span>
-                  <span className="text-slate-300">H.264 / AVC1 (Universal)</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="text-slate-500">Device Playback:</span>
-                  <span className="text-emerald-400 font-semibold">100% Native (VLC, Phones, PC)</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Live Carrier Video Preview Toggle & Player */}
-            <div className="mt-3">
-              <button
-                type="button"
-                onClick={() => setShowPlayerPreview(!showPlayerPreview)}
-                className="w-full flex items-center justify-center gap-2 py-1.5 px-3 rounded-lg border border-slate-700 bg-slate-950/60 text-slate-300 hover:text-emerald-400 hover:border-emerald-500/40 text-xs font-mono transition-colors"
-              >
-                <Play className="w-3.5 h-3.5 text-emerald-400" />
-                <span>{showPlayerPreview ? 'Hide Carrier Video Player' : 'Live Carrier Video Player Preview'}</span>
-              </button>
-              {showPlayerPreview && (
-                <div className="mt-3">
-                  <VideoPlayerPreview
-                    videoBlob={carrierPreviewBlob}
-                    title={useSyntheticCarrier ? 'Synthetic Carrier Stream' : (carrierFile ? `Carrier: ${carrierFile.name}` : 'Carrier Preview')}
-                    subtitle={useSyntheticCarrier ? '30 FPS ISO/IEC 14496-12 Compliant H.264 Stream' : 'Custom Uploaded Cover Video'}
-                    badgeText="100% Playable Stream"
-                    onNewCarrierGenerated={handleCanvasCarrierGenerated}
-                    showCanvasGenerator={useSyntheticCarrier}
-                  />
-                </div>
-              )}
-            </div>
           </div>
 
           <div className="text-[11px] font-mono text-slate-500 mt-4 pt-3 border-t border-slate-800 flex items-center justify-between">
-            <span>ISOBMFF Standard Header: ftyp 'isom' / 'mp42'</span>
-            <span className="text-emerald-400 font-semibold">Zero Custom Signatures</span>
+            <span>{containerFormat === 'isobmff_mp4' ? 'ISOBMFF Standard Header: ftyp isom/mp42' : 'Pure Raw Noise: Non-Sector Aligned'}</span>
+            <span className="text-emerald-400 font-semibold">{containerFormat === 'isobmff_mp4' ? 'Authentic Custom Video Only' : 'Zero Headers / Complete Garbage'}</span>
           </div>
         </div>
 
@@ -934,46 +893,30 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
 
             <div className="space-y-3 font-mono text-xs">
               {/* Stealth Carrier-to-Payload Ratio Gauge */}
-              {(() => {
+              {containerFormat === 'isobmff_mp4' && (() => {
                 const pSize = (vaultAFile?.size || 0) + (vaultBFile?.size || 0);
                 const actualCarrierSize = carrierFile?.size || (carrierPreviewBlob?.size || 0);
                 const calcRatio = pSize > 0 && actualCarrierSize > 0 ? (actualCarrierSize / pSize) : 0;
-                const isOptimal = calcRatio >= 3.0 && !useSyntheticCarrier;
+                const isOptimal = calcRatio >= 3.0;
 
                 return (
                   <div className={`p-2.5 rounded-lg border flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-[11px] ${
-                    useSyntheticCarrier
-                      ? 'bg-sky-950/40 border-sky-500/40 text-sky-300'
-                      : (isOptimal
-                        ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300'
-                        : 'bg-amber-950/40 border-amber-500/40 text-amber-300')
+                    isOptimal
+                      ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300'
+                      : 'bg-amber-950/40 border-amber-500/40 text-amber-300'
                   }`}>
                     <span className="flex items-center gap-1.5 font-bold">
                       <Sparkles className="w-3.5 h-3.5" />
-                      {useSyntheticCarrier
-                        ? `Synthetic Carrier (${actualCarrierSize > 0 ? (actualCarrierSize / 1024).toFixed(0) : '0'} KB)`
-                        : `Carrier Stealth Ratio: ${calcRatio > 0 ? `${calcRatio.toFixed(1)}x` : 'Awaiting files'}`}
+                      {`Carrier Stealth Ratio: ${calcRatio > 0 ? `${calcRatio.toFixed(1)}x` : 'Awaiting custom MP4...'}`}
                     </span>
                     <span className="text-[10px] uppercase font-bold">
-                      {useSyntheticCarrier
-                        ? 'ℹ Testing Stream • Upload custom 100MB+ MP4 for high-stakes stealth'
-                        : (isOptimal
-                          ? '✓ 100/100 Optimal Anti-Forensics'
-                          : '⚠ Caution: Use larger carrier MP4 (≥3x to 10x) for stealth')}
+                      {isOptimal
+                        ? '✓ 100/100 Optimal Anti-Forensics'
+                        : '⚠ Caution: Use larger carrier MP4 (≥3x to 10x) for stealth'}
                     </span>
                   </div>
                 );
               })()}
-
-              {useSyntheticCarrier && (
-                <div className="p-3 bg-sky-950/50 border border-sky-500/40 rounded-lg text-xs font-mono text-sky-300 flex items-start gap-2">
-                  <Sparkles className="w-4 h-4 text-sky-400 shrink-0 mt-0.5" />
-                  <div>
-                    <span className="font-bold block">Adversarial Steganalysis Advisory (OpSec Protocol):</span>
-                    Synthetic carrier generates clean, playable Baseline H.264 video for testing and air-gapped transport. For plausible deniability against advanced nation-state deep-learning neural network steganalysis (SRNet / Xu-Net), always use an authentic smartphone or camera MP4 recording with natural photon sensor noise.
-                  </div>
-                </div>
-              )}
 
               {Boolean(
                 (carrierFile && carrierFile.size >= 1.5 * 1024 * 1024 * 1024) ||
@@ -1383,42 +1326,68 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
       )}
 
       {/* Anti-Forensic Container Architecture Selector */}
-      <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-lg flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4">
-        <div>
-          <div className="text-xs font-mono font-bold uppercase tracking-wider text-slate-200 flex items-center gap-2">
-            <ShieldCheck className="w-4 h-4 text-emerald-400" />
-            <span>Anti-Forensic Container Architecture</span>
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-lg space-y-4">
+        <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4">
+          <div>
+            <div className="text-xs font-mono font-bold uppercase tracking-wider text-slate-200 flex items-center gap-2">
+              <ShieldCheck className="w-4 h-4 text-emerald-400" />
+              <span>Anti-Forensic Container Architecture</span>
+            </div>
+            <p className="text-xs text-slate-400 mt-0.5">
+              {containerFormat === 'isobmff_mp4'
+                ? 'Covert MP4 Video Carrier (Default): Data is embedded into 8 ISOBMFF metadata boxes of your custom playable MP4 video. Uncheck the mark below to switch to Raw Noise Scrap.'
+                : 'Raw Anti-Forensic Noise Stream Active: Strictly ~1% overhead, non-sector aligned, 0 magic bytes, 100% cryptographic garbage. Check the mark below to restore MP4 Carrier.'}
+            </p>
           </div>
-          <p className="text-xs text-slate-400 mt-0.5">
-            {containerFormat === 'veracrypt'
-              ? 'Raw Anti-Forensic Noise Stream: Strictly ~1% overhead, complete cryptographic garbage, non-sector aligned, zero headers, real-time on-the-fly streaming.'
-              : 'Covert MP4 Video Carrier: Embedded into standard playable ISO/IEC 14496-12 video file.'}
-          </p>
+
+          <div className="flex items-center gap-2">
+            {containerFormat === 'isobmff_mp4' ? (
+              <span className="text-xs font-mono font-bold text-emerald-400 bg-emerald-950/80 border border-emerald-500/50 px-3 py-1.5 rounded-lg flex items-center gap-1.5 shadow-sm">
+                <CheckCircle className="w-4 h-4 text-emerald-400" />
+                <span>Covert MP4 Mode (Default)</span>
+              </span>
+            ) : (
+              <span className="text-xs font-mono font-bold text-amber-400 bg-amber-950/80 border border-amber-500/50 px-3 py-1.5 rounded-lg flex items-center gap-1.5 shadow-sm">
+                <Sparkles className="w-4 h-4 text-amber-400" />
+                <span>Raw Noise Scrap Mode (~1% Garbage)</span>
+              </span>
+            )}
+          </div>
         </div>
 
-        <div className="flex items-center gap-2 bg-slate-950 p-1.5 rounded-lg border border-slate-800 text-xs font-mono">
-          <button
-            type="button"
-            onClick={() => setContainerFormat('veracrypt')}
-            className={`px-3.5 py-2 rounded-md transition-all font-bold ${
-              containerFormat === 'veracrypt'
-                ? 'bg-emerald-500 text-slate-950 shadow-md'
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            Raw Noise (~1% Garbage)
-          </button>
-          <button
-            type="button"
-            onClick={() => setContainerFormat('isobmff_mp4')}
-            className={`px-3.5 py-2 rounded-md transition-all font-bold ${
-              containerFormat === 'isobmff_mp4'
-                ? 'bg-emerald-500 text-slate-950 shadow-md'
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            Covert MP4 Video Carrier
-          </button>
+        {/* Checkmark Gated Toggle Control */}
+        <div className="p-4 bg-slate-950/90 border border-slate-800 rounded-lg hover:border-slate-700 transition-colors">
+          <label className="flex items-start sm:items-center gap-3.5 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              id="covert-mp4-checkbox"
+              data-testid="covert-mp4-checkbox"
+              checked={containerFormat === 'isobmff_mp4'}
+              onChange={(e) => setContainerFormat(e.target.checked ? 'isobmff_mp4' : 'veracrypt')}
+              className="w-5 h-5 mt-0.5 sm:mt-0 accent-emerald-500 rounded border-slate-700 bg-slate-900 cursor-pointer focus:ring-2 focus:ring-emerald-500"
+            />
+            <div className="flex-1">
+              <div className="flex items-center gap-2">
+                <span className="font-mono font-bold text-xs sm:text-sm text-slate-100">
+                  {containerFormat === 'isobmff_mp4'
+                    ? 'Use Covert MP4 Video Carrier (Default Active)'
+                    : 'Raw Anti-Forensic Noise Stream Engaged (Checkmark Removed)'}
+                </span>
+                <span className={`text-[10px] font-mono px-2 py-0.5 rounded font-bold uppercase ${
+                  containerFormat === 'isobmff_mp4'
+                    ? 'bg-emerald-950 text-emerald-400 border border-emerald-500/40'
+                    : 'bg-amber-950 text-amber-400 border border-amber-500/40'
+                }`}>
+                  {containerFormat === 'isobmff_mp4' ? 'Checkmark Active' : 'Checkmark Removed'}
+                </span>
+              </div>
+              <p className="text-xs text-slate-400 mt-1 font-mono leading-relaxed">
+                {containerFormat === 'isobmff_mp4'
+                  ? '✓ Checkmark is ON: Dual-vault data embeds into custom MP4 video carrier. Uncheck this checkmark to switch to Raw Anti-Forensic Noise Scrap mode (~1% Garbage).'
+                  : '⚡ Checkmark is OFF: Raw Noise mode active (strictly ~1% overhead, non-sector aligned, zero headers, no video carrier needed). Check mark again to restore Covert MP4 mode.'}
+              </p>
+            </div>
+          </label>
         </div>
       </div>
 
@@ -1624,7 +1593,7 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
           <StatisticalInspector
             metrics={result.metrics}
             locationReports={result.locationReports}
-            carrierSize={useSyntheticCarrier ? (carrierPreviewBlob?.size || 15360) : (carrierFile?.size || 5242880)}
+            carrierSize={carrierFile?.size || 0}
             payloadSize={(vaultAFile?.size || 0) + (vaultBFile?.size || 0)}
           />
         </div>
