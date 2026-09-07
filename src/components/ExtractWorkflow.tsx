@@ -370,7 +370,7 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
     setTimeout(() => {
       try { URL.revokeObjectURL(url); } catch {}
       activeBlobUrlsRef.current = activeBlobUrlsRef.current.filter(u => u !== url);
-    }, 120000);
+    }, 10000);
   };
 
   const handleZeroizeExtractionSession = () => {

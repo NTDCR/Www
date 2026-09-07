@@ -777,9 +777,11 @@ export async function encryptCascade5Layers(
     for (const c of encryptedChunks) totalEncLen += c.length;
     fullCiphertext = new Uint8Array(totalEncLen);
     let cp = 0;
-    for (const c of encryptedChunks) {
+    for (let i = 0; i < encryptedChunks.length; i++) {
+      const c = encryptedChunks[i];
       fullCiphertext.set(c, cp);
       cp += c.length;
+      encryptedChunks[i] = new Uint8Array(0);
     }
     // Release independent chunk allocations to immediately halve heap memory footprint
     encryptedChunks.length = 0;

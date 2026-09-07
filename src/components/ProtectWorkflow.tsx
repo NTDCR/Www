@@ -521,7 +521,7 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
     setTimeout(() => {
       try { URL.revokeObjectURL(url); } catch {}
       activeBlobUrlsRef.current = activeBlobUrlsRef.current.filter(u => u !== url);
-    }, 120000);
+    }, 10000);
   };
 
   const handleZeroizeProtectionSession = () => {

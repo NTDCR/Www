@@ -26,7 +26,7 @@ import {
 import { normalizeEntropyToTarget, denormalizeEntropy, denormalizeEntropyHeaderFast, analyzeStatisticalCompliance } from '../crypto/entropy';
 import { embedSpreadSpectrum8Locations, extractSpreadSpectrumPayload, isValidIsobmffCarrier } from '../media/isobmff';
 import { getOrGenerateCarrierBlob, clearCarrierBlobCache } from '../media/mp4Generator';
-import { readFileAsUint8Array, StreamingFileHandle, sanitizeFilename, zeroizeStreamingHandle } from '../utils/fileReader';
+import { readFileAsUint8Array, readChunkFromHandle, StreamingFileHandle, sanitizeFilename, zeroizeStreamingHandle } from '../utils/fileReader';
 import { generateSecureRandomBytes } from '../crypto/safeRandom';
 import { yieldToMainThread } from '../utils/asyncUtils';
 import {
@@ -279,9 +279,24 @@ export async function createDualVaultPackage(
   }
 
   let carrierBuffer: Uint8Array;
+  let largeCarrierBlob: Blob | null = null;
+  const carrierSize = carrierFile
+    ? ('size' in carrierFile ? carrierFile.size : (carrierFile instanceof Uint8Array ? carrierFile.length : 0))
+    : 0;
+
   if (carrierFile) {
     if (carrierFile instanceof Uint8Array) {
       carrierBuffer = carrierFile;
+    } else if (carrierSize > 64 * 1024 * 1024) {
+      // For large multi-GB carriers (> 64 MB), inspect header slice without monolithic ArrayBuffer allocation
+      const headerBytes = await readChunkFromHandle(carrierFile, 0, 65536);
+      if (!isValidIsobmffCarrier(headerBytes)) {
+        throw new Error('Carrier Validation Error: Selected carrier file is not a valid MP4/ISOBMFF container (missing "ftyp" header). Please select a valid MP4 video or use the built-in synthetic carrier.');
+      }
+      carrierBuffer = headerBytes;
+      largeCarrierBlob = ('source' in carrierFile && carrierFile.source instanceof Blob)
+        ? carrierFile.source
+        : (carrierFile instanceof Blob ? carrierFile : null);
     } else {
       carrierBuffer = await readFileAsUint8Array(carrierFile);
       if (carrierBuffer.length === 0) {
@@ -524,8 +539,11 @@ export async function createDualVaultPackage(
 
     onProgress?.('Protected MP4 Dual-Vault Container Ready (Strict 1 MB streaming verified)', 100);
 
-    // In browsers, new Blob(boxChunks) uses streaming disk backing without allocating contiguous heap memory
-    const protectedBlob = new Blob(boxChunks, { type: 'video/mp4' });
+    // In browsers, new Blob(finalBoxChunks) uses streaming disk backing without allocating contiguous heap memory
+    const finalBoxChunks: (BlobPart)[] = (largeCarrierBlob && boxChunks.length > 0)
+      ? [largeCarrierBlob, ...boxChunks.slice(1)]
+      : boxChunks;
+    const protectedBlob = new Blob(finalBoxChunks, { type: 'video/mp4' });
 
     return {
       protectedMp4Blob: protectedBlob,

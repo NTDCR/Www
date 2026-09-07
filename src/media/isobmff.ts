@@ -754,6 +754,8 @@ export async function extractSpreadSpectrumPayload(protectedMp4: Uint8Array): Pr
     }
 
     return { vaultABytes, vaultBBytes };
+  } catch {
+    return { vaultABytes: new Uint8Array(0), vaultBBytes: new Uint8Array(0) };
   } finally {
     // Note: chunks are subarrays of the input protectedMp4, do not mutate caller buffer
   }

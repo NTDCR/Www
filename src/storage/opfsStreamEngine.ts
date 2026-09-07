@@ -263,7 +263,9 @@ export function isOpfsSupported(): boolean {
   return (
     typeof navigator !== 'undefined' &&
     !!navigator.storage &&
-    typeof navigator.storage.getDirectory === 'function'
+    typeof navigator.storage.getDirectory === 'function' &&
+    typeof FileSystemFileHandle !== 'undefined' &&
+    typeof (FileSystemFileHandle.prototype as any)?.createWritable === 'function'
   );
 }
 
@@ -290,6 +292,7 @@ export async function createOpfsStreamHandle(customName?: string): Promise<IOpfs
 /**
  * Anti-Forensic Zeroization: DoD 5220.22-M compliant 3-pass overwrite
  * Overwrites target handle with 0x55, then 0xAA, then 0x00 before truncating and closing.
+ * Unconditionally wipes virtual memory and removes OPFS entry even if quota is exhausted.
  */
 export async function purgeAndZeroizeOpfs(handle: IOpfsStreamHandle): Promise<void> {
   try {
@@ -300,25 +303,30 @@ export async function purgeAndZeroizeOpfs(handle: IOpfsStreamHandle): Promise<vo
       const passAA = new Uint8Array(wipeBlockSize); passAA.fill(0xaa);
       const pass00 = new Uint8Array(wipeBlockSize); pass00.fill(0x00);
 
-      const passes = [pass55, passAA, pass00];
-      for (const passBuffer of passes) {
-        let written = 0;
-        while (written < size) {
-          const len = Math.min(wipeBlockSize, size - written);
-          await handle.write(passBuffer.subarray(0, len), written);
-          written += len;
-          if ((written & 1048575) === 0) {
-            await yieldToMainThread();
+      try {
+        const passes = [pass55, passAA, pass00];
+        for (const passBuffer of passes) {
+          let written = 0;
+          while (written < size) {
+            const len = Math.min(wipeBlockSize, size - written);
+            await handle.write(passBuffer.subarray(0, len), written);
+            written += len;
+            if ((written & 1048575) === 0) {
+              await yieldToMainThread();
+            }
           }
         }
+      } finally {
+        pass55.fill(0);
+        passAA.fill(0);
+        pass00.fill(0);
       }
-      pass55.fill(0);
-      passAA.fill(0);
-      pass00.fill(0);
     }
-
-    await handle.truncate(0);
-    await handle.close();
+  } catch {
+    // QuotaExceededError or write failure falls through to guaranteed cleanup
+  } finally {
+    try { await handle.truncate(0); } catch {}
+    try { await handle.close(); } catch {}
 
     if (handle instanceof VirtualOpfsMemoryStore) {
       handle.wipeMemory();
@@ -329,5 +337,5 @@ export async function purgeAndZeroizeOpfs(handle: IOpfsStreamHandle): Promise<vo
         await sandboxDir.removeEntry(handle.getName());
       } catch {}
     }
-  } catch {}
+  }
 }
