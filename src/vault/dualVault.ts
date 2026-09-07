@@ -173,7 +173,11 @@ export async function getOrExtractContainerBundles(
       headerUnshapedA, headerDecodedA, unshapedA, rsRepairedA,
       headerUnshapedB, headerDecodedB, unshapedB, rsRepairedB
     );
-    if (!(protectedMp4File instanceof Uint8Array) && !isAlreadyInMemory) {
+    if (protectedMp4File instanceof Uint8Array) {
+      // Caller owned buffer
+    } else if (typeof protectedMp4File === 'object' && protectedMp4File !== null && 'bytes' in protectedMp4File && (protectedMp4File as any).bytes === protectedBytes) {
+      // Retain handle-cached bytes for extraction
+    } else {
       zeroizeBuffer(protectedBytes);
     }
   }
@@ -698,7 +702,11 @@ export async function extractFromDualVaultPackage(
   } finally {
     zeroizeBuffer(vaultABytes, vaultBBytes);
     if (!(protectedMp4File instanceof Uint8Array) && protectedBytes && !isAlreadyInMemory) {
-      zeroizeBuffer(protectedBytes);
+      if (typeof protectedMp4File === 'object' && protectedMp4File !== null && 'bytes' in protectedMp4File && (protectedMp4File as any).bytes === protectedBytes && !overallSuccess) {
+        // Retain cached bytes on handle for user password retry without forcing file re-upload
+      } else {
+        zeroizeBuffer(protectedBytes);
+      }
     }
     if (overallSuccess && protectedMp4File && typeof protectedMp4File === 'object' && 'name' in protectedMp4File) {
       zeroizeStreamingHandle(protectedMp4File);

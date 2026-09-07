@@ -165,6 +165,14 @@ export async function execute35PassSecureWipe(
     }
   } catch {}
 
+  // 5b. Purge OPFS .cgpm_sandbox temporary streaming directory
+  try {
+    if (typeof navigator !== 'undefined' && navigator.storage && typeof navigator.storage.getDirectory === 'function') {
+      const root = await navigator.storage.getDirectory();
+      await root.removeEntry('.cgpm_sandbox', { recursive: true });
+    }
+  } catch {}
+
   // 6. Final memory and storage purge + V8 generational garbage collection sweep
   try {
     if (typeof window !== 'undefined') {

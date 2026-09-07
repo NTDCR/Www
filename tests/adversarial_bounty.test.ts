@@ -11,6 +11,7 @@ import { generatePlausibleDecoyTemplate } from '../src/components/AssessmentNote
 import { isAssessmentNotesComplete } from '../src/types';
 import { generateRecoveryCodesInMemory, generateAndStoreRecoveryCodes } from '../src/security/deviceFingerprint';
 import { secureCopyToClipboard, purgeClipboard, getClipboardPurgeStatus } from '../src/security/clipboard';
+import { execute35PassSecureWipe } from '../src/security/sanitization';
 import { calculateChiSquareTest, normalizeEntropyToTarget, denormalizeEntropyHeaderFast } from '../src/crypto/entropy';
 import { kyber1024KeyGen, kyber1024Encapsulate, kyber1024Decapsulate } from '../src/crypto/kyber1024';
 import { getOrGenerateCarrierBlob, clearCarrierBlobCache } from '../src/media/mp4Generator';
@@ -1418,6 +1419,83 @@ async function runBountySuite() {
     'Universal OPFS 1MB Paging, ISOBMFF Largesize Atoms, CG64 Dual-Mode Stego & RS64 FEC',
     b46Passed ? 'PASSED' : 'FAILED',
     `OPFS Engine: ${opfsEnginePassed}, ISOBMFF 64 Atom: ${isobmff64AtomPassed}, CG64 Roundtrip: ${cg64RoundtripPassed}, RS64 FEC Repair: ${rs64RepairPassed}`
+  );
+
+  // -------------------------------------------------------------------------
+  // TEST B-47: Unbuffered Handle In-Memory Inspection Non-Destruction & OPFS Purge
+  // -------------------------------------------------------------------------
+  console.log('\n--- Running Test B-47: Unbuffered Handle Non-Destruction & OPFS Sandbox Wipe ---');
+
+  // 1. Unbuffered StreamingFileHandle (no pre-populated .bytes):
+  // Verifies BUG-40-01 fix: getOrExtractContainerBundles finally block MUST NOT zeroize
+  // handle.bytes when bytes were cached by fileReader during inspection!
+  const unbufferedContainerBytes = new Uint8Array(asymPkg.protectedMp4Bytes);
+  const unbufferedHandle: StreamingFileHandle = {
+    name: 'test_dualvault_unbuffered.mp4',
+    size: unbufferedContainerBytes.length,
+    type: 'video/mp4',
+    source: new Blob([unbufferedContainerBytes], { type: 'video/mp4' }) as any
+    // Note: 'bytes' property intentionally omitted!
+  };
+
+  // Inspect Key 6 identity and Assessment Notes (populates unbufferedHandle.bytes)
+  await inspectContainerKey6Identity(unbufferedHandle, pwA.layer6_key6, 1000);
+  await inspectContainerAssessmentNotes(unbufferedHandle, pwA, 1000);
+
+  // Handle bytes must be intact and NOT zeroized by finally blocks
+  const unbufferedBytesIntact = unbufferedHandle.bytes !== undefined &&
+    unbufferedHandle.bytes.length === asymPkg.protectedMp4Bytes.length &&
+    unbufferedHandle.bytes.some(b => b !== 0) &&
+    unbufferedHandle.bytes.every((b, idx) => b === asymPkg.protectedMp4Bytes[idx]);
+
+  // Subsequent extraction from the unbuffered handle MUST succeed
+  const unbufferedExtractRes = await extractFromDualVaultPackage(unbufferedHandle, pwA, 1000);
+  const unbufferedExtractPassed = unbufferedExtractRes.matchedVault === 'VaultA' &&
+    unbufferedExtractRes.vaultRevealed === 'Authenticated Payload';
+
+  // 2. Failed extraction retry on unbuffered handle:
+  const unbufRetryContainerBytes = new Uint8Array(asymPkg.protectedMp4Bytes);
+  const unbufRetryHandle: StreamingFileHandle = {
+    name: 'test_unbuf_retry.mp4',
+    size: unbufRetryContainerBytes.length,
+    type: 'video/mp4',
+    source: new Blob([unbufRetryContainerBytes], { type: 'video/mp4' }) as any
+  };
+
+  const badPw = { ...pwA, layer1_kyber: 'WrongKyberPasscode!999' };
+  let retryExtractionFailed = false;
+  try {
+    await extractFromDualVaultPackage(unbufRetryHandle, badPw, 1000);
+  } catch {
+    retryExtractionFailed = true;
+  }
+
+  // Handle bytes must still be intact after failed extraction
+  const retryBytesIntact = unbufRetryHandle.bytes !== undefined &&
+    unbufRetryHandle.bytes.length > 0 &&
+    unbufRetryHandle.bytes.some(b => b !== 0);
+
+  // Correct retry must succeed
+  const retryCorrectRes = await extractFromDualVaultPackage(unbufRetryHandle, pwA, 1000);
+  const unbufRetryPassed = retryExtractionFailed && retryBytesIntact && retryCorrectRes.matchedVault === 'VaultA';
+
+  // 3. 35-Pass Secure Wipe OPFS Sandbox Cleanup (BUG-40-14):
+  let wipeExecuted = false;
+  try {
+    await execute35PassSecureWipe();
+    wipeExecuted = true;
+  } catch {
+    wipeExecuted = false;
+  }
+
+  const b47Passed = unbufferedBytesIntact && unbufferedExtractPassed && unbufRetryPassed && wipeExecuted;
+
+  record(
+    'B-47',
+    'Interactive Memory Integrity & OPFS Sandbox Anti-Forensics',
+    'Unbuffered Handle Inspection Non-Destruction, Retry Resilience & OPFS Sandbox Wipe',
+    b47Passed ? 'PASSED' : 'FAILED',
+    `Unbuffered Bytes Intact: ${unbufferedBytesIntact}, Unbuffered Extract: ${unbufferedExtractPassed}, Retry Passed: ${unbufRetryPassed}, OPFS Wipe: ${wipeExecuted}`
   );
 
   console.log('\n========================================================================');

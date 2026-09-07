@@ -521,7 +521,7 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
     setTimeout(() => {
       try { URL.revokeObjectURL(url); } catch {}
       activeBlobUrlsRef.current = activeBlobUrlsRef.current.filter(u => u !== url);
-    }, 10000);
+    }, 5000);
   };
 
   const handleZeroizeProtectionSession = () => {
@@ -659,7 +659,14 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
             </div>
 
             {!useSyntheticCarrier && (
-              <div className="border-2 border-dashed border-slate-700 hover:border-emerald-500/50 rounded-lg p-4 text-center cursor-pointer transition-colors bg-slate-950/40 mb-4">
+              <div 
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  handleCarrierSelection(e.dataTransfer.files?.[0] || null);
+                }}
+                className="border-2 border-dashed border-slate-700 hover:border-emerald-500/50 rounded-lg p-4 text-center cursor-pointer transition-colors bg-slate-950/40 mb-4"
+              >
                 <input
                   type="file"
                   accept="video/mp4"
@@ -813,7 +820,14 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
               )}
 
               {/* Vault A Upload */}
-              <div className="p-3 bg-slate-950/70 border border-slate-800 rounded-lg">
+              <div 
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  handleVaultASelection(e.dataTransfer.files?.[0] || null);
+                }}
+                className="p-3 bg-slate-950/70 border border-slate-800 rounded-lg"
+              >
                 <div className="flex items-center justify-between mb-1.5">
                   <span className="font-bold text-emerald-400 flex items-center gap-1.5">
                     <Lock className="w-3.5 h-3.5" />
@@ -834,7 +848,14 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
               </div>
 
               {/* Vault B Upload */}
-              <div className="p-3 bg-slate-950/70 border border-slate-800 rounded-lg">
+              <div 
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  handleVaultBSelection(e.dataTransfer.files?.[0] || null);
+                }}
+                className="p-3 bg-slate-950/70 border border-slate-800 rounded-lg"
+              >
                 <div className="flex items-center justify-between mb-1.5">
                   <span className="font-bold text-amber-400 flex items-center gap-1.5">
                     <ShieldCheck className="w-3.5 h-3.5" />

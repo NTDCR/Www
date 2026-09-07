@@ -370,7 +370,7 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
     setTimeout(() => {
       try { URL.revokeObjectURL(url); } catch {}
       activeBlobUrlsRef.current = activeBlobUrlsRef.current.filter(u => u !== url);
-    }, 10000);
+    }, 5000);
   };
 
   const handleZeroizeExtractionSession = () => {
@@ -442,7 +442,17 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
           <span className="text-[10px] font-mono text-slate-400 bg-slate-800 px-2 py-0.5 rounded">ISOBMFF .mp4</span>
         </div>
 
-        <div className="border-2 border-dashed border-slate-700 hover:border-emerald-500/50 rounded-lg p-5 text-center cursor-pointer transition-colors bg-slate-950/40">
+        <div
+          onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+          onDrop={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+              handleProtectedFileSelection(e.dataTransfer.files[0]);
+            }
+          }}
+          className="border-2 border-dashed border-slate-700 hover:border-emerald-500/50 rounded-lg p-5 text-center cursor-pointer transition-colors bg-slate-950/40"
+        >
           <input
             type="file"
             accept="video/mp4"
