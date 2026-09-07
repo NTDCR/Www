@@ -446,6 +446,26 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
       return;
     }
 
+    let upfrontWritable: any = null;
+    let upfrontTargetName: string | null = null;
+    const rawName = carrierFile && !useSyntheticCarrier ? carrierFile.name : 'PROTECTED_CONTAINER.mp4';
+    const baseName = rawName.replace(/\.[^/.]+$/, '');
+    const defaultFilename = sanitizeFilename(`${baseName}_dualvault.mp4`);
+
+    if (typeof window !== 'undefined' && 'showSaveFilePicker' in window) {
+      try {
+        const fileHandle = await (window as any).showSaveFilePicker({
+          suggestedName: defaultFilename,
+          types: [{ description: 'Protected MP4 Container', accept: { 'video/mp4': ['.mp4'] } }]
+        });
+        upfrontWritable = await fileHandle.createWritable();
+        upfrontTargetName = fileHandle.name || defaultFilename;
+      } catch (pickerErr: any) {
+        console.warn('Native showSaveFilePicker dismissed or unavailable, falling back to streaming chunk auto-download:', pickerErr);
+        upfrontWritable = null;
+      }
+    }
+
     const overallOpStartTime = performance.now();
     isProcessingRef.current = true;
     globalStreamEventBus.reset(overallOpStartTime);
@@ -486,6 +506,34 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
       setTotalOperationDurationMs(totalDuration);
       resultRef.current = res;
       setResult(res);
+
+      // Stream directly to pre-selected disk location or auto-download via streaming chunks
+      const chunks = res.protectedChunks || [res.protectedMp4Bytes];
+      try {
+        setProgressText(upfrontWritable ? 'Streaming completed container directly to disk...' : 'Finalizing automatic chunk download...');
+        const outcome = await streamChunksDirectToDisk(
+          upfrontTargetName || defaultFilename,
+          chunks,
+          (_b, status) => {
+            if (isMountedRef.current) setDiskSaveStatus(status);
+          },
+          upfrontWritable
+        );
+        if (isMountedRef.current) {
+          const finalName = outcome.targetName || upfrontTargetName || defaultFilename;
+          setSavedPath(finalName);
+          if (outcome.streamedDirectly) {
+            setDiskSaveStatus(`Container saved directly to disk: ${finalName} (0 MB RAM)`);
+          } else {
+            setDiskSaveStatus(`Container automatically downloaded: ${finalName}`);
+          }
+        }
+      } catch (saveErr: any) {
+        console.warn('Auto-save encountered an error:', saveErr);
+        if (isMountedRef.current) {
+          setDiskSaveStatus(`Save notice: ${saveErr.message || 'Please use button below to save.'}`);
+        }
+      }
 
       const actualCarrierSize = useSyntheticCarrier
         ? (carrierPreviewBlob?.size || 15360)

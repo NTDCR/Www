@@ -279,6 +279,24 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
       return;
     }
 
+    let upfrontWritable: any = null;
+    let upfrontTargetName: string | null = null;
+    const defaultFilename = 'decrypted_payload.bin';
+
+    if (typeof window !== 'undefined' && 'showSaveFilePicker' in window) {
+      try {
+        const fileHandle = await (window as any).showSaveFilePicker({
+          suggestedName: defaultFilename,
+          types: [{ description: 'Decrypted Output File', accept: { 'application/octet-stream': ['.bin', '.*'] } }]
+        });
+        upfrontWritable = await fileHandle.createWritable();
+        upfrontTargetName = fileHandle.name || defaultFilename;
+      } catch (pickerErr: any) {
+        console.warn('Native showSaveFilePicker dismissed or unavailable, falling back to streaming chunk auto-download:', pickerErr);
+        upfrontWritable = null;
+      }
+    }
+
     const overallOpStartTime = performance.now();
     isExtractingRef.current = true;
     globalStreamEventBus.reset(overallOpStartTime);
@@ -319,6 +337,35 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
       setTotalOperationDurationMs(totalDuration);
       setResult(res);
       resultRef.current = res;
+
+      // Stream directly to pre-selected disk location or auto-download via streaming chunks
+      const chunks = res.chunkedData || [];
+      const targetFilename = upfrontTargetName || sanitizeFilename(res.filename) || defaultFilename;
+      try {
+        setProgressText(upfrontWritable ? 'Streaming decrypted payload directly to disk...' : 'Finalizing automatic chunk download...');
+        const outcome = await streamChunksDirectToDisk(
+          targetFilename,
+          chunks,
+          (_b, status) => {
+            if (isMountedRef.current) setDiskSaveStatus(status);
+          },
+          upfrontWritable
+        );
+        if (isMountedRef.current) {
+          const finalName = outcome.targetName || targetFilename;
+          setSavedPath(finalName);
+          if (outcome.streamedDirectly) {
+            setDiskSaveStatus(`Decrypted file saved directly to disk: ${finalName} (0 MB RAM)`);
+          } else {
+            setDiskSaveStatus(`Decrypted file automatically downloaded: ${finalName}`);
+          }
+        }
+      } catch (saveErr: any) {
+        console.warn('Auto-save encountered an error:', saveErr);
+        if (isMountedRef.current) {
+          setDiskSaveStatus(`Save notice: ${saveErr.message || 'Please use button below to save.'}`);
+        }
+      }
 
       if (res.assessmentNotes) {
         setAssessmentNotes(res.assessmentNotes);
