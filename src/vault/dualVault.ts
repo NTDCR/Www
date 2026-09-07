@@ -41,6 +41,7 @@ import {
 import { unmaskAndVerifyKey6FromRSBlock } from '../crypto/key6Engine';
 import { decryptAssessmentNotesBlock } from '../crypto/notesEngine';
 import { sha512 } from '@noble/hashes/sha2.js';
+import { globalStreamEventBus } from '../utils/streamEvents';
 
 /**
  * Stateless container inspection helper.
@@ -267,12 +268,20 @@ export async function createDualVaultPackage(
   k6SaltB?: Uint8Array,
   targetCoverLength?: number
 ): Promise<DualVaultCreationResult> {
-  onProgress?.('Preparing strict 1 MB streaming input handles...', 5);
-
   const vaultAName = 'name' in vaultAFile ? vaultAFile.name : 'vault_a.bin';
   const vaultBName = 'name' in vaultBFile ? vaultBFile.name : 'vault_b.bin';
   const vaultASize = 'size' in vaultAFile ? vaultAFile.size : (vaultAFile instanceof Uint8Array ? vaultAFile.length : 0);
   const vaultBSize = 'size' in vaultBFile ? vaultBFile.size : (vaultBFile instanceof Uint8Array ? vaultBFile.length : 0);
+  const carrierSize = carrierFile
+    ? ('size' in carrierFile ? carrierFile.size : (carrierFile instanceof Uint8Array ? carrierFile.length : 0))
+    : 0;
+
+  onProgress?.('Preparing strict 1 MB streaming input handles...', 3.50);
+  globalStreamEventBus.emit('STREAM', 'Init Handles', `Input sizes: Vault A (${vaultASize}B), Vault B (${vaultBSize}B), Carrier (${carrierSize}B)`, {
+    bytesProcessed: 0,
+    totalBytes: vaultASize + vaultBSize,
+    percent: 3.50
+  });
 
   // 64-bit OPFS Streaming Engine supports multi-gigabyte payloads (up to 100 GB)
   const MAX_SAFE_OPFS_STREAM_SIZE = 100 * 1024 * 1024 * 1024; // 100 GB
@@ -284,9 +293,6 @@ export async function createDualVaultPackage(
 
   let carrierBuffer: Uint8Array;
   let largeCarrierBlob: Blob | null = null;
-  const carrierSize = carrierFile
-    ? ('size' in carrierFile ? carrierFile.size : (carrierFile instanceof Uint8Array ? carrierFile.length : 0))
-    : 0;
 
   if (carrierFile) {
     if (carrierFile instanceof Uint8Array) {
@@ -309,7 +315,8 @@ export async function createDualVaultPackage(
       }
     }
   } else {
-    onProgress?.('Generating active playable video carrier stream...', 10);
+    onProgress?.('Generating active playable video carrier stream...', 8.00);
+    globalStreamEventBus.emit('STREAM', 'Carrier Stream', 'Generating high-definition active MP4 video carrier stream', { percent: 8.00 });
     const fallbackBlob = await getOrGenerateCarrierBlob(3);
     carrierBuffer = new Uint8Array(await fallbackBlob.arrayBuffer());
   }
@@ -345,14 +352,18 @@ export async function createDualVaultPackage(
   const maxInnerLength = calculateQuantumCoverSize(rawMax, targetCoverLength);
 
   // 2. Encrypt Vault A with 5-Layer Cascade strictly in 1 MB chunks + Notes Block
-  onProgress?.('Streaming & Encrypting Vault A (Real Secret) across 5 layers + Assessment Notes...', 20);
+  onProgress?.('Streaming & Encrypting Vault A (Real Secret) across 5 layers + Assessment Notes...', 10.00);
   await yieldToMainThread();
   const bundleA = await encryptCascade5Layers(
     vaultAFile,
     vaultAName,
     vaultAPasswords,
     iterations,
-    (layer, desc) => onProgress?.(`Vault A - ${desc}`, 20 + layer * 3),
+    (layer, desc, fraction) => {
+      const f = fraction !== undefined ? fraction : (layer / 5);
+      const mappedPct = Number((10.00 + f * 25.00).toFixed(2));
+      onProgress?.(`Vault A - ${desc}`, mappedPct);
+    },
     'VaultA',
     effectiveNotesA,
     k6SaltA,
@@ -361,14 +372,18 @@ export async function createDualVaultPackage(
   await yieldToMainThread();
 
   // 3. Encrypt Vault B with 5-Layer Cascade strictly in 1 MB chunks + Notes Block
-  onProgress?.('Streaming & Encrypting Vault B (Decoy) across 5 layers + Assessment Notes...', 40);
+  onProgress?.('Streaming & Encrypting Vault B (Decoy) across 5 layers + Assessment Notes...', 35.00);
   await yieldToMainThread();
   const bundleB = await encryptCascade5Layers(
     vaultBFile,
     vaultBName,
     vaultBPasswords,
     iterations,
-    (layer, desc) => onProgress?.(`Vault B - ${desc}`, 40 + layer * 3),
+    (layer, desc, fraction) => {
+      const f = fraction !== undefined ? fraction : (layer / 5);
+      const mappedPct = Number((35.00 + f * 25.00).toFixed(2));
+      onProgress?.(`Vault B - ${desc}`, mappedPct);
+    },
     'VaultB',
     effectiveNotesB,
     k6SaltB,
@@ -442,10 +457,11 @@ export async function createDualVaultPackage(
     await yieldToMainThread();
 
     // 4. Apply Industry-Grade NASA/ISO Reed-Solomon RS(255,223) Forward Error Correction with cooperative yielding
-    onProgress?.('Applying Industry-Grade Reed-Solomon RS(255,223) FEC (Vault A)...', 55);
+    onProgress?.('Applying Industry-Grade Reed-Solomon RS(255,223) FEC (Vault A)...', 60.00);
     await yieldToMainThread();
     const rsResA = await encodeRSStreamAsync(rawEncryptedA, RS_DEFAULT_BLOCK_SIZE, RS_DEFAULT_PARITY_LEN, (pct) => {
-      onProgress?.(`Applying Reed-Solomon RS(255,223) FEC (Vault A: ${pct}%)...`, 55 + Math.round(pct * 0.05));
+      const mappedPct = Number((60.00 + (pct / 100) * 7.50).toFixed(2));
+      onProgress?.(`Applying Reed-Solomon RS(255,223) FEC (Vault A: ${pct.toFixed(1)}%)...`, mappedPct);
     });
     rsProtectedA = rsResA.encodedData;
 
@@ -460,10 +476,11 @@ export async function createDualVaultPackage(
     bundleB.chunkedPayload = undefined;
     await yieldToMainThread();
 
-    onProgress?.('Applying Industry-Grade Reed-Solomon RS(255,223) FEC (Vault B)...', 60);
+    onProgress?.('Applying Industry-Grade Reed-Solomon RS(255,223) FEC (Vault B)...', 67.50);
     await yieldToMainThread();
     const rsResB = await encodeRSStreamAsync(rawEncryptedB, RS_DEFAULT_BLOCK_SIZE, RS_DEFAULT_PARITY_LEN, (pct) => {
-      onProgress?.(`Applying Reed-Solomon RS(255,223) FEC (Vault B: ${pct}%)...`, 60 + Math.round(pct * 0.05));
+      const mappedPct = Number((67.50 + (pct / 100) * 7.50).toFixed(2));
+      onProgress?.(`Applying Reed-Solomon RS(255,223) FEC (Vault B: ${pct.toFixed(1)}%)...`, mappedPct);
     });
     rsProtectedB = rsResB.encodedData;
 
@@ -496,20 +513,25 @@ export async function createDualVaultPackage(
     await yieldToMainThread();
 
     // 6. Entropy Normalization (Staged sequentially to free RAM before next allocation)
-    onProgress?.('Normalizing Container Entropy to <= 7.40 bits/byte...', 68);
+    onProgress?.('Normalizing Container Entropy to <= 7.40 bits/byte (Vault A)...', 76.00);
+    globalStreamEventBus.emit('CRYPTO', 'Entropy Equalizer', 'Normalizing Vault A entropy distribution to <= 7.40 bits/byte', { percent: 76.00 });
     await yieldToMainThread();
     normalizedA = await normalizeEntropyToTarget(finalVaultA, 7.38);
     zeroizeBuffer(finalVaultA);
     finalVaultA = null;
     await yieldToMainThread();
 
+    onProgress?.('Normalizing Container Entropy to <= 7.40 bits/byte (Vault B)...', 81.00);
+    globalStreamEventBus.emit('CRYPTO', 'Entropy Equalizer', 'Normalizing Vault B entropy distribution to <= 7.40 bits/byte', { percent: 81.00 });
+    await yieldToMainThread();
     normalizedB = await normalizeEntropyToTarget(finalVaultB, 7.38);
     zeroizeBuffer(finalVaultB);
     finalVaultB = null;
     await yieldToMainThread();
 
     // 7. 8-Location Spread Spectrum Injection into MP4 Carrier with RS Burst-Coding
-    onProgress?.('Injecting into 8 simultaneous ISOBMFF locations with 5x redundancy & RS parity...', 82);
+    onProgress?.('Injecting into 8 simultaneous ISOBMFF locations with 5x redundancy & RS parity...', 86.00);
+    globalStreamEventBus.emit('ISOBMFF', 'DSSS 8-Way Scatter', 'Multiplexing across 8 ISOBMFF box locations (Sony, Canon, RED UUIDs, free, skip, wide, prvm, udta)', { percent: 86.00 });
     await yieldToMainThread();
     const { protectedMp4, locationReports, boxChunks } = await embedSpreadSpectrum8Locations(
       carrierBuffer,
@@ -519,7 +541,8 @@ export async function createDualVaultPackage(
     await yieldToMainThread();
 
     // 8. Calculate SHA-512 chain-of-custody digest and statistical compliance
-    onProgress?.('Computing final SHA-512 audit digest & compliance metrics...', 95);
+    onProgress?.('Computing final SHA-512 audit digest & compliance metrics...', 96.00);
+    globalStreamEventBus.emit('AUDIT', 'Integrity Proof', 'Calculating SHA-512 audit digest across all stream blocks', { percent: 96.00 });
     await yieldToMainThread();
     const sha512Digest = await calculateSha512Safe(boxChunks);
 
@@ -541,7 +564,11 @@ export async function createDualVaultPackage(
 
     const metrics = await analyzeStatisticalCompliance(carrierBuffer, protectedSample, normalizedA);
 
-    onProgress?.('Protected MP4 Dual-Vault Container Ready (Strict 1 MB streaming verified)', 100);
+    onProgress?.('Protected MP4 Dual-Vault Container Ready (Strict 1 MB streaming verified)', 100.00);
+    globalStreamEventBus.emit('AUDIT', 'Container Finalized', `Complete dual-vault package finalized. SHA-512: ${sha512Digest.slice(0, 16)}...`, {
+      severity: 'SUCCESS',
+      percent: 100.00
+    });
 
     // In browsers, new Blob(finalBoxChunks) uses streaming disk backing without allocating contiguous heap memory
     const finalBoxChunks: (BlobPart)[] = (largeCarrierBlob && boxChunks.length > 0)
@@ -580,7 +607,8 @@ export async function extractFromDualVaultPackage(
   iterations: number = DEFAULT_PBKDF2_ITERATIONS,
   onProgress?: (desc: string, pct: number) => void
 ): Promise<DualVaultExtractionResult> {
-  onProgress?.('Reading protected MP4 container stream...', 10);
+  onProgress?.('Reading protected MP4 container stream...', 8.00);
+  globalStreamEventBus.emit('STORAGE', 'Read Container', 'Streaming protected MP4 container header and atom structure', { percent: 8.00 });
   let protectedBytes: Uint8Array | null = null;
   let vaultABytes: Uint8Array | null = null;
   let vaultBBytes: Uint8Array | null = null;
@@ -592,7 +620,8 @@ export async function extractFromDualVaultPackage(
       ? protectedMp4File
       : await readFileAsUint8Array(protectedMp4File);
 
-    onProgress?.('Demuxing 8 ISOBMFF spread-spectrum locations & 5x redundancy voting...', 25);
+    onProgress?.('Demuxing 8 ISOBMFF spread-spectrum locations & 5x redundancy voting...', 20.00);
+    globalStreamEventBus.emit('ISOBMFF', 'Demux 8-Way', 'Demuxing 8 ISOBMFF box locations with 5x consensus voting', { percent: 20.00 });
     await yieldToMainThread();
     const demuxed = await extractSpreadSpectrumPayload(protectedBytes);
     vaultABytes = demuxed.vaultABytes;
@@ -603,7 +632,8 @@ export async function extractFromDualVaultPackage(
     }
 
     // Neutral progress: Zero exposure of vault names or trial switching
-    onProgress?.('Authenticating 5-Layer Cascade stream in 1 MB chunks...', 45);
+    onProgress?.('Authenticating 5-Layer Cascade stream in 1 MB chunks...', 35.00);
+    globalStreamEventBus.emit('CRYPTO', 'Candidate Auth', 'Testing cryptographic authentication across candidate vaults', { percent: 35.00 });
 
     /**
      * Attempt one equalized vault candidate. Failures are swallowed with buffer wipe —
@@ -625,9 +655,10 @@ export async function extractFromDualVaultPackage(
       try {
         unshaped = await denormalizeEntropy(vaultBytes);
         const rsRes = await decodeRSStreamAsync(unshaped, (pct) => {
+          const mappedPct = Number((progressBase + (pct / 100) * 12.00).toFixed(2));
           onProgress?.(
-            `Reed-Solomon FEC integrity repair (${pct}%)...`,
-            progressBase + Math.round(pct * 0.05)
+            `Reed-Solomon FEC integrity repair (${pct.toFixed(1)}%)...`,
+            mappedPct
           );
         });
         rsRepaired = rsRes.data;
@@ -636,9 +667,11 @@ export async function extractFromDualVaultPackage(
         bundle = deserializeBundle(rsRepaired);
         zeroizeBuffer(rsRepaired);
         rsRepaired = null;
-        decrypted = await decryptCascade5Layers(bundle, passwords, iterations, (l, d) =>
-          onProgress?.(d, progressBase + 5 + l * 8)
-        );
+        decrypted = await decryptCascade5Layers(bundle, passwords, iterations, (l, d, fraction) => {
+          const f = fraction !== undefined ? fraction : (l / 5);
+          const mappedPct = Number((progressBase + 12.00 + f * 18.00).toFixed(2));
+          onProgress?.(d, mappedPct);
+        });
         const payloadChunks = (decrypted.chunkedPayload && decrypted.chunkedPayload.length > 0)
           ? decrypted.chunkedPayload
           : [decrypted.data];
@@ -682,8 +715,8 @@ export async function extractFromDualVaultPackage(
       }
     }
 
-    const resultA = await tryExtractCandidate(vaultABytes, 40, 'VaultA');
-    const resultB = await tryExtractCandidate(vaultBBytes, 55, 'VaultB');
+    const resultA = await tryExtractCandidate(vaultABytes, 40.00, 'VaultA');
+    const resultB = await tryExtractCandidate(vaultBBytes, 70.00, 'VaultB');
 
     clearContainerInspectionCache();
 
@@ -692,10 +725,20 @@ export async function extractFromDualVaultPackage(
         zeroizeBuffer(resultB.chunkedData);
       }
       overallSuccess = true;
+      onProgress?.('Authenticated Payload successfully extracted', 100.00);
+      globalStreamEventBus.emit('AUDIT', 'Extraction Verified', `Payload extracted: ${resultA.filename} (${resultA.filesize} bytes), SHA-512 verified`, {
+        severity: 'SUCCESS',
+        percent: 100.00
+      });
       return resultA;
     }
     if (resultB) {
       overallSuccess = true;
+      onProgress?.('Authenticated Payload successfully extracted', 100.00);
+      globalStreamEventBus.emit('AUDIT', 'Extraction Verified', `Payload extracted: ${resultB.filename} (${resultB.filesize} bytes), SHA-512 verified`, {
+        severity: 'SUCCESS',
+        percent: 100.00
+      });
       return resultB;
     }
     throw new Error(NEUTRAL_AUTH_FAILURE);

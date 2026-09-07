@@ -24,6 +24,8 @@ import {
 } from '../vault/dualVault';
 import { VirtualKeypad } from './VirtualKeypad';
 import { LiveProgressTimer, formatDurationHuman } from './LiveProgressTimer';
+import { LiveStreamTerminal } from './LiveStreamTerminal';
+import { globalStreamEventBus } from '../utils/streamEvents';
 import { Key6BadgeCard } from './Key6BadgeCard';
 import { AssessmentNotesPreviewModal } from './AssessmentNotesPreviewModal';
 import { StreamingFileHandle, loadStreamingFileHandleAsync, streamChunksDirectToDisk, sanitizeFilename, zeroizeStreamingHandle, isFilePermissionOrLockError } from '../utils/fileReader';
@@ -278,6 +280,7 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
 
     const overallOpStartTime = performance.now();
     isExtractingRef.current = true;
+    globalStreamEventBus.reset(overallOpStartTime);
     try {
       if (result?.chunkedData) {
         for (const chunk of result.chunkedData) {
@@ -291,7 +294,7 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
       setErrorMsg(null);
       setTotalOperationDurationMs(null);
       setProgressText('Demuxing 8 spread-spectrum locations...');
-      setProgressPct(15);
+      setProgressPct(2.00);
 
       const res = await extractFromDualVaultPackage(
         protectedFile,
@@ -427,6 +430,7 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
     setFilePermissionError(null);
     setProgressPct(0);
     setProgressText('');
+    globalStreamEventBus.reset();
     setDiskSaveStatus(null);
   };
 
@@ -779,6 +783,21 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
         title="Overall Decapsulation & Integrity Verification"
         mode="decryption"
       />
+
+      {/* Live Cryptographic Telemetry Stream Terminal with 60 FPS Micro-Batching & Auto-Scroll */}
+      {(isExtracting || result) && (
+        <LiveStreamTerminal
+          isActive={isExtracting}
+          speedMBps={
+            totalOperationDurationMs && totalOperationDurationMs > 0
+              ? ((protectedFile?.size || 0) / (1024 * 1024)) / (totalOperationDurationMs / 1000)
+              : 0
+          }
+          currentStage={progressText}
+          title="Live Decryption & Verification Telemetry Stream"
+          mode="decryption"
+        />
+      )}
 
       {/* Extracted Result Download Card */}
       {result && (

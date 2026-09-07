@@ -27,6 +27,7 @@ import { yieldToMainThread } from '../utils/asyncUtils';
 export { yieldToMainThread };
 import { deriveAndMask1024BitId } from './key6Engine';
 import { encryptAssessmentNotesBlock } from './notesEngine';
+import { globalStreamEventBus } from '../utils/streamEvents';
 
 const VAULT_INNER_MAGIC = new Uint8Array([0x43, 0x47, 0x56, 0x31]); // "CGV1"
 
@@ -595,7 +596,7 @@ export async function encryptCascade5Layers(
   filename: string,
   passwords: CascadePasswords,
   iterations: number = DEFAULT_PBKDF2_ITERATIONS,
-  onProgress?: (layer: number, desc: string) => void,
+  onProgress?: (layer: number, desc: string, fraction?: number) => void,
   vaultLabel: 'VaultA' | 'VaultB' = 'VaultA',
   notes?: VaultAssessmentNotes,
   k6Salt?: Uint8Array,
@@ -660,6 +661,12 @@ export async function encryptCascade5Layers(
   const tagL3 = generateSecureRandomBytes(16);
 
   onProgress?.(5, 'Deriving post-quantum subkeys & Kyber-1024 parameters...');
+  globalStreamEventBus.emit(
+    'CRYPTO',
+    `Key Schedule (${vaultLabel})`,
+    `Deriving 5-layer subkeys: Kyber-1024 + Serpent-256 + XChaCha20 + AES-256 (PBKDF2: ${iterations} rounds)`,
+    { severity: 'INFO' }
+  );
   await yieldToMainThread();
   const p1 = passwords.layer1_kyber || '';
   const p2 = passwords.layer2_serpent || '';
@@ -768,8 +775,22 @@ export async function encryptCascade5Layers(
       }
       encryptedChunks.push(encChunk);
       offset += chunkSize;
-      const pct = Math.min(99, Math.round((offset / effectiveInnerLength) * 100));
-      onProgress?.(3, `Encrypted ${(offset / (1024 * 1024)).toFixed(1)} / ${(effectiveInnerLength / (1024 * 1024)).toFixed(1)} MB (${pct}%)...`);
+      const totalExpected = Math.ceil(effectiveInnerLength / chunkSize) || 1;
+      const fraction = Math.min(1.0, offset / effectiveInnerLength);
+      const pct = Number((fraction * 100).toFixed(2));
+      onProgress?.(3, `Encrypted ${(Math.min(offset, effectiveInnerLength) / (1024 * 1024)).toFixed(1)} / ${(effectiveInnerLength / (1024 * 1024)).toFixed(1)} MB (${pct}%)...`, fraction);
+      globalStreamEventBus.emit(
+        'CRYPTO',
+        `Cascade 5-Layer (${vaultLabel})`,
+        `Chunk #${encryptedChunks.length}/${totalExpected} (${(Math.min(offset, effectiveInnerLength) / (1024 * 1024)).toFixed(2)} MB / ${(effectiveInnerLength / (1024 * 1024)).toFixed(2)} MB) — ChaCha20 + Serpent-256 + AES-CTR + Kyber-1024`,
+        {
+          chunkIndex: encryptedChunks.length,
+          totalChunks: totalExpected,
+          bytesProcessed: Math.min(offset, effectiveInnerLength),
+          totalBytes: effectiveInnerLength,
+          percent: pct
+        }
+      );
     }
 
     // Combine ciphertext chunks
@@ -881,7 +902,7 @@ export async function decryptCascade5Layers(
   bundle: EncryptedPayloadBundle,
   passwords: CascadePasswords,
   iterations: number = DEFAULT_PBKDF2_ITERATIONS,
-  onProgress?: (layer: number, desc: string) => void
+  onProgress?: (layer: number, desc: string, fraction?: number) => void
 ): Promise<DecryptedPayloadResult> {
   onProgress?.(1, 'Verifying 512-bit master HMAC cryptographic authentication tag...');
   await yieldToMainThread();
@@ -993,7 +1014,20 @@ export async function decryptCascade5Layers(
       const decChunk = await decryptChunk5Layers(chunk, offset, keys);
       decryptedChunks.push(decChunk);
       offset += chunk.length;
-      onProgress?.(4, `Decrypting stream chunk ${idx + 1} / ${chunksToDecrypt.length}...`);
+      const decFraction = (idx + 1) / chunksToDecrypt.length;
+      const decPct = Number((decFraction * 100).toFixed(2));
+      onProgress?.(4, `Decrypting stream chunk ${idx + 1} / ${chunksToDecrypt.length}...`, decFraction);
+      globalStreamEventBus.emit(
+        'CRYPTO',
+        'Cascade 5-Layer Decrypt',
+        `Decrypted chunk #${idx + 1}/${chunksToDecrypt.length} (${((offset) / (1024 * 1024)).toFixed(2)} MB): 5-layer reverse transform verified`,
+        {
+          chunkIndex: idx + 1,
+          totalChunks: chunksToDecrypt.length,
+          bytesProcessed: offset,
+          percent: decPct
+        }
+      );
     }
     isStreamDecrypted = true;
   } finally {

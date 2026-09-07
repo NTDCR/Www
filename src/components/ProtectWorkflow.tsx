@@ -31,6 +31,8 @@ import { createDualVaultPackage } from '../vault/dualVault';
 import { VirtualKeypad } from './VirtualKeypad';
 import { StatisticalInspector } from './StatisticalInspector';
 import { LiveProgressTimer, formatDurationHuman } from './LiveProgressTimer';
+import { LiveStreamTerminal } from './LiveStreamTerminal';
+import { globalStreamEventBus } from '../utils/streamEvents';
 import { Key6BadgeCard } from './Key6BadgeCard';
 import { AssessmentNotesEditor } from './AssessmentNotesEditor';
 import { deriveAndMask1024BitId, generateRandomKey6String, generateFreshKey6Salt } from '../crypto/key6Engine';
@@ -445,13 +447,14 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
 
     const overallOpStartTime = performance.now();
     isProcessingRef.current = true;
+    globalStreamEventBus.reset(overallOpStartTime);
     try {
       setIsProcessing(true);
       setErrorMsg(null);
       setResult(null);
       setTotalOperationDurationMs(null);
       setProgressText('Initializing Cooperative Async Scheduler & CSPRNG Entropy Engine...');
-      setProgressPct(5);
+      setProgressPct(2.00);
 
       const activeCarrier = useSyntheticCarrier ? null : carrierFile;
 
@@ -630,6 +633,7 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
     setFilePermissionError(null);
     setProgressPct(0);
     setProgressText('');
+    globalStreamEventBus.reset();
     setDiskSaveStatus(null);
   };
 
@@ -1314,6 +1318,21 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
         title="Overall Dual-Vault Protection Operation"
         mode="encryption"
       />
+
+      {/* Live Cryptographic Telemetry Stream Terminal with 60 FPS Micro-Batching & Auto-Scroll */}
+      {(isProcessing || result) && (
+        <LiveStreamTerminal
+          isActive={isProcessing}
+          speedMBps={
+            totalOperationDurationMs && totalOperationDurationMs > 0
+              ? (((vaultAFile?.size || 0) + (vaultBFile?.size || 0)) / (1024 * 1024)) / (totalOperationDurationMs / 1000)
+              : 0
+          }
+          currentStage={progressText}
+          title="Live Dual-Vault Cryptographic Telemetry Stream"
+          mode="encryption"
+        />
+      )}
 
       {/* Results & Statistical Inspector */}
       {result && (

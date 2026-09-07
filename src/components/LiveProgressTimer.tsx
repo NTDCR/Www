@@ -181,13 +181,15 @@ export const LiveProgressTimer: React.FC<LiveProgressTimerProps> = ({
             <Activity className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
             <span className="truncate">{stageText || 'Executing end-to-end cryptographic pipeline...'}</span>
           </span>
-          <span className="font-bold text-slate-100 text-sm">{Math.min(100, Math.round(progressPct))}%</span>
+          <span className="font-bold text-slate-100 font-mono text-sm tracking-wider">
+            {Math.min(100, Math.max(0, progressPct)).toFixed(2)}%
+          </span>
         </div>
 
         <div className="w-full bg-slate-900 border border-slate-800 h-3.5 rounded-full overflow-hidden p-0.5 shadow-inner">
           <div
-            className="h-full bg-gradient-to-r from-emerald-600 via-teal-400 to-sky-400 rounded-full transition-all duration-150 ease-out shadow-lg shadow-emerald-500/50"
-            style={{ width: `${Math.min(100, Math.max(2, progressPct))}%` }}
+            className="h-full bg-gradient-to-r from-emerald-600 via-teal-400 to-sky-400 rounded-full transition-all duration-75 ease-out shadow-lg shadow-emerald-500/50"
+            style={{ width: `${Math.min(100, Math.max(0.5, progressPct)).toFixed(2)}%` }}
           />
         </div>
       </div>

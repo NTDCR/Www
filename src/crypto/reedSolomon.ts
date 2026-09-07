@@ -11,6 +11,7 @@
  */
 
 import { yieldToMainThread } from '../utils/asyncUtils';
+import { globalStreamEventBus } from '../utils/streamEvents';
 
 // Field tables precomputed for GF(2^8)
 const GF_EXP = new Uint8Array(512);
@@ -516,8 +517,21 @@ export async function encodeRSStreamAsync(
   let outOffset = headerLen;
 
   for (let b = 0; b < totalBlocks; b++) {
-    if ((b & 255) === 0 && b > 0) {
-      onProgress?.(Math.min(99, Math.round((b / totalBlocks) * 100)));
+    if (((b & 63) === 0 && b > 0) || b === totalBlocks - 1) {
+      const rsPct = Math.min(99.99, Number(((b / totalBlocks) * 100).toFixed(2)));
+      onProgress?.(rsPct);
+      if ((b & 127) === 0 || b === totalBlocks - 1) {
+        globalStreamEventBus.emit(
+          'FEC',
+          'RS(255,223) Parity',
+          `Block #${b + 1}/${totalBlocks} (${rsPct.toFixed(1)}%): 32 parity bytes synthesized in GF(2^8)`,
+          {
+            chunkIndex: b + 1,
+            totalChunks: totalBlocks,
+            percent: rsPct
+          }
+        );
+      }
       await yieldToMainThread();
     }
 
@@ -840,8 +854,21 @@ export async function decodeRSStreamAsync(
   let outOffset = 0;
 
   for (let b = 0; b < totalBlocks; b++) {
-    if ((b & 255) === 0 && b > 0) {
-      onProgress?.(Math.min(99, Math.round((b / totalBlocks) * 100)));
+    if (((b & 63) === 0 && b > 0) || b === totalBlocks - 1) {
+      const rsPct = Math.min(99.99, Number(((b / totalBlocks) * 100).toFixed(2)));
+      onProgress?.(rsPct);
+      if ((b & 127) === 0 || b === totalBlocks - 1) {
+        globalStreamEventBus.emit(
+          'FEC',
+          'RS(255,223) Decoding',
+          `Block #${b + 1}/${totalBlocks} (${rsPct.toFixed(1)}%): Syndrome verification & error evaluation (Repairs: ${totalErrors})`,
+          {
+            chunkIndex: b + 1,
+            totalChunks: totalBlocks,
+            percent: rsPct
+          }
+        );
+      }
       await yieldToMainThread();
     }
 
