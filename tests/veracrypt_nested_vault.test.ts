@@ -195,6 +195,52 @@ async function runVeraCryptNestedSuite() {
   }
   assert('VC-18: Zero Plaintext Magic Headers (No VCRY String Anywhere in Stream)', !foundVcryMagic, 'Container stream is 100% cryptographic noise scrap without volume magic');
 
+  console.log('\n--- 9. Testing NASA/CCSDS Reed-Solomon RS(255,223) Error Correction & Ghost Anti-Forensics ---');
+  
+  // VC-19: Assert zero plaintext Reed-Solomon magic markers ('RSEC' / 'RS64') in container bytes
+  let foundRsMagic = false;
+  for (let i = 0; i < creationResult.containerBytes.length - 4; i++) {
+    const b0 = creationResult.containerBytes[i];
+    const b1 = creationResult.containerBytes[i + 1];
+    const b2 = creationResult.containerBytes[i + 2];
+    const b3 = creationResult.containerBytes[i + 3];
+    if (b0 === 0x52 && b1 === 0x53 && ((b2 === 0x45 && b3 === 0x43) || (b2 === 0x36 && b3 === 0x34))) {
+      foundRsMagic = true;
+      break;
+    }
+  }
+  assert('VC-19: Zero Plaintext Reed-Solomon Magic Headers (No RSEC/RS64 on disk)', !foundRsMagic, 'ChaCha20 Ghost masking ensures zero RS signatures on disk');
+
+  // VC-20 & VC-21: Inject deliberate byte corruptions and assert automatic FEC self-healing
+  const corruptedContainer = new Uint8Array(creationResult.containerBytes);
+  const targetOffsetA = unlockedVaultA.targetOffset!;
+  const targetOffsetB = unlockedVaultB.targetOffset!;
+
+  // Corrupt 6 bytes inside Vault A payload (within 1 RS block, after 16-byte header)
+  for (let i = 0; i < 6; i++) {
+    corruptedContainer[targetOffsetA + 20 + i] ^= 0xa5;
+  }
+  // Corrupt 6 bytes inside Vault B payload (within 1 RS block, after 16-byte header)
+  for (let i = 0; i < 6; i++) {
+    corruptedContainer[targetOffsetB + 20 + i] ^= 0x5a;
+  }
+
+  const repairedVaultA = await extractNestedVeraContainer(
+    corruptedContainer,
+    passwordsA,
+    testIterations
+  );
+  const repairedTextA = new TextDecoder().decode(repairedVaultA.data);
+  assert('VC-20: Reed-Solomon RS(255,223) Auto-Repairs Vault A Under Active Bit Rot', repairedTextA === new TextDecoder().decode(secretData), 'Decrypted bit-for-bit identical after 6-byte corruption');
+
+  const repairedVaultB = await extractNestedVeraContainer(
+    corruptedContainer,
+    passwordsB,
+    testIterations
+  );
+  const repairedTextB = new TextDecoder().decode(repairedVaultB.data);
+  assert('VC-21: Reed-Solomon RS(255,223) Auto-Repairs Vault B Under Active Bit Rot', repairedTextB === new TextDecoder().decode(decoyData), 'Decrypted bit-for-bit identical after 6-byte corruption');
+
   console.log('\n====================================================================');
   console.log(`  VERACRYPT NESTED CONTAINER TEST RESULTS: ${passed} PASSED / ${failed} FAILED `);
   console.log('====================================================================\n');

@@ -38,6 +38,14 @@ import { globalStreamEventBus } from '../utils/streamEvents';
 import { readChunkFromHandle, sanitizeFilename } from '../utils/fileReader';
 import { chacha20Process } from '../crypto/xchacha20poly1305';
 import { sha512 } from '@noble/hashes/sha2.js';
+import {
+  encodeRSStreamAsync,
+  decodeRSStreamAsync,
+  RS_MAGIC,
+  RS64_MAGIC,
+  RS_DEFAULT_BLOCK_SIZE,
+  RS_DEFAULT_PARITY_LEN
+} from '../crypto/reedSolomon';
 
 export const VERA_HEADER_SIZE = 4096; // Exactly 4 KB (1 system memory page)
 export const VERA_MAGIC = new Uint8Array([0x56, 0x43, 0x52, 0x59]); // 'VCRY' (only visible after authenticated decryption)
@@ -58,6 +66,8 @@ export interface NestedVeraExtractionResult extends DecryptedPayloadResult {
   matchedVault: 'VaultA' | 'VaultB';
   sha512Digest: string;
   assessmentNotes?: VaultAssessmentNotes;
+  targetOffset?: number;
+  targetLength?: number;
 }
 
 /**
@@ -123,11 +133,41 @@ export async function createNestedVeraContainer(
   );
   await yieldToMainThread();
 
-  onProgress?.('Serializing encrypted volume bundles...', 82.00);
+  onProgress?.('Serializing encrypted volume bundles...', 80.00);
   const serializedB = serializeBundle(bundleB);
   const serializedA = serializeBundle(bundleA);
-  const lenB = serializedB.length;
-  const lenA = serializedA.length;
+
+  // Derive Salt and Header Keys upfront for both vaults
+  const saltA = generateSecureRandomBytes(64);
+  const saltB = generateSecureRandomBytes(64);
+  const ivA = generateSecureRandomBytes(12);
+  const ivB = generateSecureRandomBytes(12);
+
+  const headerKeyA = await deriveLayerKey(vaultAPasswords.layer1_kyber + vaultAPasswords.layer4_aes, saltA, iterations, 'AntiForensic-Ghost-KeyA');
+  const headerKeyB = await deriveLayerKey(vaultBPasswords.layer1_kyber + vaultBPasswords.layer4_aes, saltB, iterations, 'AntiForensic-Ghost-KeyB');
+
+  // Step 2.5: Apply NASA/CCSDS Reed-Solomon RS(255,223) Forward Error Correction with Zero Plaintext Signatures
+  onProgress?.('Applying Reed-Solomon RS(255,223) FEC (Vault B - Decoy)...', 82.00);
+  globalStreamEventBus.emit('FEC', 'RS Parity Synthesis', 'Encoding Decoy Volume with RS(255,223) FEC (32 parity bytes per block)', { percent: 82.00 });
+  await yieldToMainThread();
+  const rsResB = await encodeRSStreamAsync(serializedB, RS_DEFAULT_BLOCK_SIZE, RS_DEFAULT_PARITY_LEN);
+  const rawPayloadB = new Uint8Array(rsResB.encodedData);
+
+  onProgress?.('Applying Reed-Solomon RS(255,223) FEC (Vault A - Secret)...', 84.00);
+  globalStreamEventBus.emit('FEC', 'RS Parity Synthesis', 'Encoding Secret Volume with RS(255,223) FEC (32 parity bytes per block)', { percent: 84.00 });
+  await yieldToMainThread();
+  const rsResA = await encodeRSStreamAsync(serializedA, RS_DEFAULT_BLOCK_SIZE, RS_DEFAULT_PARITY_LEN);
+  const rawPayloadA = new Uint8Array(rsResA.encodedData);
+
+  // Anti-Forensic Ghost Noise: XOR-mask the 16-byte RS framing headers with chacha20Process
+  // This eliminates any plaintext 'RSEC' / 'RS64' signatures from the raw binary stream on disk!
+  const rsHeaderMaskB = chacha20Process(headerKeyB, ivB, 100, rawPayloadB.subarray(0, 16));
+  rawPayloadB.set(rsHeaderMaskB, 0);
+  const rsHeaderMaskA = chacha20Process(headerKeyA, ivA, 100, rawPayloadA.subarray(0, 16));
+  rawPayloadA.set(rsHeaderMaskA, 0);
+
+  const lenB = rawPayloadB.length;
+  const lenA = rawPayloadA.length;
 
   // Step 3: Compute Offsets & ~1% Anti-Forensic Noise Padding with Prime Non-Sector Jitter
   const offsetB = VERA_HEADER_SIZE;
@@ -154,14 +194,6 @@ export async function createNestedVeraContainer(
   onProgress?.('Constructing 4 KB High-Entropy Encrypted Header Block...', 86.00);
   await yieldToMainThread();
 
-  const saltA = generateSecureRandomBytes(64);
-  const saltB = generateSecureRandomBytes(64);
-  const ivA = generateSecureRandomBytes(12);
-  const ivB = generateSecureRandomBytes(12);
-
-  const headerKeyA = await deriveLayerKey(vaultAPasswords.layer1_kyber + vaultAPasswords.layer4_aes, saltA, iterations, 'AntiForensic-Ghost-KeyA');
-  const headerKeyB = await deriveLayerKey(vaultBPasswords.layer1_kyber + vaultBPasswords.layer4_aes, saltB, iterations, 'AntiForensic-Ghost-KeyB');
-
   // Build Descriptor A (Plaintext: 160 bytes)
   // ZERO plaintext magic bytes (no 'VCRY' or any identifiable ASCII tag) — authenticated by 256-bit HMAC tag
   const descA = new Uint8Array(160);
@@ -173,6 +205,8 @@ export async function createNestedVeraContainer(
   const encNameA = new TextEncoder().encode(vaultAName.slice(0, 60));
   viewA.setUint32(28, encNameA.length, true);
   descA.set(encNameA, 32);
+  viewA.setUint32(92, 0x52534543, true); // RS-FEC flag
+  viewA.setBigUint64(96, BigInt(serializedA.length), true);
   const tagA = await computeHmacSha256(headerKeyA, descA);
   const encDescA = chacha20Process(headerKeyA, ivA, 0, descA);
 
@@ -186,6 +220,8 @@ export async function createNestedVeraContainer(
   const encNameB = new TextEncoder().encode(vaultBName.slice(0, 60));
   viewB.setUint32(28, encNameB.length, true);
   descB.set(encNameB, 32);
+  viewB.setUint32(92, 0x52534543, true); // RS-FEC flag
+  viewB.setBigUint64(96, BigInt(serializedB.length), true);
   const tagB = await computeHmacSha256(headerKeyB, descB);
   const encDescB = chacha20Process(headerKeyB, ivB, 0, descB);
 
@@ -212,7 +248,7 @@ export async function createNestedVeraContainer(
   onProgress?.('Streaming VeraCrypt Nested Container directly to disk in real-time...', 90.00);
   globalStreamEventBus.emit('STREAM', 'Real-Time Disk Write', 'Piping chunks directly to disk stream handle on-the-fly', { percent: 90.00 });
 
-  const containerChunks: Uint8Array[] = [headerBlock, serializedB, serializedA, paddingNoise];
+  const containerChunks: Uint8Array[] = [headerBlock, rawPayloadB, rawPayloadA, paddingNoise];
 
   if (onChunkReady) {
     onProgress?.('Piping 4 KB Encrypted Header directly to disk...', 91.00);
@@ -220,14 +256,14 @@ export async function createNestedVeraContainer(
 
     onProgress?.('Piping Outer Volume (Vault B - Decoy) directly to disk...', 93.00);
     const CHUNK_SIZE = 1024 * 1024; // 1 MB
-    for (let i = 0; i < serializedB.length; i += CHUNK_SIZE) {
-      const slice = serializedB.subarray(i, Math.min(i + CHUNK_SIZE, serializedB.length));
+    for (let i = 0; i < rawPayloadB.length; i += CHUNK_SIZE) {
+      const slice = rawPayloadB.subarray(i, Math.min(i + CHUNK_SIZE, rawPayloadB.length));
       await onChunkReady(slice, `Piped Decoy Volume chunk (${(i / (1024 * 1024)).toFixed(1)} MB)...`);
     }
 
     onProgress?.('Piping Hidden Volume (Vault A - Secret) directly to disk...', 96.00);
-    for (let i = 0; i < serializedA.length; i += CHUNK_SIZE) {
-      const slice = serializedA.subarray(i, Math.min(i + CHUNK_SIZE, serializedA.length));
+    for (let i = 0; i < rawPayloadA.length; i += CHUNK_SIZE) {
+      const slice = rawPayloadA.subarray(i, Math.min(i + CHUNK_SIZE, rawPayloadA.length));
       await onChunkReady(slice, `Piped Hidden Volume chunk (${(i / (1024 * 1024)).toFixed(1)} MB)...`);
     }
 
@@ -321,6 +357,7 @@ export async function extractNestedVeraContainer(
   onProgress?.('Attempting authentication against Hidden Volume (Vault A)...', 15.00);
   await yieldToMainThread();
   let headerKeyA = await deriveLayerKey(passwords.layer1_kyber + passwords.layer4_aes, saltA, iterations, 'AntiForensic-Ghost-KeyA');
+  let headerKeyB: Uint8Array | null = null;
   let decDescA = chacha20Process(headerKeyA, ivA, 0, encDescA);
   let computedTagA = await computeHmacSha256(headerKeyA, decDescA);
 
@@ -356,7 +393,7 @@ export async function extractNestedVeraContainer(
     // Try authenticating Header B (Outer Decoy Volume)
     onProgress?.('Attempting authentication against Outer Volume (Vault B - Decoy)...', 25.00);
     await yieldToMainThread();
-    let headerKeyB = await deriveLayerKey(passwords.layer1_kyber + passwords.layer4_aes, saltB, iterations, 'AntiForensic-Ghost-KeyB');
+    headerKeyB = await deriveLayerKey(passwords.layer1_kyber + passwords.layer4_aes, saltB, iterations, 'AntiForensic-Ghost-KeyB');
     let decDescB = chacha20Process(headerKeyB, ivB, 0, encDescB);
     let computedTagB = await computeHmacSha256(headerKeyB, decDescB);
 
@@ -402,9 +439,43 @@ export async function extractNestedVeraContainer(
     encryptedBundleBytes = await readChunkFromHandle(containerFile, targetOffset, targetLength);
   }
 
+  // Step 3.5: Reed-Solomon RS(255,223) Error Correction & Ghost Header Decapsulation
+  onProgress?.(`Applying Reed-Solomon RS(255,223) error correction (${matchedVault})...`, 38.00);
+  await yieldToMainThread();
+
+  const activeHeaderKey = matchedVault === 'VaultA' ? headerKeyA : headerKeyB;
+  const activeIv = matchedVault === 'VaultA' ? ivA : ivB;
+
+  let bundleBytesToDeserialize: Uint8Array = encryptedBundleBytes;
+
+  if (encryptedBundleBytes.length >= 16) {
+    // Attempt unmasking the 16-byte RS framing header with the authenticated header key & IV
+    const candidateStream = new Uint8Array(encryptedBundleBytes);
+    const unmaskedHeader = chacha20Process(activeHeaderKey, activeIv, 100, candidateStream.subarray(0, 16));
+    const headerView = new DataView(unmaskedHeader.buffer, unmaskedHeader.byteOffset, unmaskedHeader.byteLength);
+    const magic = headerView.getUint32(0, false);
+
+    if (magic === RS_MAGIC || magic === RS64_MAGIC) {
+      candidateStream.set(unmaskedHeader, 0);
+      const rsDecoded = await decodeRSStreamAsync(candidateStream, (pct) => {
+        onProgress?.(`Auto-repairing ${matchedVault} with RS(255,223) FEC (${pct.toFixed(1)}%)...`, 38.00 + (pct / 100) * 6.00);
+      });
+      if (rsDecoded.isRepaired) {
+        globalStreamEventBus.emit('FEC', 'RS Auto-Repair', `Auto-repaired ${rsDecoded.recoveredErrors} error(s) in ${matchedVault} raw noise stream`, {
+          severity: 'SUCCESS',
+          percent: 44.00
+        });
+      }
+      bundleBytesToDeserialize = rsDecoded.data;
+    } else {
+      // Legacy un-encoded container backward compatibility fallback
+      bundleBytesToDeserialize = encryptedBundleBytes;
+    }
+  }
+
   // Step 4: Deserialize and 5-Layer Decrypt
-  onProgress?.('Deserializing 5-layer cryptographic bundle...', 40.00);
-  const bundle = deserializeBundle(encryptedBundleBytes);
+  onProgress?.('Deserializing 5-layer cryptographic bundle...', 45.00);
+  const bundle = deserializeBundle(bundleBytesToDeserialize);
 
   onProgress?.('Executing 5-layer cascade decapsulation & decryption...', 50.00);
   const decrypted = await decryptCascade5Layers(
@@ -446,7 +517,9 @@ export async function extractNestedVeraContainer(
     ...decrypted,
     originalFilename: sanitizeFilename(targetFilename || decrypted.originalFilename),
     matchedVault,
-    sha512Digest
+    sha512Digest,
+    targetOffset,
+    targetLength
   };
 }
 
