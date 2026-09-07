@@ -266,7 +266,8 @@ export async function createDualVaultPackage(
   k6SaltA?: Uint8Array,
   k6SaltB?: Uint8Array,
   targetCoverLength?: number,
-  onChunkReady?: (chunk: Uint8Array, stageDesc: string) => Promise<void>
+  onChunkReady?: (chunk: Uint8Array, stageDesc: string) => Promise<void>,
+  stegoMode?: 'compact_1x' | 'shaped_2x'
 ): Promise<DualVaultCreationResult> {
   const vaultAName = 'name' in vaultAFile ? vaultAFile.name : 'vault_a.bin';
   const vaultBName = 'name' in vaultBFile ? vaultBFile.name : 'vault_b.bin';
@@ -348,8 +349,9 @@ export async function createDualVaultPackage(
   const innerHeaderLenB = 4 + 4 + new TextEncoder().encode(vaultBName.normalize('NFC')).length + 8;
   const totalInnerA = innerHeaderLenA + vaultASize;
   const totalInnerB = innerHeaderLenB + vaultBSize;
-  const rawMax = Math.max(totalInnerA, totalInnerB);
-  const maxInnerLength = calculateQuantumCoverSize(rawMax, targetCoverLength);
+  const isCompactMode = stegoMode === 'compact_1x' || targetCoverLength === -1;
+  const innerLengthA = isCompactMode ? totalInnerA : calculateQuantumCoverSize(Math.max(totalInnerA, totalInnerB), targetCoverLength);
+  const innerLengthB = isCompactMode ? totalInnerB : calculateQuantumCoverSize(Math.max(totalInnerA, totalInnerB), targetCoverLength);
 
   // 2. Encrypt Vault A with 5-Layer Cascade strictly in 1 MB chunks + Notes Block
   onProgress?.('Streaming & Encrypting Vault A (Real Secret) across 5 layers + Assessment Notes...', 10.00);
@@ -367,7 +369,7 @@ export async function createDualVaultPackage(
     'VaultA',
     effectiveNotesA,
     k6SaltA,
-    maxInnerLength
+    innerLengthA
   );
   await yieldToMainThread();
 
@@ -387,7 +389,7 @@ export async function createDualVaultPackage(
     'VaultB',
     effectiveNotesB,
     k6SaltB,
-    maxInnerLength
+    innerLengthB
   );
   await yieldToMainThread();
 
@@ -489,45 +491,72 @@ export async function createDualVaultPackage(
     rawEncryptedB = null;
     await yieldToMainThread();
 
-    // 5. Equalize sizes to make Vault A and Vault B structurally indistinguishable
-    const maxSize = Math.max(rsProtectedA.length, rsProtectedB.length);
+    // 5. Equalize sizes: In compact_1x mode or targetCoverLength === -1, retain natural high-density sizing
+    // (0% artificial bloat). Otherwise equalize up to targetCoverLength or maxSize for legacy compatibility.
     finalVaultA = rsProtectedA;
     finalVaultB = rsProtectedB;
 
-    if (rsProtectedA.length < maxSize) {
-      const padded = new Uint8Array(maxSize);
-      padded.set(rsProtectedA, 0);
-      const padNoise = generateSecureRandomBytes(maxSize - rsProtectedA.length);
-      padded.set(padNoise, rsProtectedA.length);
-      zeroizeBuffer(padNoise, rsProtectedA);
-      finalVaultA = padded;
-    }
-    if (rsProtectedB.length < maxSize) {
-      const padded = new Uint8Array(maxSize);
-      padded.set(rsProtectedB, 0);
-      const padNoise = generateSecureRandomBytes(maxSize - rsProtectedB.length);
-      padded.set(padNoise, rsProtectedB.length);
-      zeroizeBuffer(padNoise, rsProtectedB);
-      finalVaultB = padded;
+    const isCompactMode = stegoMode === 'compact_1x' || targetCoverLength === -1;
+    if (!isCompactMode) {
+      const maxSize = (targetCoverLength && targetCoverLength > 0)
+        ? Math.max(rsProtectedA.length, rsProtectedB.length, targetCoverLength)
+        : Math.max(rsProtectedA.length, rsProtectedB.length);
+
+      if (rsProtectedA.length < maxSize) {
+        const padded = new Uint8Array(maxSize);
+        padded.set(rsProtectedA, 0);
+        const padNoise = generateSecureRandomBytes(maxSize - rsProtectedA.length);
+        padded.set(padNoise, rsProtectedA.length);
+        zeroizeBuffer(padNoise, rsProtectedA);
+        finalVaultA = padded;
+      }
+      if (rsProtectedB.length < maxSize) {
+        const padded = new Uint8Array(maxSize);
+        padded.set(rsProtectedB, 0);
+        const padNoise = generateSecureRandomBytes(maxSize - rsProtectedB.length);
+        padded.set(padNoise, rsProtectedB.length);
+        zeroizeBuffer(padNoise, rsProtectedB);
+        finalVaultB = padded;
+      }
     }
     await yieldToMainThread();
 
-    // 6. Entropy Normalization (Staged sequentially to free RAM before next allocation)
-    onProgress?.('Normalizing Container Entropy to <= 7.40 bits/byte (Vault A)...', 76.00);
-    globalStreamEventBus.emit('CRYPTO', 'Entropy Equalizer', 'Normalizing Vault A entropy distribution to <= 7.40 bits/byte', { percent: 76.00 });
-    await yieldToMainThread();
-    normalizedA = await normalizeEntropyToTarget(finalVaultA, 7.38);
-    zeroizeBuffer(finalVaultA);
-    finalVaultA = null;
-    await yieldToMainThread();
+    // 6. Entropy Normalization / High-Density Compact Stego Packaging
+    const resolvedShaperMode: 'compact_1x' | 'shaped_2x' = isCompactMode ? 'compact_1x' : (stegoMode || 'shaped_2x');
 
-    onProgress?.('Normalizing Container Entropy to <= 7.40 bits/byte (Vault B)...', 81.00);
-    globalStreamEventBus.emit('CRYPTO', 'Entropy Equalizer', 'Normalizing Vault B entropy distribution to <= 7.40 bits/byte', { percent: 81.00 });
-    await yieldToMainThread();
-    normalizedB = await normalizeEntropyToTarget(finalVaultB, 7.38);
-    zeroizeBuffer(finalVaultB);
-    finalVaultB = null;
-    await yieldToMainThread();
+    if (resolvedShaperMode === 'compact_1x') {
+      onProgress?.('Packaging High-Density 1X Compact Stego Stream (Vault A)...', 76.00);
+      globalStreamEventBus.emit('CRYPTO', 'Compact Stego', 'Packaging Vault A with 1X high-density compact stego framing (0% bloat)', { percent: 76.00 });
+      await yieldToMainThread();
+      normalizedA = await normalizeEntropyToTarget(finalVaultA, 7.38, 'compact_1x');
+      zeroizeBuffer(finalVaultA);
+      finalVaultA = null;
+      await yieldToMainThread();
+
+      onProgress?.('Packaging High-Density 1X Compact Stego Stream (Vault B)...', 81.00);
+      globalStreamEventBus.emit('CRYPTO', 'Compact Stego', 'Packaging Vault B with 1X high-density compact stego framing (0% bloat)', { percent: 81.00 });
+      await yieldToMainThread();
+      normalizedB = await normalizeEntropyToTarget(finalVaultB, 7.38, 'compact_1x');
+      zeroizeBuffer(finalVaultB);
+      finalVaultB = null;
+      await yieldToMainThread();
+    } else {
+      onProgress?.('Normalizing Container Entropy to <= 7.40 bits/byte (Vault A)...', 76.00);
+      globalStreamEventBus.emit('CRYPTO', 'Entropy Equalizer', 'Normalizing Vault A entropy distribution to <= 7.40 bits/byte', { percent: 76.00 });
+      await yieldToMainThread();
+      normalizedA = await normalizeEntropyToTarget(finalVaultA, 7.38, 'shaped_2x');
+      zeroizeBuffer(finalVaultA);
+      finalVaultA = null;
+      await yieldToMainThread();
+
+      onProgress?.('Normalizing Container Entropy to <= 7.40 bits/byte (Vault B)...', 81.00);
+      globalStreamEventBus.emit('CRYPTO', 'Entropy Equalizer', 'Normalizing Vault B entropy distribution to <= 7.40 bits/byte', { percent: 81.00 });
+      await yieldToMainThread();
+      normalizedB = await normalizeEntropyToTarget(finalVaultB, 7.38, 'shaped_2x');
+      zeroizeBuffer(finalVaultB);
+      finalVaultB = null;
+      await yieldToMainThread();
+    }
 
     // 7. 8-Location Spread Spectrum Injection into MP4 Carrier with RS Burst-Coding
     onProgress?.('Injecting into 8 simultaneous ISOBMFF locations with 5x redundancy & RS parity...', 86.00);

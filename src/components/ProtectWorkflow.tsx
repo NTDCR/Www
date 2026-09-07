@@ -530,8 +530,9 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
           vaultBNotes,
           fileSaltA,
           fileSaltB,
-          undefined,
-          onChunkReady
+          -1, // targetCoverLength = -1 (Compact High-Density Sizing: 0% artificial padding bloat)
+          onChunkReady,
+          'compact_1x' // 1X High-Density Compact Stego (0% size explosion)
         );
       }
 
@@ -997,8 +998,8 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
           </div>
 
           <div className="text-[11px] font-mono text-slate-500 mt-4 pt-3 border-t border-slate-800 flex items-center justify-between">
-            <span>CSPRNG Size Equalization</span>
-            <span className="text-emerald-400 font-semibold">Indistinguishable Vaults</span>
+            <span>High-Density 1X Compact Carrier</span>
+            <span className="text-emerald-400 font-semibold">0% Bloat • RS(255,223) Protected</span>
           </div>
         </div>
 
@@ -1556,7 +1557,7 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
                   <span>Standard Media Player Compatibility Guarantee</span>
                 </h4>
                 <span className="text-[10px] font-mono text-emerald-400 bg-emerald-950/80 border border-emerald-500/40 px-2.5 py-0.5 rounded font-bold">
-                  ✓ 0 Error Device Playback
+                  ✓ High-Density 1X Compact • 0 Error Playback
                 </span>
               </div>
               <p className="text-xs text-slate-400">
