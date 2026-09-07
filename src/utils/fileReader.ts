@@ -828,10 +828,9 @@ export async function streamChunksDirectToDisk(
       });
       writable = await fileHandle.createWritable();
     } catch (pickerErr: any) {
-      if (pickerErr.name === 'AbortError') {
-        throw new Error('Save to disk was cancelled by the user.');
-      }
-      console.warn('Native showSaveFilePicker not permitted in sandbox, falling back to streaming Blob:', pickerErr);
+      // By default, if native file picker is cancelled, blocked, or unavailable, automatically fall back to streaming chunk download
+      console.warn('Native showSaveFilePicker unavailable or dismissed, automatically falling back to streaming chunk download:', pickerErr);
+      writable = null;
     }
   }
 

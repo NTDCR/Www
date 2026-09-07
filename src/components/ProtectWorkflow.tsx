@@ -250,8 +250,7 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
   } | null>(null);
   const [diskSaveStatus, setDiskSaveStatus] = useState<string | null>(null);
   const [isSavingDisk, setIsSavingDisk] = useState<boolean>(false);
-  const [directDiskStreamMode, setDirectDiskStreamMode] = useState<boolean>(false);
-  const [upfrontSavedPath, setUpfrontSavedPath] = useState<string | null>(null);
+  const [savedPath, setSavedPath] = useState<string | null>(null);
 
   // In-flight navigation and accidental tab close protection
   useEffect(() => {
@@ -447,27 +446,6 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
       return;
     }
 
-    let upfrontWritable: any = null;
-    let upfrontTargetName: string | null = null;
-    if (directDiskStreamMode && typeof window !== 'undefined' && 'showSaveFilePicker' in window) {
-      try {
-        const rawName = carrierFile && !useSyntheticCarrier ? carrierFile.name : 'PROTECTED_CONTAINER.mp4';
-        const baseName = rawName.replace(/\.[^/.]+$/, '');
-        const defaultFilename = sanitizeFilename(`${baseName}_dualvault.mp4`);
-        const fileHandle = await (window as any).showSaveFilePicker({
-          suggestedName: defaultFilename,
-          types: [{ description: 'Protected MP4 Container', accept: { 'video/mp4': ['.mp4'] } }]
-        });
-        upfrontWritable = await fileHandle.createWritable();
-        upfrontTargetName = fileHandle.name || defaultFilename;
-      } catch (pickerErr: any) {
-        if (pickerErr.name === 'AbortError') {
-          return;
-        }
-        console.warn('Upfront showSaveFilePicker failed, will stream post-process:', pickerErr);
-      }
-    }
-
     const overallOpStartTime = performance.now();
     isProcessingRef.current = true;
     globalStreamEventBus.reset(overallOpStartTime);
@@ -475,7 +453,7 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
       setIsProcessing(true);
       setErrorMsg(null);
       setResult(null);
-      setUpfrontSavedPath(null);
+      setSavedPath(null);
       setTotalOperationDurationMs(null);
       setProgressText('Initializing Cooperative Async Scheduler & CSPRNG Entropy Engine...');
       setProgressPct(2.00);
@@ -508,22 +486,6 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
       setTotalOperationDurationMs(totalDuration);
       resultRef.current = res;
       setResult(res);
-
-      if (upfrontWritable) {
-        try {
-          setProgressText('Streaming completed container directly to disk...');
-          const chunks = res.protectedChunks || [res.protectedMp4Bytes];
-          await streamChunksDirectToDisk(upfrontTargetName || 'container.mp4', chunks, (_b, status) => {
-            if (isMountedRef.current) setDiskSaveStatus(status);
-          }, upfrontWritable);
-          if (isMountedRef.current) {
-            setUpfrontSavedPath(upfrontTargetName);
-            setDiskSaveStatus(`Container saved directly to disk: ${upfrontTargetName} (0 MB RAM)`);
-          }
-        } catch (upfrontErr: any) {
-          console.warn('Failed to stream to upfront writable:', upfrontErr);
-        }
-      }
 
       const actualCarrierSize = useSyntheticCarrier
         ? (carrierPreviewBlob?.size || 15360)
@@ -583,20 +545,17 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
       if (!isMountedRef.current) return;
       if (outcome.streamedDirectly) {
         setDiskSaveStatus(`Successfully saved directly to ${outcome.targetName || 'disk'} (Zero RAM overhead)!`);
-        setUpfrontSavedPath(outcome.targetName || filename);
+        setSavedPath(outcome.targetName || filename);
       } else {
-        setDiskSaveStatus('Downloaded via streaming chunked assembly.');
+        setDiskSaveStatus('Downloaded via streaming chunk assembly (Automatic fallback).');
+        setSavedPath(outcome.targetName || filename);
       }
       setTimeout(() => {
         if (isMountedRef.current) setDiskSaveStatus(null);
       }, 6000);
     } catch (err: any) {
       if (!isMountedRef.current) return;
-      if (err.message?.includes('cancelled')) {
-        setDiskSaveStatus('Save cancelled by user.');
-      } else {
-        setDiskSaveStatus(`Save error: ${err.message}`);
-      }
+      setDiskSaveStatus(`Save notice: ${err.message}`);
       setTimeout(() => {
         if (isMountedRef.current) setDiskSaveStatus(null);
       }, 6000);
@@ -617,7 +576,7 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
     zeroizeProtectionResultBuffers(resultRef.current || result);
     resultRef.current = null;
     setResult(null);
-    setUpfrontSavedPath(null);
+    setSavedPath(null);
     if (vaultAFileRef.current || vaultAFile) {
       zeroizeStreamingHandle(vaultAFileRef.current || vaultAFile);
       vaultAFileRef.current = null;
@@ -1309,17 +1268,8 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
             <span>Ready for Non-Blocking Cooperative Async Encryption &amp; Steganography</span>
           </div>
           <p className="text-xs text-slate-400 mt-0.5">
-            RAM footprint &lt; 30MB • 512-bit salts • Zeroization of keys upon completion
+            RAM footprint &lt; 30MB • Direct Disk Streaming by Default (Auto-Chunk Fallback) • Zeroization of keys upon completion
           </p>
-          <label className="flex items-center gap-2 mt-2 cursor-pointer select-none text-xs font-mono text-sky-400 hover:text-sky-300">
-            <input
-              type="checkbox"
-              checked={directDiskStreamMode}
-              onChange={(e) => setDirectDiskStreamMode(e.target.checked)}
-              className="rounded bg-slate-900 border-slate-700 text-sky-500 focus:ring-0 focus:ring-offset-0 w-3.5 h-3.5"
-            />
-            <span>Direct-to-Disk Stream Mode (Pre-select destination for real-time 0 MB RAM saving)</span>
-          </label>
         </div>
 
         <button
@@ -1396,10 +1346,10 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
               <p className="text-xs text-slate-300 font-mono mt-1">
                 SHA-512 Digest: <span className="text-emerald-400 break-all">{result.sha512Digest.slice(0, 48)}...</span>
               </p>
-              {upfrontSavedPath && (
+              {savedPath && (
                 <div className="mt-2 text-xs font-mono text-emerald-400 flex items-center gap-1.5 bg-emerald-950/60 border border-emerald-500/30 px-2.5 py-1 rounded">
                   <CheckCircle className="w-3.5 h-3.5" />
-                  <span>Saved directly to disk: <strong>{upfrontSavedPath}</strong> (0 MB RAM overhead)</span>
+                  <span>Saved to: <strong>{savedPath}</strong></span>
                 </div>
               )}
             </div>
@@ -1414,10 +1364,10 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
                 className={`flex items-center justify-center gap-2.5 px-6 py-3.5 ${
                   isSavingDisk ? 'bg-emerald-800 cursor-not-allowed opacity-75' : 'bg-emerald-500 hover:bg-emerald-400 text-slate-950'
                 } font-mono font-bold text-xs uppercase tracking-wider rounded-lg shadow-xl shadow-emerald-950/60 transition-all active:scale-95 whitespace-nowrap`}
-                title="Streams chunks directly to local storage without buffering entire file in RAM (0 MB RAM overhead)"
+                title="Saves directly to disk by default (0 MB RAM), with automatic streaming chunk download fallback"
               >
                 {isSavingDisk ? <HardDrive className="w-4 h-4 animate-spin text-slate-950" /> : <HardDrive className="w-4 h-4" />}
-                <span>{isSavingDisk ? 'Streaming to Disk...' : (upfrontSavedPath ? 'Save Another Copy' : 'Save Protected Container (Direct to Disk)')}</span>
+                <span>{isSavingDisk ? 'Streaming to Disk...' : (savedPath ? 'Save Another Copy' : 'Save Protected Container')}</span>
               </button>
 
               <button

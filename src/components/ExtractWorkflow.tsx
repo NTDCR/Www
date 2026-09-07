@@ -190,8 +190,7 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
   } | null>(null);
   const [diskSaveStatus, setDiskSaveStatus] = useState<string | null>(null);
   const [isSavingDisk, setIsSavingDisk] = useState<boolean>(false);
-  const [directDiskStreamMode, setDirectDiskStreamMode] = useState<boolean>(false);
-  const [upfrontSavedPath, setUpfrontSavedPath] = useState<string | null>(null);
+  const [savedPath, setSavedPath] = useState<string | null>(null);
 
   // In-flight navigation and accidental tab close protection
   useEffect(() => {
@@ -280,24 +279,6 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
       return;
     }
 
-    let upfrontWritable: any = null;
-    let upfrontTargetName: string | null = null;
-    if (directDiskStreamMode && typeof window !== 'undefined' && 'showSaveFilePicker' in window) {
-      try {
-        const fileHandle = await (window as any).showSaveFilePicker({
-          suggestedName: 'decrypted_payload.bin',
-          types: [{ description: 'Decrypted Output File', accept: { 'application/octet-stream': ['.bin'] } }]
-        });
-        upfrontWritable = await fileHandle.createWritable();
-        upfrontTargetName = fileHandle.name || 'decrypted_payload.bin';
-      } catch (pickerErr: any) {
-        if (pickerErr.name === 'AbortError') {
-          return;
-        }
-        console.warn('Upfront showSaveFilePicker failed, will stream post-process:', pickerErr);
-      }
-    }
-
     const overallOpStartTime = performance.now();
     isExtractingRef.current = true;
     globalStreamEventBus.reset(overallOpStartTime);
@@ -309,7 +290,7 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
       }
       setResult(null);
       resultRef.current = null;
-      setUpfrontSavedPath(null);
+      setSavedPath(null);
       setAssessmentNotes(null);
       setIsExtracting(true);
       setErrorMsg(null);
@@ -338,22 +319,6 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
       setTotalOperationDurationMs(totalDuration);
       setResult(res);
       resultRef.current = res;
-
-      if (upfrontWritable) {
-        try {
-          setProgressText('Streaming decrypted payload directly to disk...');
-          const chunks = res.chunkedData || [];
-          await streamChunksDirectToDisk(upfrontTargetName || res.filename, chunks, (_b, status) => {
-            if (isMountedRef.current) setDiskSaveStatus(status);
-          }, upfrontWritable);
-          if (isMountedRef.current) {
-            setUpfrontSavedPath(upfrontTargetName);
-            setDiskSaveStatus(`Decrypted file saved directly to disk: ${upfrontTargetName} (0 MB RAM)`);
-          }
-        } catch (upfrontErr: any) {
-          console.warn('Failed to stream to upfront writable:', upfrontErr);
-        }
-      }
 
       if (res.assessmentNotes) {
         setAssessmentNotes(res.assessmentNotes);
@@ -395,9 +360,10 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
       if (!isMountedRef.current) return;
       if (outcome.streamedDirectly) {
         setDiskSaveStatus(`Decrypted file saved directly to ${outcome.targetName || 'disk'} (Zero RAM overhead)!`);
-        setUpfrontSavedPath(outcome.targetName || safeName);
+        setSavedPath(outcome.targetName || safeName);
       } else {
-        setDiskSaveStatus('Downloaded via streaming chunked assembly.');
+        setDiskSaveStatus('Downloaded via streaming chunk assembly (Automatic fallback).');
+        setSavedPath(outcome.targetName || safeName);
       }
       setTimeout(() => {
         if (isMountedRef.current) setDiskSaveStatus(null);
@@ -435,7 +401,7 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
     }
     setResult(null);
     resultRef.current = null;
-    setUpfrontSavedPath(null);
+    setSavedPath(null);
     if (protectedFileRef.current || protectedFile) {
       zeroizeStreamingHandle(protectedFileRef.current || protectedFile);
       protectedFileRef.current = null;
@@ -774,15 +740,6 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
           <p className="text-xs text-slate-400 mt-0.5">
             Automatic zeroization of decrypted keys in RAM upon completion.
           </p>
-          <label className="flex items-center gap-2 mt-2 cursor-pointer select-none text-xs font-mono text-sky-400 hover:text-sky-300">
-            <input
-              type="checkbox"
-              checked={directDiskStreamMode}
-              onChange={(e) => setDirectDiskStreamMode(e.target.checked)}
-              className="rounded bg-slate-900 border-slate-700 text-sky-500 focus:ring-0 focus:ring-offset-0 w-3.5 h-3.5"
-            />
-            <span>Direct-to-Disk Stream Mode (Pre-select destination for real-time 0 MB RAM saving)</span>
-          </label>
         </div>
 
         <button
@@ -861,10 +818,10 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
                 <span>•</span>
                 <span>Integrity: 100% Passed</span>
               </div>
-              {upfrontSavedPath && (
+              {savedPath && (
                 <div className="mt-2 text-xs font-mono text-emerald-400 flex items-center gap-1.5 bg-emerald-950/60 border border-emerald-500/30 px-2.5 py-1 rounded">
                   <CheckCircle2 className="w-3.5 h-3.5" />
-                  <span>Saved directly to disk: <strong>{upfrontSavedPath}</strong> (0 MB RAM overhead)</span>
+                  <span>Saved to: <strong>{savedPath}</strong></span>
                 </div>
               )}
             </div>
@@ -891,10 +848,10 @@ export const ExtractWorkflow: React.FC<ExtractWorkflowProps> = ({ onAddAuditLog 
                 className={`flex items-center justify-center gap-2.5 px-6 py-3.5 ${
                   isSavingDisk ? 'bg-emerald-800 cursor-not-allowed opacity-75' : 'bg-emerald-500 hover:bg-emerald-400 text-slate-950'
                 } font-mono font-bold text-xs uppercase tracking-wider rounded-lg shadow-xl shadow-emerald-950/60 transition-all active:scale-95 whitespace-nowrap`}
-                title="Streams decrypted chunks directly to local storage without buffering entire file in RAM (0 MB RAM overhead)"
+                title="Saves directly to disk by default (0 MB RAM), with automatic streaming chunk download fallback"
               >
                 {isSavingDisk ? <HardDrive className="w-4 h-4 animate-spin text-slate-950" /> : <HardDrive className="w-4 h-4" />}
-                <span>{isSavingDisk ? 'Streaming to Disk...' : (upfrontSavedPath ? 'Save Another Copy' : 'Save Decrypted File (Direct to Disk)')}</span>
+                <span>{isSavingDisk ? 'Streaming to Disk...' : (savedPath ? 'Save Another Copy' : 'Save Decrypted File')}</span>
               </button>
 
               <button
