@@ -223,13 +223,61 @@ export async function embedSpreadSpectrum8Locations(
     chunkLens[c] = Math.floor(combinedPayloadLen / 8) + (c < (combinedPayloadLen % 8) ? 1 : 0);
   }
 
-  // Allocate 8 striped chunk buffers
-  const chunks: Uint8Array[] = [];
-  for (let c = 0; c < 8; c++) {
-    chunks.push(new Uint8Array(chunkLens[c]));
+  // Pre-allocate the 8 standard ISOBMFF metadata boxes directly with valid headers & UUIDs.
+  // Direct zero-copy scatter eliminates 3x memory inflation and prevents browser heap OOM on multi-hundred-MB payloads.
+  function allocateBoxWithPayload(type: string, payloadLen: number, uuid?: Uint8Array): { box: Uint8Array; payloadSlice: Uint8Array } {
+    const totalPayloadLen = (uuid ? uuid.length : 0) + payloadLen;
+    const isLarge = force64Bit || (8 + totalPayloadLen) > 0xffffffff;
+    const headerSize = isLarge ? 16 : 8;
+    const totalBoxSize = headerSize + totalPayloadLen;
+    const box = new Uint8Array(totalBoxSize);
+    const view = new DataView(box.buffer, box.byteOffset, box.byteLength);
+
+    if (isLarge) {
+      view.setUint32(0, 1);
+      box[4] = type.charCodeAt(0) || 0x20;
+      box[5] = type.charCodeAt(1) || 0x20;
+      box[6] = type.charCodeAt(2) || 0x20;
+      box[7] = type.charCodeAt(3) || 0x20;
+      view.setBigUint64(8, BigInt(totalBoxSize));
+    } else {
+      view.setUint32(0, totalBoxSize);
+      box[4] = type.charCodeAt(0) || 0x20;
+      box[5] = type.charCodeAt(1) || 0x20;
+      box[6] = type.charCodeAt(2) || 0x20;
+      box[7] = type.charCodeAt(3) || 0x20;
+    }
+
+    let payloadStart = headerSize;
+    if (uuid) {
+      box.set(uuid, payloadStart);
+      payloadStart += uuid.length;
+    }
+    const payloadSlice = box.subarray(payloadStart, payloadStart + payloadLen);
+    return { box, payloadSlice };
   }
 
-  // Direct zero-overhead striped scatter with zero intermediate array allocation
+  const sony = allocateBoxWithPayload('uuid', chunkLens[0], SONY_UUID);
+  const canon = allocateBoxWithPayload('uuid', chunkLens[1], CANON_UUID);
+  const free = allocateBoxWithPayload('free', chunkLens[2]);
+  const wide = allocateBoxWithPayload('wide', chunkLens[3]);
+  const skip = allocateBoxWithPayload('skip', chunkLens[4]);
+  const red = allocateBoxWithPayload('uuid', chunkLens[5], RED_UUID);
+  const prvm = allocateBoxWithPayload('prvm', chunkLens[6]);
+  const udta = allocateBoxWithPayload('udta', chunkLens[7]);
+
+  const targetSlices = [
+    sony.payloadSlice,
+    canon.payloadSlice,
+    free.payloadSlice,
+    wide.payloadSlice,
+    skip.payloadSlice,
+    red.payloadSlice,
+    prvm.payloadSlice,
+    udta.payloadSlice
+  ];
+
+  // Direct zero-overhead striped scatter directly into destination box slices
   let p = 0;
   const YIELD_STRIDE = 1048576; // Yield every 1MB
 
@@ -237,19 +285,19 @@ export async function embedSpreadSpectrum8Locations(
     // 64-bit CG64 Framing:
     // 1. Scatter escape marker 0xFFFFFFFF (4 bytes)
     for (let i = 0; i < 4; i++) {
-      chunks[p % 8][Math.floor(p / 8)] = 0xff;
+      targetSlices[p % 8][Math.floor(p / 8)] = 0xff;
       p++;
     }
     // 2. Scatter magic 'CG64' (0x43, 0x47, 0x36, 0x34)
     const magic = [0x43, 0x47, 0x36, 0x34];
     for (let i = 0; i < 4; i++) {
-      chunks[p % 8][Math.floor(p / 8)] = magic[i];
+      targetSlices[p % 8][Math.floor(p / 8)] = magic[i];
       p++;
     }
     // 3. Scatter Vault A length (8 bytes uint64 LE)
     const vABig = BigInt(vALen);
     for (let i = 0; i < 8; i++) {
-      chunks[p % 8][Math.floor(p / 8)] = Number((vABig >> BigInt(i * 8)) & 0xffn);
+      targetSlices[p % 8][Math.floor(p / 8)] = Number((vABig >> BigInt(i * 8)) & 0xffn);
       p++;
     }
     // 4. Scatter Vault A Data directly
@@ -257,13 +305,13 @@ export async function embedSpreadSpectrum8Locations(
       if ((i & (YIELD_STRIDE - 1)) === 0 && i > 0) {
         await yieldToMainThread();
       }
-      chunks[p % 8][Math.floor(p / 8)] = vaultAData[i];
+      targetSlices[p % 8][Math.floor(p / 8)] = vaultAData[i];
       p++;
     }
     // 5. Scatter Vault B length (8 bytes uint64 LE)
     const vBBig = BigInt(vBLen);
     for (let i = 0; i < 8; i++) {
-      chunks[p % 8][Math.floor(p / 8)] = Number((vBBig >> BigInt(i * 8)) & 0xffn);
+      targetSlices[p % 8][Math.floor(p / 8)] = Number((vBBig >> BigInt(i * 8)) & 0xffn);
       p++;
     }
     // 6. Scatter Vault B Data directly
@@ -271,14 +319,14 @@ export async function embedSpreadSpectrum8Locations(
       if ((i & (YIELD_STRIDE - 1)) === 0 && i > 0) {
         await yieldToMainThread();
       }
-      chunks[p % 8][Math.floor(p / 8)] = vaultBData[i];
+      targetSlices[p % 8][Math.floor(p / 8)] = vaultBData[i];
       p++;
     }
   } else {
     // Legacy 32-bit Framing:
     // 1. Scatter Vault A length (4 bytes)
     for (let i = 0; i < 4; i++) {
-      chunks[p % 8][Math.floor(p / 8)] = (vALen >>> (i * 8)) & 0xff;
+      targetSlices[p % 8][Math.floor(p / 8)] = (vALen >>> (i * 8)) & 0xff;
       p++;
     }
 
@@ -287,13 +335,13 @@ export async function embedSpreadSpectrum8Locations(
       if ((i & (YIELD_STRIDE - 1)) === 0 && i > 0) {
         await yieldToMainThread();
       }
-      chunks[p % 8][Math.floor(p / 8)] = vaultAData[i];
+      targetSlices[p % 8][Math.floor(p / 8)] = vaultAData[i];
       p++;
     }
 
     // 3. Scatter Vault B length (4 bytes)
     for (let i = 0; i < 4; i++) {
-      chunks[p % 8][Math.floor(p / 8)] = (vBLen >>> (i * 8)) & 0xff;
+      targetSlices[p % 8][Math.floor(p / 8)] = (vBLen >>> (i * 8)) & 0xff;
       p++;
     }
 
@@ -302,45 +350,21 @@ export async function embedSpreadSpectrum8Locations(
       if ((i & (YIELD_STRIDE - 1)) === 0 && i > 0) {
         await yieldToMainThread();
       }
-      chunks[p % 8][Math.floor(p / 8)] = vaultBData[i];
+      targetSlices[p % 8][Math.floor(p / 8)] = vaultBData[i];
       p++;
     }
   }
 
   await yieldToMainThread();
 
-  // 1. Sony UUID Box (Location 1)
-  const sonyPayload = new Uint8Array(16 + chunks[0].length);
-  sonyPayload.set(SONY_UUID, 0);
-  sonyPayload.set(chunks[0], 16);
-  const sonyBox = buildBox('uuid', sonyPayload);
-
-  // 2. Canon UUID Box (Location 2)
-  const canonPayload = new Uint8Array(16 + chunks[1].length);
-  canonPayload.set(CANON_UUID, 0);
-  canonPayload.set(chunks[1], 16);
-  const canonBox = buildBox('uuid', canonPayload);
-
-  // 3. free Box (Location 3)
-  const freeBox = buildBox('free', chunks[2]);
-
-  // 4. wide Box (Location 4)
-  const wideBox = buildBox('wide', chunks[3]);
-
-  // 5. skip Standard ISO Scratch Box (Location 5)
-  const skipBox = buildBox('skip', chunks[4]);
-
-  // 6. RED Digital Cinema Camera UUID Box (Location 6) - 100% legal ISO/IEC 14496-12 root atom (0 MP4Box warnings)
-  const redPayload = new Uint8Array(16 + chunks[5].length);
-  redPayload.set(RED_UUID, 0);
-  redPayload.set(chunks[5], 16);
-  const redBox = buildBox('uuid', redPayload);
-
-  // 7. prvm Private Box (Location 7)
-  const prvmBox = buildBox('prvm', chunks[6]);
-
-  // 8. udta Box (Location 8)
-  const udtaBox = buildBox('udta', chunks[7]);
+  const sonyBox = sony.box;
+  const canonBox = canon.box;
+  const freeBox = free.box;
+  const wideBox = wide.box;
+  const skipBox = skip.box;
+  const redBox = red.box;
+  const prvmBox = prvm.box;
+  const udtaBox = udta.box;
 
   // Prepare carrier buffer
   let baseCarrier = carrierMp4;
@@ -411,7 +435,7 @@ export async function embedSpreadSpectrum8Locations(
       id: 'loc1',
       name: 'Sony Professional Metadata UUID Atom',
       category: 'Sony UUID',
-      bytesAllocated: chunks[0].length,
+      bytesAllocated: chunkLens[0],
       redundancyFactor: 8,
       status: 'Verified',
       description: 'Vendor-compliant Sony hardware signature with zero header distortion'
@@ -420,7 +444,7 @@ export async function embedSpreadSpectrum8Locations(
       id: 'loc2',
       name: 'Canon Cinema EOS Metadata UUID Atom',
       category: 'Canon UUID',
-      bytesAllocated: chunks[1].length,
+      bytesAllocated: chunkLens[1],
       redundancyFactor: 8,
       status: 'Verified',
       description: 'Broadcast-grade Canon Cinema EOS EXIF block with valid timing offsets'
@@ -429,7 +453,7 @@ export async function embedSpreadSpectrum8Locations(
       id: 'loc3',
       name: 'free Box Filler Stream',
       category: 'free Box',
-      bytesAllocated: chunks[2].length,
+      bytesAllocated: chunkLens[2],
       redundancyFactor: 8,
       status: 'Verified',
       description: 'Standard filler container with balanced entropy noise shaping'
@@ -438,7 +462,7 @@ export async function embedSpreadSpectrum8Locations(
       id: 'loc4',
       name: 'wide Box 64-bit Expansion Atom',
       category: 'wide Box',
-      bytesAllocated: chunks[3].length,
+      bytesAllocated: chunkLens[3],
       redundancyFactor: 8,
       status: 'Verified',
       description: '64-bit wide container spacer carrying inter-frame payload stream'
@@ -447,7 +471,7 @@ export async function embedSpreadSpectrum8Locations(
       id: 'loc5',
       name: 'Standard ISO skip Discardable Container',
       category: 'ISO skip Box',
-      bytesAllocated: chunks[4].length,
+      bytesAllocated: chunkLens[4],
       redundancyFactor: 8,
       status: 'Verified',
       description: 'Standard ISO/IEC 14496-12 discardable skip atom with zero magic signature markers'
@@ -456,7 +480,7 @@ export async function embedSpreadSpectrum8Locations(
       id: 'loc6',
       name: 'RED Digital Cinema Camera UUID Box',
       category: 'RED UUID Box',
-      bytesAllocated: chunks[5].length,
+      bytesAllocated: chunkLens[5],
       redundancyFactor: 8,
       status: 'Verified',
       description: 'Standard ISO/IEC 14496-12 root-level RED Cinema acquisition metadata container'
@@ -465,7 +489,7 @@ export async function embedSpreadSpectrum8Locations(
       id: 'loc7',
       name: 'prvm Private DRM Metadata Atom',
       category: 'Private prvm',
-      bytesAllocated: chunks[6].length,
+      bytesAllocated: chunkLens[6],
       redundancyFactor: 8,
       status: 'Verified',
       description: 'Private stream descriptor preserving ISO parser compatibility'
@@ -474,18 +498,12 @@ export async function embedSpreadSpectrum8Locations(
       id: 'loc8',
       name: 'udta User Data Sub-Atom',
       category: 'udta Atom',
-      bytesAllocated: chunks[7].length,
+      bytesAllocated: chunkLens[7],
       redundancyFactor: 8,
       status: 'Verified',
       description: 'User data atom encapsulation maintaining 100% video stream integrity'
     }
   ];
-
-  // Free intermediate chunk buffers immediately before return to mitigate heap memory pressure
-  for (const c of chunks) {
-    c.fill(0);
-  }
-  chunks.length = 0;
 
   return { protectedMp4, locationReports, boxChunks };
 }
@@ -628,103 +646,115 @@ export async function extractSpreadSpectrumPayload(protectedMp4: Uint8Array): Pr
 
   await yieldToMainThread();
 
-  // Re-assemble 8-way striped stream with unrolled octets
-  const combined = new Uint8Array(totalCombinedLen);
-  const fullOctets = Math.floor(totalCombinedLen / 8);
-  const remBytes = totalCombinedLen % 8;
+  // Direct de-striping into destination arrays without allocating a redundant combined buffer
+  // Helper to read byte at virtual un-striped index p
+  const readByte = (p: number): number => {
+    const chunk = chunks[p % 8];
+    const row = Math.floor(p / 8);
+    return chunk && row < chunk.length ? chunk[row] : 0;
+  };
 
-  const c0 = chunks[0]!, c1 = chunks[1]!, c2 = chunks[2]!, c3 = chunks[3]!;
-  const c4 = chunks[4]!, c5 = chunks[5]!, c6 = chunks[6]!, c7 = chunks[7]!;
+  const readUint32LE = (p: number): number => {
+    return (readByte(p) | (readByte(p + 1) << 8) | (readByte(p + 2) << 16) | (readByte(p + 3) << 24)) >>> 0;
+  };
 
-  const YIELD_BLOCK = 131072; // 1MB of reassembled stream (w * 8 bytes)
-  for (let w = 0; w < fullOctets; w++) {
-    if ((w & (YIELD_BLOCK - 1)) === 0 && w > 0) {
-      await yieldToMainThread();
+  const readUint64LE = (p: number): bigint => {
+    let val = 0n;
+    for (let i = 0; i < 8; i++) {
+      val |= BigInt(readByte(p + i)) << BigInt(i * 8);
     }
-    const base = w * 8;
-    combined[base + 0] = c0[w];
-    combined[base + 1] = c1[w];
-    combined[base + 2] = c2[w];
-    combined[base + 3] = c3[w];
-    combined[base + 4] = c4[w];
-    combined[base + 5] = c5[w];
-    combined[base + 6] = c6[w];
-    combined[base + 7] = c7[w];
-  }
+    return val;
+  };
 
-  const remBase = fullOctets * 8;
-  const chunkList = [c0, c1, c2, c3, c4, c5, c6, c7];
-  for (let r = 0; r < remBytes; r++) {
-    combined[remBase + r] = chunkList[r][fullOctets];
-  }
-
-  await yieldToMainThread();
-
-  // Unpack Vault A and Vault B with memory isolation and forensic zeroization
   try {
-    const view = new DataView(combined.buffer, combined.byteOffset, combined.byteLength);
-    if (combined.length < 8) {
-      return {
-        vaultABytes: new Uint8Array(0),
-        vaultBBytes: new Uint8Array(0)
-      };
-    }
-
     // Check for 64-bit CG64 container signature:
     // [0xFF, 0xFF, 0xFF, 0xFF, 'C', 'G', '6', '4', 8-byte vALen, ...]
-    const is64Bit = combined.length >= 24 &&
-      view.getUint32(0, true) === 0xffffffff &&
-      view.getUint8(4) === 0x43 && // 'C'
-      view.getUint8(5) === 0x47 && // 'G'
-      view.getUint8(6) === 0x36 && // '6'
-      view.getUint8(7) === 0x34;   // '4'
+    const is64Bit = totalCombinedLen >= 24 &&
+      readUint32LE(0) === 0xffffffff &&
+      readByte(4) === 0x43 && // 'C'
+      readByte(5) === 0x47 && // 'G'
+      readByte(6) === 0x36 && // '6'
+      readByte(7) === 0x34;   // '4'
+
+    const YIELD_STRIDE = 1048576; // 1MB
 
     if (is64Bit) {
-      const vALenBig = view.getBigUint64(8, true);
+      const vALenBig = readUint64LE(8);
       if (vALenBig > BigInt(Number.MAX_SAFE_INTEGER)) {
         return { vaultABytes: new Uint8Array(0), vaultBBytes: new Uint8Array(0) };
       }
       const vaultALen = Number(vALenBig);
-      if (vaultALen < 0 || 16 + vaultALen > combined.length - 8) {
+      if (vaultALen < 0 || 16 + vaultALen > totalCombinedLen - 8) {
         return { vaultABytes: new Uint8Array(0), vaultBBytes: new Uint8Array(0) };
       }
-      const vBLenBig = view.getBigUint64(16 + vaultALen, true);
+      const vBLenBig = readUint64LE(16 + vaultALen);
       if (vBLenBig > BigInt(Number.MAX_SAFE_INTEGER)) {
         return { vaultABytes: new Uint8Array(0), vaultBBytes: new Uint8Array(0) };
       }
       const vaultBLen = Number(vBLenBig);
-      if (vaultBLen < 0 || 24 + vaultALen + vaultBLen !== combined.length) {
+      if (vaultBLen < 0 || 24 + vaultALen + vaultBLen !== totalCombinedLen) {
         return { vaultABytes: new Uint8Array(0), vaultBBytes: new Uint8Array(0) };
       }
 
-      const vaultABytes = new Uint8Array(combined.subarray(16, 16 + vaultALen));
-      const vaultBBytes = new Uint8Array(combined.subarray(24 + vaultALen, 24 + vaultALen + vaultBLen));
+      const vaultABytes = new Uint8Array(vaultALen);
+      const vaultBBytes = new Uint8Array(vaultBLen);
+
+      for (let i = 0; i < vaultALen; i++) {
+        if ((i & (YIELD_STRIDE - 1)) === 0 && i > 0) {
+          await yieldToMainThread();
+        }
+        const p = 16 + i;
+        vaultABytes[i] = chunks[p % 8]![Math.floor(p / 8)];
+      }
+
+      for (let i = 0; i < vaultBLen; i++) {
+        if ((i & (YIELD_STRIDE - 1)) === 0 && i > 0) {
+          await yieldToMainThread();
+        }
+        const p = 24 + vaultALen + i;
+        vaultBBytes[i] = chunks[p % 8]![Math.floor(p / 8)];
+      }
+
       return { vaultABytes, vaultBBytes };
     }
 
-    const vaultALen = view.getUint32(0, true);
-
-    if (vaultALen <= 0 || 4 + vaultALen > combined.length - 4) {
+    const vaultALen = readUint32LE(0);
+    if (vaultALen <= 0 || 4 + vaultALen > totalCombinedLen - 4) {
       return {
         vaultABytes: new Uint8Array(0),
         vaultBBytes: new Uint8Array(0)
       };
     }
 
-    const vaultBLen = view.getUint32(4 + vaultALen, true);
-    if (vaultBLen <= 0 || 8 + vaultALen + vaultBLen !== combined.length) {
+    const vaultBLen = readUint32LE(4 + vaultALen);
+    if (vaultBLen <= 0 || 8 + vaultALen + vaultBLen !== totalCombinedLen) {
       return {
         vaultABytes: new Uint8Array(0),
         vaultBBytes: new Uint8Array(0)
       };
     }
 
-    const vaultABytes = new Uint8Array(combined.subarray(4, 4 + vaultALen));
-    const vaultBBytes = new Uint8Array(combined.subarray(8 + vaultALen, 8 + vaultALen + vaultBLen));
+    const vaultABytes = new Uint8Array(vaultALen);
+    const vaultBBytes = new Uint8Array(vaultBLen);
+
+    for (let i = 0; i < vaultALen; i++) {
+      if ((i & (YIELD_STRIDE - 1)) === 0 && i > 0) {
+        await yieldToMainThread();
+      }
+      const p = 4 + i;
+      vaultABytes[i] = chunks[p % 8]![Math.floor(p / 8)];
+    }
+
+    for (let i = 0; i < vaultBLen; i++) {
+      if ((i & (YIELD_STRIDE - 1)) === 0 && i > 0) {
+        await yieldToMainThread();
+      }
+      const p = 8 + vaultALen + i;
+      vaultBBytes[i] = chunks[p % 8]![Math.floor(p / 8)];
+    }
 
     return { vaultABytes, vaultBBytes };
   } finally {
-    // Memory hygiene: Wipes temporary interleaved reassembly buffer
-    combined.fill(0);
+    // Note: chunks are subarrays of the input protectedMp4, do not mutate caller buffer
   }
 }

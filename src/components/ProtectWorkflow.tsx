@@ -257,13 +257,6 @@ export const ProtectWorkflow: React.FC<ProtectWorkflowProps> = ({ onAddAuditLog,
       setCarrierPreviewBlob(null);
       return;
     }
-    // Proactive safety limit: Web browsers typically cap single TypedArray allocations at ~1-2 GB
-    if (file.size > 500 * 1024 * 1024) {
-      setErrorMsg(`Carrier File Exceeds In-Browser Safety Limit: Selected carrier is ${(file.size / (1024 * 1024)).toFixed(1)} MB. Custom MP4 carriers are bounded to <= 500 MB to prevent V8 browser heap exhaustion. Please select a smaller video or use the built-in synthetic carrier.`);
-      setCarrierFile(null);
-      setCarrierPreviewBlob(null);
-      return;
-    }
     try {
       setErrorMsg(null);
       // Validate that carrier is a genuine MP4 / ISOBMFF container before proceeding

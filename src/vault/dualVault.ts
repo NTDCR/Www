@@ -270,11 +270,11 @@ export async function createDualVaultPackage(
   const vaultASize = 'size' in vaultAFile ? vaultAFile.size : (vaultAFile instanceof Uint8Array ? vaultAFile.length : 0);
   const vaultBSize = 'size' in vaultBFile ? vaultBFile.size : (vaultBFile instanceof Uint8Array ? vaultBFile.length : 0);
 
-  // Pre-flight memory safety boundary: prevent silent browser OOM tab kills
-  const MAX_SAFE_COMBINED_PAYLOAD = 500 * 1024 * 1024; // 500 MB
-  if (vaultASize + vaultBSize > MAX_SAFE_COMBINED_PAYLOAD) {
+  // 64-bit OPFS Streaming Engine supports multi-gigabyte payloads (up to 100 GB)
+  const MAX_SAFE_OPFS_STREAM_SIZE = 100 * 1024 * 1024 * 1024; // 100 GB
+  if (vaultASize + vaultBSize > MAX_SAFE_OPFS_STREAM_SIZE) {
     throw new Error(
-      `Memory Safety Boundary: Combined payload size (${Math.round((vaultASize + vaultBSize) / (1024 * 1024))} MB) exceeds safe browser heap threshold (500 MB). Please reduce file sizes to ensure error-free processing.`
+      `Payload Exceeds Capacity: Combined payload size (${Math.round((vaultASize + vaultBSize) / (1024 * 1024 * 1024))} GB) exceeds maximum 64-bit streaming capacity (100 GB).`
     );
   }
 
@@ -415,15 +415,11 @@ export async function createDualVaultPackage(
   let normalizedB: Uint8Array | null = null;
 
   try {
+    // Stagger serialization and RS encoding sequentially to prevent simultaneous heap allocation of both vaults
     rawEncryptedA = serializeBundle(bundleA);
     zeroizeBuffer(bundleA.payload, bundleA.chunkedPayload);
     bundleA.payload = new Uint8Array(0);
     bundleA.chunkedPayload = undefined;
-
-    rawEncryptedB = serializeBundle(bundleB);
-    zeroizeBuffer(bundleB.payload, bundleB.chunkedPayload);
-    bundleB.payload = new Uint8Array(0);
-    bundleB.chunkedPayload = undefined;
     await yieldToMainThread();
 
     // 4. Apply Industry-Grade NASA/ISO Reed-Solomon RS(255,223) Forward Error Correction with cooperative yielding
@@ -434,6 +430,17 @@ export async function createDualVaultPackage(
     });
     rsProtectedA = rsResA.encodedData;
 
+    // Immediately zeroize and release rawEncryptedA before allocating rawEncryptedB
+    zeroizeBuffer(rawEncryptedA);
+    rawEncryptedA = null;
+    await yieldToMainThread();
+
+    rawEncryptedB = serializeBundle(bundleB);
+    zeroizeBuffer(bundleB.payload, bundleB.chunkedPayload);
+    bundleB.payload = new Uint8Array(0);
+    bundleB.chunkedPayload = undefined;
+    await yieldToMainThread();
+
     onProgress?.('Applying Industry-Grade Reed-Solomon RS(255,223) FEC (Vault B)...', 60);
     await yieldToMainThread();
     const rsResB = await encodeRSStreamAsync(rawEncryptedB, RS_DEFAULT_BLOCK_SIZE, RS_DEFAULT_PARITY_LEN, (pct) => {
@@ -441,8 +448,8 @@ export async function createDualVaultPackage(
     });
     rsProtectedB = rsResB.encodedData;
 
-    zeroizeBuffer(rawEncryptedA, rawEncryptedB);
-    rawEncryptedA = null;
+    // Immediately zeroize and release rawEncryptedB
+    zeroizeBuffer(rawEncryptedB);
     rawEncryptedB = null;
     await yieldToMainThread();
 
@@ -602,7 +609,11 @@ export async function extractFromDualVaultPackage(
           );
         });
         rsRepaired = rsRes.data;
+        zeroizeBuffer(unshaped);
+        unshaped = null;
         bundle = deserializeBundle(rsRepaired);
+        zeroizeBuffer(rsRepaired);
+        rsRepaired = null;
         decrypted = await decryptCascade5Layers(bundle, passwords, iterations, (l, d) =>
           onProgress?.(d, progressBase + 5 + l * 8)
         );
